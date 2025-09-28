@@ -1,0 +1,13 @@
+# Acoustic Imager - Heatmap Pipeline Dependencies
+# Core dependencies for the heatmap pipeline test script
+
+# NumPy for numerical computations and array operations
+numpy>=1.21.0
+
+# OpenCV for computer vision and image processing
+opencv-python>=4.5.0
+
+# Note: FFmpeg must be installed separately on the system
+# For Ubuntu/Debian: sudo apt install ffmpeg
+# For macOS: brew install ffmpeg
+# For Windows: Download from https://ffmpeg.org/download.html or use: winget install ffmpeg
