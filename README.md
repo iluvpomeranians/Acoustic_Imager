@@ -1,4 +1,30 @@
-edit
+# Acoustic Imager (Capstone Project)
+
+## 📖 Overview
+This repository contains all source code, documentation, and simulation tools for our **acoustic imaging system** — a student capstone project.
+The goal is to build a **microphone-array imager** that localizes sound sources and generates visual heatmaps in real time.
+
+We combine:
+- **Custom array geometry** (Fermat spiral, 16 MEMS microphones).
+- **Low-level DSP** (Python prototypes, eventual C++ implementation).
+- **Advanced DOA estimation** (MUSIC, ESPRIT).
+- **Visualization** (heatmap overlays, beamforming plots).
+
+Our design balances **angular resolution vs. spatial aliasing**, and explores both conventional beamforming and high-resolution algorithms.
+
+---
+
+## 🎯 Project Objectives
+- Achieve ~**9° angular resolution** with a 16-mic array.
+- Manage aliasing above ~8.6 kHz using **subspace DSP algorithms** (MUSIC, ESPRIT).
+- Implement **low-level acquisition on STM32** with data forwarding to Raspberry Pi.
+- Provide **real-time visualization** of sound fields (heatmaps).
+- Deliver a **working prototype + final report** by April.
+
+---
+
+## 🛠️ Repository Structure
+
 ---
 
 ## 🔬 Scientific Basis
@@ -48,9 +74,9 @@ Simulates real-time microphone data + beamforming visualization.
 ---
 
 ## 🚀 Roadmap
-- **Phase I (Fall semester)**  
+- **Phase I (Fall semester)**
   Literature review, requirements, mic selection, PCB/housing design, Python DSP prototypes.
-- **Phase II (Winter semester)**  
+- **Phase II (Winter semester)**
   STM32 firmware, Pi integration, C++ DSP, MUSIC/ESPRIT implementation, real-time heatmaps, final validation.
 
 ---
@@ -74,5 +100,5 @@ Simulates real-time microphone data + beamforming visualization.
 ---
 
 ## 📝 License
-This project is for academic purposes (COEN 490 Capstone).  
+This project is for academic purposes (COEN 490 Capstone).
 If you want to use it beyond this course, please contact the team for permissions.
