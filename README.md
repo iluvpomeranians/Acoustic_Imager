@@ -2,7 +2,7 @@
 
 ## 📖 Overview
 This repository contains all source code, documentation, and simulation tools for our **acoustic imaging system** — a student capstone project.
-The goal is to build a **microphone-array imager** that localizes sound sources and generates visual heatmaps in real time.
+The goal is to build a **microphone-array imager** that localizes sound sources and generates visual heatmaps in real time
 
 We combine:
 - **Custom array geometry** (Fermat spiral, 16 MEMS microphones).
@@ -24,7 +24,7 @@ Our design balances **angular resolution vs. spatial aliasing**, and explores bo
 ---
 
 ## 🛠️ Repository Structure
-
+TBA
 ---
 
 ## 🔬 Scientific Basis
