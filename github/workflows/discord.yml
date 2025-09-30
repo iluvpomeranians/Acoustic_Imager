@@ -2,22 +2,60 @@ name: Notify Discord
 
 on:
   push:
-    branches:
-      - '**'   # matches all branches
+    branches: ['**']          # all branches
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: ['**']
 
 jobs:
-  notify:
+  discord:
     runs-on: ubuntu-latest
     steps:
-      - name: Send push info to Discord
-        uses: Ilshidur/action-discord@master
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        with:
-          args: |
-            📢 New push detected
-            Repo: ${{ github.repository }}
-            Branch: ${{ github.ref_name }}
-            Pusher: ${{ github.actor }}
-            Commit: ${{ github.sha }}
-            [View Commit](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+      - name: Notify on PUSH (all branches)
+        if: github.event_name == 'push'
+        run: |
+          COMMITS=$(jq -r '.commits[] | "- \(.author.name): \(.message | gsub("\r";"") | split("\n")[0]) ([view](\(.url)))"' "$GITHUB_EVENT_PATH" | head -n 5)
+          [ -z "$COMMITS" ] && COMMITS="- (no commit list available)"
+
+          cat > payload.json <<'JSON'
+          {
+            "username": "GitHub",
+            "content": ""
+          }
+          JSON
+
+          # build content with branch + repo + actor + commit link
+          CONTENT="📢 New push to **${{ github.repository }}** on \`${{ github.ref_name }}\` by **${{ github.actor }}**\nLatest: [\`${{ github.sha }}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})"
+
+          # inject content and an embed with recent commits
+          jq --arg content "$CONTENT" \
+             --arg desc "$COMMITS" \
+             '.content = $content | .embeds = [ { "title": "Recent commits (up to 5)", "description": $desc } ]' \
+             payload.json > payload.final.json
+
+          curl -sS -H "Content-Type: application/json" \
+               -d @payload.final.json \
+               "${{ secrets.DISCORD_WEBHOOK }}"
+
+      - name: Notify on PR events (open/update/merge/close)
+        if: github.event_name == 'pull_request'
+        run: |
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_NUM="${{ github.event.pull_request.number }}"
+          PR_USER="${{ github.event.pull_request.user.login }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_ACTION="${{ github.event.action }}"
+          PR_MERGED="${{ github.event.pull_request.merged }}"
+
+          STATUS="$PR_ACTION"
+          if [ "$PR_ACTION" = "closed" ] && [ "$PR_MERGED" = "true" ]; then
+            STATUS="merged"
+          fi
+
+          CONTENT="🧵 PR **#${PR_NUM}** ${STATUS}: **${PR_TITLE}**\nRepo: **${{ github.repository }}**\nAuthor: **${PR_USER}**\n${PR_URL}"
+
+          jq -n --arg content "$CONTENT" '{ "username":"GitHub", "content": $content }' > payload.pr.json
+
+          curl -sS -H "Content-Type: application/json" \
+               -d @payload.pr.json \
+               "${{ secrets.DISCORD_WEBHOOK }}"
