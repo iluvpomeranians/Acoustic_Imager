@@ -1,4 +1,4 @@
-# Acoustic Imager (Capstone Project)
+# Acoustic Imager (Capstone Project) test
 
 ## 📖 Overview
 This repository contains all source code, documentation, and simulation tools for our **acoustic imaging system** — a student capstone project.
