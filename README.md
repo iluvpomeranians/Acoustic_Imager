@@ -24,7 +24,7 @@ Our design balances **angular resolution vs. spatial aliasing**, and explores bo
 ---
 
 ## 🛠️ Repository Structure
-TBA
+TBA.
 ---
 
 ## 🔬 Scientific Basis
