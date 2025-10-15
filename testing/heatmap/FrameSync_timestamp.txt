@@ -1,0 +1,540 @@
+# Audio-Video Frame Synchronization Planning (Timestamp + Ringbuffer)
+# =====================================================
+
+## 1. Synchronization Concepts
+
+### Why Monotonic Timestamps?
+- **Clock Stability**: Monotonic clocks don't jump backward (unlike system clocks)
+- **Precision**: High-resolution timing for frame-level accuracy
+- **Cross-platform**: Available on Linux, macOS, and Windows
+- **Real-time Friendly**: Designed for timing-sensitive applications
+
+### Why Ring Buffers?
+- **Bounded Memory**: Prevents memory growth during long runs
+- **Efficient Access**: O(1) insertion and removal
+- **Natural Ordering**: Maintains temporal sequence
+- **Overflow Handling**: Automatically discards old frames
+
+### Synchronization Strategy
+1. Capture both audio and video frames with monotonic timestamps
+2. Store frames in ring buffers with timestamps
+3. Find best matching pairs within tolerance window
+4. Process synchronized frames together
+
+---
+
+## 2. Core Synchronization Classes
+
+```python
+import time
+import threading
+from collections import deque
+import cv2
+import numpy as np
+
+class AudioVideoSynchronizer:
+    """
+    Synchronizes audio and video frames using monotonic timestamps.
+    
+    This class maintains separate ring buffers for audio and video frames,
+    each with their timestamps, and provides methods to find the best
+    matching pairs within a specified tolerance window.
+    """
+    
+    def __init__(self, buffer_size=10, sync_tolerance=0.033):
+        """
+        Initialize the synchronizer.
+        
+        Args:
+            buffer_size: Maximum number of frames to keep in each buffer
+            sync_tolerance: Maximum time difference (seconds) for frame matching
+        """
+        self.audio_buffer = deque(maxlen=buffer_size)
+        self.video_buffer = deque(maxlen=buffer_size)
+        self.sync_tolerance = sync_tolerance  # ~1 frame at 30fps
+        self.lock = threading.Lock()  # Thread safety for multi-threaded access
+        
+    def add_audio_frame(self, audio_data, timestamp=None):
+        """
+        Add an audio frame with timestamp to the buffer.
+        
+        Args:
+            audio_data: Audio frame data (numpy array)
+            timestamp: Monotonic timestamp (auto-generated if None)
+        """
+        if timestamp is None:
+            timestamp = time.monotonic()
+            
+        with self.lock:
+            self.audio_buffer.append((timestamp, audio_data))
+        
+    def add_video_frame(self, video_frame, timestamp=None):
+        """
+        Add a video frame with timestamp to the buffer.
+        
+        Args:
+            video_frame: Video frame (numpy array)
+            timestamp: Monotonic timestamp (auto-generated if None)
+        """
+        if timestamp is None:
+            timestamp = time.monotonic()
+            
+        with self.lock:
+            self.video_buffer.append((timestamp, video_frame))
+        
+    def get_synchronized_pair(self):
+        """
+        Find the best matching audio-video pair within tolerance.
+        
+        Returns:
+            tuple: (audio_data, video_frame) or (None, None) if no match
+        """
+        with self.lock:
+            if not self.audio_buffer or not self.video_buffer:
+                return None, None
+                
+            best_audio = None
+            best_video = None
+            best_diff = float('inf')
+            
+            # Find closest timestamp match
+            for a_ts, a_data in self.audio_buffer:
+                for v_ts, v_frame in self.video_buffer:
+                    time_diff = abs(a_ts - v_ts)
+                    if time_diff < self.sync_tolerance and time_diff < best_diff:
+                        best_diff = time_diff
+                        best_audio = a_data
+                        best_video = v_frame
+                        
+            return best_audio, best_video
+    
+    def get_buffer_status(self):
+        """Get current buffer sizes for monitoring."""
+        with self.lock:
+            return len(self.audio_buffer), len(self.video_buffer)
+    
+    def clear_buffers(self):
+        """Clear all buffers (useful for reset)."""
+        with self.lock:
+            self.audio_buffer.clear()
+            self.video_buffer.clear()
+```
+
+---
+
+## 3. Ring Buffer Implementation
+
+```python
+class FrameBuffer:
+    """
+    Ring buffer for storing frames with timestamps.
+    
+    This class provides efficient storage and retrieval of frames
+    with their associated timestamps, using a bounded circular buffer.
+    """
+    
+    def __init__(self, max_size=30):
+        """
+        Initialize the frame buffer.
+        
+        Args:
+            max_size: Maximum number of frames to store (default: 1 second at 30fps)
+        """
+        self.buffer = deque(maxlen=max_size)
+        self.timestamps = deque(maxlen=max_size)
+        self.lock = threading.Lock()
+        
+    def add_frame(self, frame, timestamp=None):
+        """
+        Add a frame with timestamp to the buffer.
+        
+        Args:
+            frame: Frame data (numpy array)
+            timestamp: Monotonic timestamp (auto-generated if None)
+        """
+        if timestamp is None:
+            timestamp = time.monotonic()
+            
+        with self.lock:
+            self.buffer.append(frame.copy())  # Copy to avoid reference issues
+            self.timestamps.append(timestamp)
+        
+    def get_frame_at_time(self, target_time, tolerance=0.016):
+        """
+        Get frame closest to target timestamp.
+        
+        Args:
+            target_time: Target timestamp to match
+            tolerance: Maximum time difference for matching (default: ~0.5 frame)
+            
+        Returns:
+            numpy array: Closest frame or None if no match within tolerance
+        """
+        with self.lock:
+            if not self.buffer:
+                return None
+                
+            best_frame = None
+            best_diff = float('inf')
+            
+            for frame, ts in zip(self.buffer, self.timestamps):
+                diff = abs(ts - target_time)
+                if diff < best_diff and diff < tolerance:
+                    best_diff = diff
+                    best_frame = frame
+                    
+            return best_frame
+    
+    def get_latest_frame(self):
+        """Get the most recent frame."""
+        with self.lock:
+            return self.buffer[-1] if self.buffer else None
+    
+    def get_oldest_frame(self):
+        """Get the oldest frame."""
+        with self.lock:
+            return self.buffer[0] if self.buffer else None
+    
+    def get_buffer_size(self):
+        """Get current buffer size."""
+        with self.lock:
+            return len(self.buffer)
+    
+    def clear(self):
+        """Clear all frames from buffer."""
+        with self.lock:
+            self.buffer.clear()
+            self.timestamps.clear()
+```
+
+---
+
+## 4. Complete Synchronized Pipeline
+
+```python
+def synchronized_heatmap_pipeline():
+    """
+    Enhanced pipeline with audio-video synchronization.
+    
+    This function demonstrates the complete integration of:
+    - Camera capture with timestamps
+    - Audio frame acquisition with timestamps
+    - Frame synchronization using ring buffers
+    - Real-time heatmap overlay processing
+    - FFmpeg recording with hardware acceleration
+    """
+    
+    # Configuration
+    WIDTH = 640
+    HEIGHT = 480
+    FPS = 30
+    ALPHA = 0.7
+    
+    # Initialize synchronizer and buffers
+    sync = AudioVideoSynchronizer(buffer_size=15, sync_tolerance=0.033)
+    video_buffer = FrameBuffer(max_size=30)
+    
+    # Camera setup
+    camera = cv2.VideoCapture(0)
+    if not camera.isOpened():
+        raise RuntimeError("Failed to open camera")
+        
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+    camera.set(cv2.CAP_PROP_FPS, FPS)
+    
+    # FFmpeg setup (from your existing code)
+    ffmpeg_process = setup_ffmpeg_process(WIDTH, HEIGHT, FPS, "synchronized_output.mp4")
+    
+    # Audio acquisition setup (replace with your STM32 interface)
+    # audio_source = setup_audio_acquisition()
+    
+    # Performance monitoring
+    frame_count = 0
+    sync_success_count = 0
+    start_time = time.monotonic()
+    
+    print("Starting synchronized heatmap pipeline...")
+    print("Press 'q' to quit")
+    
+    try:
+        while True:
+            # Capture video frame with timestamp
+            ret, video_frame = camera.read()
+            if not ret:
+                print("Failed to capture video frame")
+                continue
+                
+            video_timestamp = time.monotonic()
+            video_buffer.add_frame(video_frame, video_timestamp)
+            
+            # Get audio frame with timestamp (from your STM32)
+            # In real implementation, this would come from your audio acquisition system
+            audio_data = generate_fake_heatmap(WIDTH, HEIGHT)  # Replace with real audio processing
+            audio_timestamp = video_timestamp  # Simulate synchronized audio
+            
+            # Add frames to synchronizer
+            sync.add_audio_frame(audio_data, audio_timestamp)
+            sync.add_video_frame(video_frame, video_timestamp)
+            
+            # Get synchronized pair
+            synced_audio, synced_video = sync.get_synchronized_pair()
+            
+            if synced_audio is not None and synced_video is not None:
+                # Process synchronized frames
+                output_frame = apply_heatmap_overlay(synced_audio, synced_video, ALPHA)
+                
+                # Add performance info to frame
+                elapsed = time.monotonic() - start_time
+                fps_actual = frame_count / elapsed if elapsed > 0 else 0
+                cv2.putText(output_frame, f"FPS: {fps_actual:.1f}", 
+                           (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(output_frame, f"Sync: {sync_success_count}/{frame_count}", 
+                           (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                
+                # Display and record
+                cv2.imshow('Synchronized Heatmap', output_frame)
+                send_to_ffmpeg(output_frame, ffmpeg_process)
+                
+                sync_success_count += 1
+            else:
+                # No synchronized pair available - could use latest frames
+                print(f"Warning: No synchronized pair at frame {frame_count}")
+            
+            frame_count += 1
+            
+            # Frame rate control
+            frame_delay = 1000 // FPS  # Convert to milliseconds
+            key = cv2.waitKey(frame_delay) & 0xFF
+            
+            if key == ord('q'):
+                print("Quit requested by user")
+                break
+                
+            # Print status every 100 frames
+            if frame_count % 100 == 0:
+                audio_buf, video_buf = sync.get_buffer_status()
+                print(f"Frame {frame_count}: Audio buffer: {audio_buf}, Video buffer: {video_buf}")
+                print(f"Sync success rate: {sync_success_count/frame_count*100:.1f}%")
+                
+    except KeyboardInterrupt:
+        print("\nPipeline interrupted by user")
+    except Exception as e:
+        print(f"Error in pipeline: {e}")
+    finally:
+        # Cleanup
+        print("Cleaning up...")
+        camera.release()
+        cv2.destroyAllWindows()
+        cleanup_ffmpeg_process(ffmpeg_process)
+        
+        # Final statistics
+        total_time = time.monotonic() - start_time
+        print(f"Total frames processed: {frame_count}")
+        print(f"Successful synchronizations: {sync_success_count}")
+        print(f"Sync success rate: {sync_success_count/frame_count*100:.1f}%")
+        print(f"Average FPS: {frame_count/total_time:.2f}")
+        print(f"Total runtime: {total_time:.2f} seconds")
+```
+
+---
+
+## 5. Integration Guidelines
+
+### STM32 Audio Integration
+```python
+class STM32AudioSource:
+    """
+    Interface for STM32 audio data acquisition.
+    
+    This class would interface with your STM32 to receive
+    audio frames with timestamps.
+    """
+    
+    def __init__(self, port='/dev/ttyUSB0', baudrate=115200):
+        """Initialize STM32 communication."""
+        # Setup serial communication or other interface
+        pass
+    
+    def get_audio_frame(self):
+        """
+        Get next audio frame from STM32.
+        
+        Returns:
+            tuple: (audio_data, timestamp)
+        """
+        # Receive audio data packet from STM32
+        # Extract timestamp from packet
+        # Return audio data and timestamp
+        pass
+    
+    def is_connected(self):
+        """Check if STM32 is connected and responding."""
+        pass
+```
+
+### Camera Integration
+```python
+def setup_camera_with_timestamps(width=640, height=480, fps=30):
+    """
+    Setup camera with precise timestamp capture.
+    
+    Returns:
+        cv2.VideoCapture: Configured camera object
+    """
+    camera = cv2.VideoCapture(0)
+    
+    # Set camera properties
+    camera.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    camera.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    camera.set(cv2.CAP_PROP_FPS, fps)
+    
+    # Enable hardware acceleration if available
+    camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce buffer lag
+    
+    return camera
+
+def capture_frame_with_timestamp(camera):
+    """
+    Capture frame with precise timestamp.
+    
+    Returns:
+        tuple: (frame, timestamp) or (None, None) if failed
+    """
+    timestamp = time.monotonic()
+    ret, frame = camera.read()
+    
+    if ret:
+        return frame, timestamp
+    else:
+        return None, None
+```
+
+---
+
+## 6. Performance Considerations
+
+### Memory Management
+- **Buffer Sizing**: Choose buffer sizes based on expected latency and memory constraints
+- **Frame Copying**: Copy frames to avoid reference issues in multi-threaded environments
+- **Garbage Collection**: Monitor memory usage during long runs
+
+### Timing Precision
+- **Tolerance Tuning**: Adjust sync tolerance based on system characteristics
+- **Clock Drift**: Monitor for clock drift between audio and video sources
+- **Latency Compensation**: Account for processing delays in timestamp calculations
+
+### Thread Safety
+- **Lock Usage**: Use locks for thread-safe buffer access
+- **Producer-Consumer**: Consider separate threads for audio and video capture
+- **Deadlock Prevention**: Avoid nested locks and long critical sections
+
+### Real-time Constraints
+- **Priority Scheduling**: Use real-time scheduling for critical threads
+- **CPU Affinity**: Pin threads to specific CPU cores for consistent performance
+- **Interrupt Handling**: Handle system interrupts gracefully
+
+---
+
+## 7. Usage Examples
+
+### Basic Usage
+```python
+# Initialize synchronizer
+sync = AudioVideoSynchronizer(buffer_size=10, sync_tolerance=0.033)
+
+# Add frames with timestamps
+sync.add_audio_frame(audio_data, time.monotonic())
+sync.add_video_frame(video_frame, time.monotonic())
+
+# Get synchronized pair
+audio, video = sync.get_synchronized_pair()
+if audio is not None and video is not None:
+    # Process synchronized frames
+    result = process_frames(audio, video)
+```
+
+### Advanced Usage with Monitoring
+```python
+# Initialize with monitoring
+sync = AudioVideoSynchronizer(buffer_size=15, sync_tolerance=0.016)
+
+# Monitor buffer status
+audio_buf, video_buf = sync.get_buffer_status()
+print(f"Audio buffer: {audio_buf}, Video buffer: {video_buf}")
+
+# Clear buffers if needed
+sync.clear_buffers()
+```
+
+### Integration with Existing Pipeline
+```python
+# Replace your existing main loop with:
+def main():
+    # Your existing setup code...
+    
+    # Add synchronization
+    sync = AudioVideoSynchronizer(buffer_size=15)
+    
+    for frame_num in range(NUM_FRAMES):
+        # Capture video frame
+        ret, video_frame = camera.read()
+        video_timestamp = time.monotonic()
+        
+        # Get audio frame (from your STM32)
+        audio_data = get_audio_from_stm32()  # Your audio acquisition
+        audio_timestamp = time.monotonic()
+        
+        # Add to synchronizer
+        sync.add_audio_frame(audio_data, audio_timestamp)
+        sync.add_video_frame(video_frame, video_timestamp)
+        
+        # Get synchronized pair
+        synced_audio, synced_video = sync.get_synchronized_pair()
+        
+        if synced_audio is not None and synced_video is not None:
+            # Process with your existing functions
+            output_frame = apply_heatmap_overlay(synced_audio, synced_video, ALPHA)
+            
+            # Display and record
+            cv2.imshow('Synchronized Heatmap', output_frame)
+            send_to_ffmpeg(output_frame, ffmpeg_process)
+```
+
+---
+
+## Key Benefits
+
+### 1. Temporal Accuracy
+- Monotonic timestamps provide microsecond precision
+- Ring buffers maintain proper temporal ordering
+- Tolerance-based matching handles small timing variations
+
+### 2. Memory Efficiency
+- Bounded buffers prevent memory leaks
+- Automatic cleanup of old frames
+- Efficient for long-running applications
+
+### 3. Robustness
+- Handles dropped frames gracefully
+- Tolerates small timing variations
+- Works with different audio/video frame rates
+
+### 4. Real-time Performance
+- O(1) buffer operations
+- Minimal latency overhead
+- Suitable for embedded systems (Raspberry Pi)
+
+---
+
+## Integration Checklist
+
+- [ ] Implement STM32 timestamp generation
+- [ ] Add timestamp extraction to audio packets
+- [ ] Integrate synchronizer into main pipeline
+- [ ] Tune sync tolerance for system
+- [ ] Add performance monitoring
+- [ ] Test with real audio and video data
+- [ ] Optimize buffer sizes for use case
+- [ ] Add error handling for edge cases
+
