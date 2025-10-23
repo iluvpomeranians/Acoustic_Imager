@@ -27,7 +27,7 @@ jobs:
 
           # Build content string
           BRANCH="${GITHUB_REF#refs/heads/}"
-          CONTENT="📢 New push to **${GITHUB_REPOSITORY}** on \`${BRANCH}\` by **${GITHUB_ACTOR}**\nLatest: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})"
+          CONTENT="📢 New push to **${GITHUB_REPOSITORY}** on \`${BRANCH}\` by **${GITHUB_ACTOR}** Latest: [\`${GITHUB_SHA}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA})"
 
           # Inject commit list as embed
           jq --arg content "$CONTENT" \
