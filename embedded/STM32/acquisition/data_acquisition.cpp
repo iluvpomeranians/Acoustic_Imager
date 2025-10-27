@@ -9,11 +9,6 @@ extern DMA_HandleTypeDef hdma_i2s2_ext_rx;
 // DMA buffer for circular mode (single buffer with half/full callbacks)
 static int16_t dmaBuffer[DMA_BUFFER_SIZE];
 
-
-// Alternative: True double buffering (commented out for now)
-// static int16_t dmaBufferA[DMA_BUFFER_SIZE];
-// static int16_t dmaBufferB[DMA_BUFFER_SIZE];
-
 // Control flags
 volatile bool bufferAReady = false;
 volatile bool bufferBReady = false;
@@ -40,9 +35,6 @@ AcquisitionStatus_t Audio_InitAcquisition(void)
     
     // Clear buffers
     memset(dmaBuffer, 0, sizeof(dmaBuffer));
-    // Alternative: Clear both buffers for true double buffering
-    // memset(dmaBufferA, 0, sizeof(dmaBufferA));
-    // memset(dmaBufferB, 0, sizeof(dmaBufferB));
     memset(frameBuffer, 0, sizeof(frameBuffer));
     
     // Initialize I2S peripheral (CubeMX handles basic config)
@@ -67,12 +59,6 @@ AcquisitionStatus_t Audio_StartAcquisition(void)
         acquisitionStatus = ACQUISITION_ERROR;
         return ACQUISITION_ERROR;
     }
-    
-    // Alternative: True double buffering approach (commented out)
-    // if (HAL_I2S_Receive_DMA(&hi2s2, (uint16_t*)dmaBufferA, DMA_BUFFER_SIZE) != HAL_OK) {
-    //     acquisitionStatus = ACQUISITION_ERROR;
-    //     return ACQUISITION_ERROR;
-    // }
     
     acquisitionActive = true;
     acquisitionStatus = ACQUISITION_OK;
@@ -157,9 +143,6 @@ void HAL_I2S_RxCpltCallback(I2S_HandleTypeDef *hi2s)
         } else {
             overrunCount++; // Data overrun
         }
-        
-        // Alternative: True double buffering approach (commented out)
-        // memcpy(frameBuffer, dmaBufferB, sizeof(frameBuffer));
     }
 }
 
