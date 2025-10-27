@@ -1,0 +1,30 @@
+We need to generate the CubeMX project to get the necessary HAL configuration files I 
+what I think we should have in this file.
+
+I also think we need this ARM GCC to execute on the STM32 correctly
+
+Here's the brief CubeMX configuration for your STM32H723VGT6 with 4x4 MEMS mic array:
+CubeMX Configuration:
+
+1. I2S Setup:
+Enable I2S2 or I2S3
+Mode: Master Receiver
+Standard: I2S Philips
+Data Format: 16-bit
+Audio Frequency: 16kHz (or 48kHz)
+
+2. DMA Setup:
+Enable DMA1 Stream 3 (for I2S2_RX)
+Mode: Circular
+Data Width: Half Word (16-bit)
+Priority: High
+Enable Half Transfer Complete and Transfer Complete interrupts
+
+3. GPIO Pins:
+PC2: I2S2_CK (Bit Clock)
+PC3: I2S2_SD (Serial Data)
+PA4: I2S2_WS (Word Select)
+
+4. Clock Configuration:
+Enable PLLI2S for I2S clock generation
+Set I2S clock source to PLLI2S
