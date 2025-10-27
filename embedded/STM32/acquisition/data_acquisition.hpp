@@ -7,13 +7,13 @@
 
 // Configuration constants for 4x4 MEMS microphone array
 #define MIC_ARRAY_SIZE         16          // 4x4 = 16 microphones
-#define SAMPLES_PER_CHANNEL    1024        // samples per channel per frame
-#define TOTAL_SAMPLES_PER_FRAME (MIC_ARRAY_SIZE * SAMPLES_PER_CHANNEL)
-#define SAMPLE_RATE_HZ         16000       // 16kHz sampling rate
+#define SAMPLES_PER_CHANNEL    1024        // samples per channel per frame - how long each frame is (can also be 2048 - will make frame longer) 
+#define TOTAL_SAMPLES_PER_FRAME (MIC_ARRAY_SIZE * SAMPLES_PER_CHANNEL) // so in our case 16 * 1024 = 16384
+#define SAMPLE_RATE_HZ         72000       // 72kHz sampling rate (2x Nyquist for 36kHz max freq)
 #define BITS_PER_SAMPLE        16          // 16-bit samples
 
 // Buffer management
-#define DMA_BUFFER_SIZE        (TOTAL_SAMPLES_PER_FRAME * 2)  // Double buffering
+#define DMA_BUFFER_SIZE        (TOTAL_SAMPLES_PER_FRAME * 2)  // Circular mode: single buffer with half/full callbacks
 
 // Status codes
 typedef enum {
