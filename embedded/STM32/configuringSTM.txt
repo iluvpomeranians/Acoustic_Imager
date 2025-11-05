@@ -11,7 +11,7 @@ Enable I2S2 or I2S3
 Mode: Master Receiver
 Standard: I2S Philips
 Data Format: 16-bit
-Audio Frequency: 16kHz (or 48kHz)
+Audio Frequency: 72kHz
 
 2. DMA Setup:
 Enable DMA1 Stream 3 (for I2S2_RX)
