@@ -3,7 +3,18 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "stm32h7xx_hal.h"
+
+// Forward declarations for STM32 HAL types
+typedef struct __SPI_HandleTypeDef SPI_HandleTypeDef;
+typedef struct __DMA_HandleTypeDef DMA_HandleTypeDef;
+
+// HAL Status enum
+typedef enum {
+    HAL_OK       = 0x00U,
+    HAL_ERROR    = 0x01U,
+    HAL_BUSY     = 0x02U,
+    HAL_TIMEOUT  = 0x03U
+} HAL_StatusTypeDef;
 
 // Configuration constants for 4x4 MEMS microphone array
 #define MIC_ARRAY_SIZE         16          // 4x4 = 16 microphones
@@ -30,7 +41,7 @@ AcquisitionStatus_t Audio_StopAcquisition(void);
 bool Audio_GetFrame(int16_t *destBuffer);
 bool Audio_IsDataReady(void);
 void Audio_ClearDataReady(void);
-uint32_t Audio_GetSampleRate(void);
+unsigned int Audio_GetSampleRate(void);
 uint16_t Audio_GetChannelCount(void);
 
 // Error handling
