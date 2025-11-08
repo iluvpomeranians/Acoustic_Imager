@@ -83,7 +83,7 @@ else:
 # -------------------------------
 fs = 96000            # Sampling rate (Hz)
 duration = 0.01       # seconds
-f_signal = 27000      # Hz (source frequency)
+f_signal = 29500      # Hz (source frequency)
 true_angle_deg = 30   # True azimuth of the source
 noise_power = 0.001   # Adjust for SNR
 
