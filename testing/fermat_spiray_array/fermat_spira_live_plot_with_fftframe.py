@@ -87,8 +87,10 @@ def delay_and_sum(Xf, angles, f_signal):
         power.append(np.abs(summed) ** 2)
     return np.array(power) / np.max(power)
 
-def music(R, angles, f_signal, n_sources=1):
+def music_v1(R, angles, f_signal, n_sources=1):
+    # print("DEBUG (R-values):", R)
     eigvals, eigvecs = eigh(R)
+    print("DEBUG (eigvecs):", eigvecs)
     idx = eigvals.argsort()[::-1]
     En = eigvecs[:, n_sources:]
     spectrum = []
@@ -100,6 +102,54 @@ def music(R, angles, f_signal, n_sources=1):
         P = 1 / np.real(a.conj().T @ En @ En.conj().T @ a)
         spectrum.append(P[0, 0])
     return np.array(spectrum) / np.max(spectrum)
+
+def music_v2(R, angles, f_signal, n_sources=1):
+    # --- Debug: Covariance matrix overview ---
+    print("\n=== DEBUG: Covariance Matrix (R) ===")
+    np.set_printoptions(precision=3, suppress=True)
+    print(R)
+
+    # --- Eigen decomposition ---
+    eigvals, eigvecs = eigh(R)
+    idx = eigvals.argsort()[::-1]
+    eigvals = eigvals[idx]
+    eigvecs = eigvecs[:, idx]
+
+    # --- Debug: Eigenvalues summary ---
+    print("\n=== DEBUG: Eigenvalues (sorted) ===")
+    for i, val in enumerate(eigvals):
+        print(f"  λ{i+1:02d}: {val:.5f}")
+
+    # --- Debug: Eigenvectors (magnitude and phase) ---
+    print("\n=== DEBUG: Eigenvectors (magnitude & phase per mic) ===")
+    for i in range(eigvecs.shape[1]):
+        mag = np.abs(eigvecs[:, i])
+        phase = np.angle(eigvecs[:, i])
+        print(f"\nEigenvector {i+1:02d}:")
+        for m in range(len(mag)):
+            print(f"  Mic{m+1:02d}: mag={mag[m]:.3f}, phase={phase[m]:+.3f} rad")
+
+    # --- Build noise subspace ---
+    En = eigvecs[:, n_sources:]
+
+    # --- MUSIC spectrum calculation ---
+    spectrum = []
+    for ang in angles:
+        theta = np.deg2rad(ang)
+        a = np.exp(-1j * 2 * np.pi * f_signal / SPEED_SOUND * -(x_coords * np.cos(theta) + y_coords * np.sin(theta)))
+        a = a[:, np.newaxis]
+        P = 1 / np.real(a.conj().T @ En @ En.conj().T @ a)
+        spectrum.append(P[0, 0])
+
+    spectrum = np.array(spectrum)
+    spectrum /= np.max(spectrum)
+
+    # --- Debug: MUSIC peak detection ---
+    peak_idx = np.argmax(spectrum)
+    peak_angle = angles[peak_idx]
+    print(f"\n=== DEBUG: MUSIC Peak ===\n  → Angle = {peak_angle:.2f}°, Power = {spectrum[peak_idx]:.3f}\n")
+
+    return spectrum
 
 def esprit(R, f_signal, n_sources=1):
     eigvals, eigvecs = eigh(R)
@@ -150,12 +200,19 @@ try:
 
         # Covariance update
         R_new = Xf @ Xf.conj().T
+
+        # DEBUG : 1
         # cov_history = (cov_history * (COV_AVG_FRAMES - 1) + R_new) / COV_AVG_FRAMES
-        alpha = 0.3
-        cov_history = (1 - alpha) * cov_history + alpha * (Xf @ Xf.conj().T)
+
+        # DEBUG : 2
+        # alpha = 0.3
+        # cov_history = (1 - alpha) * cov_history + alpha * (Xf @ Xf.conj().T)
+
+        # DEBUG : 3
+        cov_history = R_new
 
         das_spectrum = delay_and_sum(Xf, angles, F_SIGNAL)
-        music_spectrum = music(cov_history, angles, F_SIGNAL)
+        music_spectrum = music_v2(cov_history, angles, F_SIGNAL)
         esprit_est = esprit(cov_history, F_SIGNAL)
 
         # Update plot
