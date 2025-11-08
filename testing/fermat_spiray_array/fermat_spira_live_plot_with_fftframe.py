@@ -63,7 +63,7 @@ def generate_fft_frame_from_dataframe(angle_deg: float) -> FFTFrame:
     # Deterministic (no random noise seed)
     mic_signals = np.zeros((N_MICS, len(t)), dtype=np.float32)
     for i in range(N_MICS):
-        delay = (x_coords[i] * np.cos(angle_rad) + y_coords[i] * np.sin(angle_rad)) / SPEED_SOUND
+        delay = -(x_coords[i] * np.cos(angle_rad) + y_coords[i] * np.sin(angle_rad)) / SPEED_SOUND
         delayed_t = t - delay
         mic_signals[i, :] = np.sin(2 * np.pi * F_SIGNAL * delayed_t)
         mic_signals[i, :] += np.random.normal(0, np.sqrt(NOISE_POWER), len(t))
@@ -123,7 +123,7 @@ fig, ax = plt.subplots(figsize=(9, 4))
 line_das, = ax.plot([], [], label="Delay-and-Sum")
 line_music, = ax.plot([], [], label="MUSIC")
 line_esprit = ax.axvline(0, color='m', linestyle='--', label='ESPRIT')
-ax.axvline(TRUE_ANGLE, color='k', linestyle='--', label='True Source')
+line_true = ax.axvline(TRUE_ANGLE, color='k', linestyle='--', label='True Source')
 ax.set_xlim(-90, 90)
 ax.set_ylim(0, 1)
 ax.set_xlabel("Angle (°)")
@@ -141,12 +141,18 @@ cov_history = np.zeros((N_MICS, N_MICS), dtype=complex)
 print("▶ Running STM32 FFT frame simulator (Ctrl-C to stop)...")
 try:
     while plt.fignum_exists(fig.number):
+        TRUE_ANGLE = (TRUE_ANGLE + 0.2) % 90
         frame = generate_fft_frame_from_dataframe(TRUE_ANGLE)
+
         Xf = frame.fft_data[:, f_idx][:, np.newaxis]
+
+        line_true.set_xdata([TRUE_ANGLE, TRUE_ANGLE])
 
         # Covariance update
         R_new = Xf @ Xf.conj().T
-        cov_history = (cov_history * (COV_AVG_FRAMES - 1) + R_new) / COV_AVG_FRAMES
+        # cov_history = (cov_history * (COV_AVG_FRAMES - 1) + R_new) / COV_AVG_FRAMES
+        alpha = 0.3
+        cov_history = (1 - alpha) * cov_history + alpha * (Xf @ Xf.conj().T)
 
         das_spectrum = delay_and_sum(Xf, angles, F_SIGNAL)
         music_spectrum = music(cov_history, angles, F_SIGNAL)
