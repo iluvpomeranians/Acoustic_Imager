@@ -39,10 +39,15 @@ AcquisitionStatus_t Audio_InitAcquisition(void);
 AcquisitionStatus_t Audio_StartAcquisition(void);
 AcquisitionStatus_t Audio_StopAcquisition(void);
 bool Audio_GetFrame(int16_t *destBuffer);
+int16_t* Audio_GetFramePointer(void);
+void Audio_ReleaseFrame(void);
 bool Audio_IsDataReady(void);
 void Audio_ClearDataReady(void);
 unsigned int Audio_GetSampleRate(void);
 uint16_t Audio_GetChannelCount(void);
+AcquisitionStatus_t Audio_GetStatus(void);
+unsigned int Audio_GetFramesCaptured(void);
+unsigned int Audio_GetOverrunCount(void);
 
 // Error handling
 void Audio_ErrorHandler(void);

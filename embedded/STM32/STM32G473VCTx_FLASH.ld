@@ -1,26 +1,53 @@
-/* 
- * STM32H723VGT6 Linker Script Template
- * This is a template - we need to generate the actual linker script from CubeMX
- * or use the one provided by STM32CubeIDE
- */
+/*
+******************************************************************************
+**
+**  File        : LinkerScript.ld
+**
+**  Author      : STM32CubeMX
+**
+**  Abstract    : Linker script for STM32G473VCTx Device with
+**                512KByte FLASH, 128KByte RAM
+**
+**                Set heap size, stack size and stack location according
+**                to application requirements.
+**
+**                Set memory bank area and size if external memory is used.
+**
+**  Target      : STMicroelectronics STM32
+**
+**  Distribution: The file is distributed as is, without any warranty
+**                of any kind.
+**
+******************************************************************************
+** @attention
+**
+** Copyright (c) 2023 STMicroelectronics.
+** All rights reserved.
+**
+** This software is licensed under terms that can be found in the LICENSE file
+** in the root directory of this software component.
+** If no LICENSE file comes with this software, it is provided AS-IS.
+**
+******************************************************************************
+*/
 
 /* Entry Point */
 ENTRY(Reset_Handler)
 
 /* Highest address of the user mode stack */
-_estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of "RAM" Ram type memory */
-
+_estack = ORIGIN(RAM) + LENGTH(RAM);    /* end of RAM */
+/* Generate a link error if heap and stack don't fit into RAM */
 _Min_Heap_Size = 0x200;      /* required amount of heap  */
-_Min_Stack_Size = 0x400; /* required amount of stack */
+_Min_Stack_Size = 0x400;     /* required amount of stack */
 
-/* Memories definition */
+/* Specify the memory areas */
 MEMORY
 {
-  RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 1M
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1M
+RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 128K
+FLASH (rx)     : ORIGIN = 0x8000000, LENGTH = 512K
 }
 
-/* Sections */
+/* Define output sections */
 SECTIONS
 {
   /* The startup code goes first into FLASH */
@@ -70,7 +97,6 @@ SECTIONS
     KEEP (*(.preinit_array*))
     PROVIDE_HIDDEN (__preinit_array_end = .);
   } >FLASH
-  
   .init_array :
   {
     PROVIDE_HIDDEN (__init_array_start = .);
@@ -78,7 +104,6 @@ SECTIONS
     KEEP (*(.init_array*))
     PROVIDE_HIDDEN (__init_array_end = .);
   } >FLASH
-  
   .fini_array :
   {
     PROVIDE_HIDDEN (__fini_array_start = .);
@@ -91,7 +116,7 @@ SECTIONS
   _sidata = LOADADDR(.data);
 
   /* Initialized data sections goes into RAM, load LMA copy after code */
-  .data : 
+  .data :
   {
     . = ALIGN(4);
     _sdata = .;        /* create a global symbol at data start */
@@ -102,7 +127,6 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
   } >RAM AT> FLASH
 
-  
   /* Uninitialized data section */
   . = ALIGN(4);
   .bss :
@@ -129,8 +153,6 @@ SECTIONS
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
   } >RAM
-
-  
 
   /* Remove information from the standard libraries */
   /DISCARD/ :

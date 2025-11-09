@@ -32,14 +32,14 @@ set(CMAKE_SIZE arm-none-eabi-size)
 # STM32 Configuration
 # =============================================================================
 
-# STM32H723VGT6 specific settings
-set(MCU_FAMILY STM32H7xx)
-set(MCU_MODEL STM32H723xx)
-set(MCU_FPU fpv5-d16)
+# STM32G473VCTx specific settings
+set(MCU_FAMILY STM32G4xx)
+set(MCU_MODEL STM32G473xx)
+set(MCU_FPU fpv4-sp-d16)
 set(MCU_FLOAT_ABI hard)
 
 # CPU flags
-set(CPU_FLAGS "-mcpu=cortex-m7 -mthumb -mfpu=${MCU_FPU} -mfloat-abi=${MCU_FLOAT_ABI}")
+set(CPU_FLAGS "-mcpu=cortex-m4 -mthumb -mfpu=${MCU_FPU} -mfloat-abi=${MCU_FLOAT_ABI}")
 
 # =============================================================================
 # Compiler Flags
@@ -78,7 +78,7 @@ set(RELEASE_FLAGS
 set(LINKER_FLAGS
     ${CPU_FLAGS}
     -specs=nano.specs
-    -T${CMAKE_SOURCE_DIR}/STM32H723VGTx_FLASH.ld
+    -T${CMAKE_SOURCE_DIR}/STM32G473VCTx_FLASH.ld
     -Wl,--gc-sections
     -Wl,--print-memory-usage
     -Wl,--start-group
@@ -110,17 +110,15 @@ add_definitions(
     -D${MCU_FAMILY}
     -D${MCU_MODEL}
     -DUSE_HAL_DRIVER
-    -DSTM32H723xx
-    -DHSE_VALUE=25000000
-    -DHSI_VALUE=64000000
+    -DSTM32G473xx
+    -DHSE_VALUE=24000000
+    -DHSI_VALUE=16000000
     -DLSE_VALUE=32768
     -DLSI_VALUE=32000
     -DVDD_VALUE=3300
     -DTICK_INT_PRIORITY=0
     -DUSE_RTOS=0
     -DPREFETCH_ENABLE=1
-    -DINSTRUCTION_CACHE_ENABLE=1
-    -DDATA_CACHE_ENABLE=1
 )
 
 # =============================================================================
@@ -135,9 +133,9 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/fft
     
     # STM32 HAL includes (adjust paths as needed)
-    ${CMAKE_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc
-    ${CMAKE_SOURCE_DIR}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy
-    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32H7xx/Include
+    ${CMAKE_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver/Inc
+    ${CMAKE_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32G4xx/Include
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
     
     # Generated files from CubeMX (adjust paths as needed)
@@ -153,13 +151,15 @@ include_directories(
 set(PROJECT_SOURCES
     main.cpp
     acquisition/data_acquisition.cpp
+    preprocessing/audio_preprocessing.cpp
+    fft/fft_processor.cpp
 )
 
 # Project header files (for IDE support)
 set(PROJECT_HEADERS
     acquisition/data_acquisition.hpp
-    preprocessing/preprocessing.hpp
-    fft/fft_computation.hpp
+    preprocessing/audio_preprocessing.hpp
+    fft/fft_processor.hpp
 )
 
 # STM32 HAL source files (adjust paths as needed)

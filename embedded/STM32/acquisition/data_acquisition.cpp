@@ -98,6 +98,35 @@ bool Audio_GetFrame(int16_t *destBuffer)
     return true;
 }
 
+int16_t* Audio_GetFramePointer(void)
+{
+    if (!frameReady) {
+        return NULL;
+    }
+    
+    return frameBuffer;
+}
+
+void Audio_ReleaseFrame(void)
+{
+    frameReady = false;
+}
+
+AcquisitionStatus_t Audio_GetStatus(void)
+{
+    return acquisitionStatus;
+}
+
+unsigned int Audio_GetFramesCaptured(void)
+{
+    return framesCaptured;
+}
+
+unsigned int Audio_GetOverrunCount(void)
+{
+    return overrunCount;
+}
+
 bool Audio_IsDataReady(void)
 {
     return frameReady;
