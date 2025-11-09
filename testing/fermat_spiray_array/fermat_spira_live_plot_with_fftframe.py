@@ -151,7 +151,7 @@ def music_v2(R, angles, f_signal, n_sources=1):
 
     return spectrum
 
-def esprit(R, f_signal, n_sources=1):
+def esprit_v1(R, f_signal, n_sources=1):
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
     Es = eigvecs[:, :n_sources]
@@ -160,7 +160,21 @@ def esprit(R, f_signal, n_sources=1):
     eigs_phi, _ = eig(phi)
     psi = np.angle(eigs_phi)
     theta = np.arcsin((psi * SPEED_SOUND) / (2 * np.pi * f_signal * pitch))
-    return np.degrees(np.real(theta))
+    return np.degrees(np.real(-theta))
+
+def esprit_v2(R, f_signal, n_sources=1):
+    eigvals, eigvecs = eigh(R)
+    idx = eigvals.argsort()[::-1]
+    Es = eigvecs[:, :n_sources]
+    Es1, Es2 = Es[:-1], Es[1:]
+    phi = pinv(Es1) @ Es2
+    eigs_phi, _ = eig(phi)
+    psi = np.angle(eigs_phi)
+    val = -(psi * SPEED_SOUND) / (2 * np.pi * f_signal * pitch)
+    val = np.clip(np.real(val), -1.0, 1.0)
+    theta = np.arcsin(val)
+    return np.degrees(theta)
+
 
 # ===============================================================
 # 5. Live plotting setup
@@ -213,7 +227,7 @@ try:
 
         das_spectrum = delay_and_sum(Xf, angles, F_SIGNAL)
         music_spectrum = music_v2(cov_history, angles, F_SIGNAL)
-        esprit_est = esprit(cov_history, F_SIGNAL)
+        esprit_est = esprit_v2(cov_history, F_SIGNAL)
 
         # Update plot
         line_das.set_data(angles, das_spectrum)
