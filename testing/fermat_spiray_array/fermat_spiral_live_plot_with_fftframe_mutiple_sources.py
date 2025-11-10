@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from numpy.linalg import eigh, pinv, eig
 
-# Add parent and dataframe folder to path (if using your FFTFrame class)
 sys.path.append(str(Path(__file__).resolve().parents[1] / "dataframe"))
 from fftframe import FFTFrame
 
@@ -36,16 +35,25 @@ SOURCE_ANGLES = [-35.0, 0.0, 40.0]   # degrees initial
 N_SOURCES = len(SOURCE_ANGLES)
 
 # ===============================================================
-# 2. Geometry setup
+# 2. Geometry setup (Fermat Spiral)
 # ===============================================================
-pitch = ARRAY_SIZE / (N_SIDE - 1)
-x_coords, y_coords = np.meshgrid(
-    np.linspace(-ARRAY_SIZE / 2, ARRAY_SIZE / 2, N_SIDE),
-    np.linspace(-ARRAY_SIZE / 2, ARRAY_SIZE / 2, N_SIDE)
-)
-x_coords, y_coords = x_coords.flatten(), y_coords.flatten()
-N_MICS = len(x_coords)
+N_MICS = 16
+golden_angle = np.deg2rad(137.5)
+aperture_radius = 0.025  # 5 cm radius (~10 cm diameter)
+c = aperture_radius / np.sqrt(N_MICS - 1)
+
+x_coords, y_coords = [], []
+for n in range(N_MICS):
+    r = c * np.sqrt(n)
+    theta = n * golden_angle
+    x_coords.append(r * np.cos(theta))
+    y_coords.append(r * np.sin(theta))
+
+x_coords = np.array(x_coords)
+y_coords = np.array(y_coords)
+
 angles = np.linspace(-90, 90, 361)
+pitch = np.mean(np.diff(sorted(np.unique(np.sqrt(x_coords**2 + y_coords**2)))))
 
 
 # ===============================================================
@@ -153,7 +161,7 @@ esprit_lines = []
 # ===============================================================
 # 6. Continuous loop
 # ===============================================================
-print("▶ Running multi-source FFT simulator (detect all sources)...")
+print("Running multi-source FFT simulator (detect all sources)...")
 
 
 # ===============================================================
@@ -176,8 +184,8 @@ try:
         # Animate sources
         for k in range(N_SOURCES):
             SOURCE_ANGLES[k] += (0.15 + 0.05 * k)
-            if SOURCE_ANGLES[k] > 70:
-                SOURCE_ANGLES[k] = -70
+            if SOURCE_ANGLES[k] > 90:
+                SOURCE_ANGLES[k] = -90
 
         frame = generate_fft_frame_from_dataframe(SOURCE_ANGLES)
 
@@ -218,5 +226,4 @@ try:
 
 except KeyboardInterrupt:
     print("\n⏹ Simulation stopped.")
-
 
