@@ -1,0 +1,286 @@
+// -------------------------
+// On-chip memories
+// -------------------------
+flash: Memory.MappedMemory @ sysbus 0x08000000
+    size: 0x00080000   // 512 KB (cat.3 devices support up to 512KB flash)
+
+sram1: Memory.MappedMemory @ sysbus 0x20000000
+    size: 0x00014000   // 80 KB SRAM1
+
+sram2: Memory.MappedMemory @ sysbus 0x20014000
+    size: 0x00004000   // 16 KB SRAM2
+
+ccm_sram: Memory.MappedMemory @ sysbus 0x10000000
+    size: 0x00008000   // 32 KB CCM SRAM (also aliased after SRAM2)
+
+// Optional: alias CCM after SRAM2 for DMA access (contiguous view)
+ccm_alias: Memory.MappedMemory @ sysbus 0x20018000
+    size: 0x00008000
+
+// System memory / option bytes (sizes here are placeholders; keep small + read-only map if needed)
+system_memory: Memory.MappedMemory @ sysbus 0x1FFF0000
+    size: 0x00008000
+
+flash_controller: Python.PythonPeripheral @ sysbus 0x40022000
+    size: 0x400
+    initable: true
+    filename: "C:/Users/david/Desktop/COEN490/Capstone_490_Software/testing/stm32_emulation/flashController_g4.py"
+
+// -------------------------
+// CPU + NVIC
+// -------------------------
+nvic: IRQControllers.NVIC @ sysbus 0xE000E000
+    priorityMask: 0xF0
+    systickFrequency: 170000000
+    IRQ -> cpu@0
+
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m4f"
+    nvic: nvic
+
+// -------------------------
+// RCC / Power / EXTI
+// -------------------------
+rcc: Python.PythonPeripheral @ sysbus 0x40021000
+    size: 0x400
+    initable: true
+    filename: "C:/Users/david/Desktop/COEN490/Capstone_490_Software/testing/stm32_emulation/rcc_G4.py"
+
+pwr: Miscellaneous.STM32_PWR @ sysbus 0x40007000
+
+exti: IRQControllers.STM32F4_EXTI @ sysbus 0x40010400
+    numberOfOutputLines: 42
+    [0-4]  -> nvic@[6-10]
+    [5-9]  -> nvicInput23@[0-4]
+    [10-15]-> nvicInput40@[0-5]
+    // EXTI16 (PVD), EXTI17 (RTC), EXTI18 (USB wakeup), EXTI21/22 etc use dedicated lines below
+    [16, 17, 18, 22] -> nvic@[1, 41, 42, 3]
+
+nvicInput23: Miscellaneous.CombinedInput @ none
+    numberOfInputs: 5
+    -> nvic@23
+
+nvicInput40: Miscellaneous.CombinedInput @ none
+    numberOfInputs: 6
+    -> nvic@40
+
+// -------------------------
+// DMA / DMAMUX / CRC / Flash IF
+// -------------------------
+dma1: DMA.STM32DMA @ sysbus 0x40020000
+    [0-7] -> nvic@[11-17,47]   // DMA1 ch1..ch7, ch8@47 on G4 vector map
+
+dma2: DMA.STM32DMA @ sysbus 0x40020400
+    [0-7] -> nvic@[56-60,68-70] // DMA2 ch1..ch8 lines
+
+//dmamux1: Miscellaneous.STM32_DMAMUX @ sysbus 0x40020800
+//    numberOfOutputRequestChannels: 16
+//    numberOfRequestGeneratorChannels: 4
+
+crc: CRC.STM32_CRC @ sysbus 0x40023000
+    series: STM32Series.F4
+
+//flash_if: Memory.MappedMemory @ sysbus 0x40022000
+//    size: 0x00000400
+
+// -------------------------
+// GPIO (AHB2 @ 0x4800_xxxx)
+// -------------------------
+gpioPortA: GPIOPort.STM32_GPIOPort @ sysbus <0x48000000, +0x400>
+    modeResetValue: 0xABFFFFFF
+    outputSpeedResetValue: 0x0C000000
+    pullUpPullDownResetValue: 0x64000000
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+gpioPortB: GPIOPort.STM32_GPIOPort @ sysbus <0x48000400, +0x400>
+    modeResetValue: 0xFFFFFEBF
+    pullUpPullDownResetValue: 0x00000100
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+gpioPortC: GPIOPort.STM32_GPIOPort @ sysbus <0x48000800, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+gpioPortD: GPIOPort.STM32_GPIOPort @ sysbus <0x48000C00, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+gpioPortE: GPIOPort.STM32_GPIOPort @ sysbus <0x48001000, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+gpioPortF: GPIOPort.STM32_GPIOPort @ sysbus <0x48001400, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+gpioPortG: GPIOPort.STM32_GPIOPort @ sysbus <0x48001800, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+    [0-15] -> exti@[0-15]
+
+// -------------------------
+// USART / UART (APB1/2)
+// -------------------------
+usart1: UART.STM32_UART @ sysbus <0x40013800, +0x400>
+    -> nvic@37   // USART1
+
+usart2: UART.STM32_UART @ sysbus <0x40004400, +0x400>
+    -> nvic@38   // USART2
+
+usart3: UART.STM32_UART @ sysbus <0x40004800, +0x400>
+    -> nvic@39   // USART3
+
+uart4: UART.STM32_UART @ sysbus <0x40004C00, +0x400>
+    -> nvic@52   // UART4
+
+uart5: UART.STM32_UART @ sysbus <0x40005000, +0x400>
+    -> nvic@53   // UART5
+
+lpuart1: UART.STM32_UART @ sysbus <0x40008000, +0x400>
+    -> nvic@70   // LPUART1 (if present; adjust if not used)
+
+// -------------------------
+// I2C
+// -------------------------
+i2c1: I2C.STM32F4_I2C @ sysbus 0x40005400
+    EventInterrupt -> nvic@31
+    ErrorInterrupt -> nvic@32
+
+i2c2: I2C.STM32F4_I2C @ sysbus 0x40005800
+    EventInterrupt -> nvic@33
+    ErrorInterrupt -> nvic@34
+
+i2c3: I2C.STM32F4_I2C @ sysbus 0x40007800
+    EventInterrupt -> nvic@72
+    ErrorInterrupt -> nvic@73
+
+i2c4: I2C.STM32F4_I2C @ sysbus 0x40008400
+    EventInterrupt -> nvic@95
+    ErrorInterrupt -> nvic@96
+
+// -------------------------
+// SPI / I2S / SAI
+// -------------------------
+spi1: SPI.STM32SPI @ sysbus 0x40013000
+spi2: SPI.STM32SPI @ sysbus 0x40003800
+    IRQ -> nvic@36
+spi3: SPI.STM32SPI @ sysbus 0x40003C00
+    IRQ -> nvic@51
+
+//sai1: Miscellaneous.STM32_SAI @ sysbus 0x40015400
+//    -> nvic@74
+
+// -------------------------
+// FDCAN (if your silicon has it; otherwise comment out)
+// -------------------------
+// fdcan1: CAN.FDCAN @ sysbus <0x40006400, +0x400>
+//     IT0 -> nvic@21
+//     IT1 -> nvic@22
+//
+// fdcan2: CAN.FDCAN @ sysbus <0x40006800, +0x400>
+//     IT0 -> nvic@86
+//     IT1 -> nvic@87
+//     master: fdcan1
+
+// -------------------------
+// USB device FS
+// -------------------------
+// usb: USB.STM32_USBDevice @ sysbus 0x40005C00
+//     -> nvic@42
+// usb_sram: Memory.MappedMemory @ sysbus 0x40006000
+//     size: 0x00000400
+
+// -------------------------
+// Timers (common ones; add others if you need them)
+// -------------------------
+tim2: Timers.STM32_Timer @ sysbus 0x40000000
+    -> nvic@28
+    frequency: 10000000
+    initialLimit: 0xFFFFFFFF
+
+tim3: Timers.STM32_Timer @ sysbus 0x40000400
+    -> nvic@29
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+tim4: Timers.STM32_Timer @ sysbus 0x40000800
+    -> nvic@30
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+tim1: Timers.STM32_Timer @ sysbus 0x40012C00
+    -> nvic@27   // (TIM1_CC); break/update/trigger share other lines
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+tim8: Timers.STM32_Timer @ sysbus 0x40013400
+    -> nvic@46   // (TIM8_CC)
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+// Low-power basic timers
+tim6: Timers.STM32_Timer @ sysbus 0x40001000
+    -> nvic@54
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+tim7: Timers.STM32_Timer @ sysbus 0x40001400
+    -> nvic@55
+    frequency: 10000000
+    initialLimit: 0xFFFF
+
+//dac: Python.PythonPeripheral @ sysbus 0x50000800
+//    size: 0x400
+//    initable: true
+//    filename: "scripts/pydev/dac_g4.py"
+
+// -------------------------
+// RTC / IWDG / WWDG
+// -------------------------
+rtc: Timers.STM32F4_RTC @ sysbus 0x40002800
+    AlarmIRQ -> nvic@41
+
+iwdg: Timers.STM32_IndependentWatchdog @ sysbus 0x40003000
+    frequency: 32000
+    windowOption: false
+    defaultPrescaler: 0x4
+
+// wwdg: Timers.STM32_WindowWatchdog @ sysbus 0x40002C00
+//     -> nvic@0
+
+// -------------------------
+// Bit-band alias regions (standard CM4 layout)
+// -------------------------
+bitbandPeripherals: Miscellaneous.BitBanding @ sysbus <0x42000000, +0x2000000>
+    peripheralBase: 0x40000000
+
+bitbandSram: Miscellaneous.BitBanding @ sysbus <0x22000000, +0x200000>
+    peripheralBase: 0x20000000
+
+UpButton: Miscellaneous.Button @ gpioPortA 0x8
+    -> gpioPortA@8
+DownButton: Miscellaneous.Button @ gpioPortA 0x7
+    -> gpioPortA@9
+
+EndBot: Miscellaneous.Button @ gpioPortC 0x9
+    -> gpioPortC@9
+EndTop: Miscellaneous.Button @ gpioPortC 0x8
+    -> gpioPortC@8
+EnableMot: Miscellaneous.LED @ gpioPortC 0x7
+
+gpioPortC:
+    7 -> EnableMot@0
+
+// -------------------------
+// Sysbus init (SVD + any tags)
+// -------------------------
+//sysbus:
+//    init:
+//        //ApplySVD @https://raw.githubusercontent.com/modm-io/cmsis-svd-stm32/refs/heads/main/stm32g4/STM32G431.svd
+//        Tag <0xe000e010 0x10> "systick"

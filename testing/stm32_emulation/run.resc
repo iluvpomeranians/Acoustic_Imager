@@ -1,0 +1,15 @@
+using sysbus
+
+mach create "stm32g4_test"
+
+# Load your custom platform file
+machine LoadPlatformDescription @G4.repl
+
+# Load your firmware ELF
+sysbus LoadELF @G4.elf
+
+# Attach analyzer directly to USART2
+showAnalyzer sysbus.usart2
+
+# Run simulation
+start
