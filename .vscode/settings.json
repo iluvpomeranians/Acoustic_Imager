@@ -2,4 +2,8 @@
     "python.analysis.extraPaths": [
         "./testing/dataframe"
     ],
+    "files.associations": {
+        ".als.json": "jsonc",
+        "main.h": "c"
+    },
 }
