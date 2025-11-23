@@ -638,8 +638,8 @@ def main():
             cx, cy = CURSOR_POS
 
             # Draw crosshair
-            # cv2.drawMarker(output_frame, (cx, cy), (255,255,255),
-            #             markerType=cv2.MARKER_CROSS, markerSize=12, thickness=1)
+            cv2.drawMarker(output_frame, (cx, cy), (255,255,255),
+                        markerType=cv2.MARKER_CROSS, markerSize=12, thickness=1)
 
             tooltip = ""
             if cx < left_width:
