@@ -43,13 +43,14 @@ from heatmap_pipeline_test import (  # type: ignore
 # ===============================================================
 N_MICS = 16
 SAMPLES_PER_CHANNEL = 1024
-SAMPLE_RATE_HZ = 68001
+SAMPLE_RATE_HZ = 150000
 SPEED_SOUND = 343.0
 NOISE_POWER = 0.0005
 
 # Heatmap / display config
-WIDTH = 640
-HEIGHT = 480
+# Actual physical width = 15.5 cm, height = 8.5 cm, diagonal ~17.5 cm
+WIDTH = 1024
+HEIGHT = 600
 FPS = 30
 ALPHA = 0.7
 NUM_FRAMES = 600
@@ -84,6 +85,7 @@ y_coords = np.array(y_coords)
 # "Pitch" for ESPRIT (approx. radial spacing; crude but OK for test)
 pitch = np.mean(np.diff(sorted(np.unique(np.sqrt(x_coords**2 + y_coords**2)))))
 
+
 # Frequency axis (for picking closest bin)
 f_axis = np.fft.rfftfreq(SAMPLES_PER_CHANNEL, 1 / SAMPLE_RATE_HZ)
 
@@ -101,6 +103,8 @@ def generate_fft_frame_from_dataframe(angle_degs: List[float]) -> FFTFrame:
     frame.sampling_rate = SAMPLE_RATE_HZ
     frame.fft_size = SAMPLES_PER_CHANNEL
     frame.frame_id += 1
+    SOURCE_AMPLS = [0.6, 1.0, 2.0]
+
 
     t = np.arange(SAMPLES_PER_CHANNEL) / SAMPLE_RATE_HZ
     mic_signals = np.zeros((N_MICS, len(t)), dtype=np.float32)
@@ -113,7 +117,8 @@ def generate_fft_frame_from_dataframe(angle_degs: List[float]) -> FFTFrame:
             delay = -(x_coords[i] * np.cos(angle_rad) +
                       y_coords[i] * np.sin(angle_rad)) / SPEED_SOUND
             delayed_t = t - delay
-            mic_signals[i, :] += np.sin(2 * np.pi * f * delayed_t)
+            amp = SOURCE_AMPLS[src_idx]
+            mic_signals[i, :] += amp * np.sin(2 * np.pi * f * delayed_t)
 
     # Add noise once
     mic_signals += np.random.normal(0, np.sqrt(NOISE_POWER), mic_signals.shape)
@@ -172,24 +177,116 @@ def esprit_estimate(R: np.ndarray,
 # 5. Heatmap mapping
 # ===============================================================
 def spectra_to_heatmap(spec_matrix: np.ndarray,
+                       power_per_source: np.ndarray,
                        out_width: int,
                        out_height: int) -> np.ndarray:
     """
-    Map a [N_SOURCES x N_ANGLES] matrix into a 2D uint8 heatmap,
-    then resize to (out_height, out_width).
+    Convert MUSIC [Nsrc x Nangles] into circular blob-like heatmap.
+
+    Blob intensity and size reflect a combination of:
+      - MUSIC peak height / sharpness
+      - actual signal power |Xf|^2 per source (across mics)
     """
-    # Normalize across entire matrix
-    spec_min = float(spec_matrix.min())
-    spec_max = float(spec_matrix.max())
-    denom = spec_max - spec_min + 1e-12
-    norm = (spec_matrix - spec_min) / denom  # 0..1
 
-    heatmap_u8 = (255.0 * norm).astype(np.uint8)  # (N_SOURCES, N_ANGLES)
+    Nsrc, Nang = spec_matrix.shape
 
-    # Resize to desired resolution (cv2 expects (width, height))
-    resized = cv2.resize(heatmap_u8, (out_width, out_height),
-                         interpolation=cv2.INTER_CUBIC)
-    return resized
+    # --------------------------------------------------------------
+    # 1. Normalize MUSIC matrix 0..1
+    # --------------------------------------------------------------
+    vmin = spec_matrix.min()
+    vmax = spec_matrix.max()
+    norm = (spec_matrix - vmin) / (vmax - vmin + 1e-12)
+
+    # --------------------------------------------------------------
+    # 2. Apply gamma correction for visual contrast
+    # --------------------------------------------------------------
+    gamma = 2.5       # increase to boost differences
+    norm = norm ** gamma
+
+    # --------------------------------------------------------------
+    # 3. Compute MUSIC strength per source = peak height * sharpness
+    # --------------------------------------------------------------
+    music_strengths = []
+    peak_indices = []
+
+    for i in range(Nsrc):
+        row = norm[i]
+        peak = np.max(row)
+        idx = np.argmax(row)
+
+        peak_indices.append(idx)
+
+        # local neighborhood for sharpness
+        left  = row[idx-1] if idx > 0 else peak
+        right = row[idx+1] if idx < Nang-1 else peak
+        sharpness = max(peak - (left + right) / 2, 1e-12)
+
+        music_strengths.append(peak * sharpness)
+
+    music_strengths = np.array(music_strengths, dtype=np.float64)
+    music_strengths /= music_strengths.max() + 1e-12
+
+    # --------------------------------------------------------------
+    # 4. Fold in actual signal power per source: |Xf|^2
+    # --------------------------------------------------------------
+    power = power_per_source.astype(np.float64)
+    power /= power.max() + 1e-12
+
+    # combined strength = MUSIC quality * power
+    strengths = music_strengths * power
+
+    # Normalize
+    strengths /= strengths.max() + 1e-12
+
+    # Apply minimum visibility floor (keeps weak sources visible)
+    floor = 0.25      # try 0.15–0.35
+    strengths = floor + (1.0 - floor) * strengths
+
+
+    # --------------------------------------------------------------
+    # 5. Create empty heatmap
+    # --------------------------------------------------------------
+    h, w = out_height, out_width
+    heatmap = np.zeros((h, w), dtype=np.float32)
+
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+
+    # angle index → pixel conversion
+    def ang_to_px(idx: int) -> int:
+        return int(idx / Nang * w)
+
+    # --------------------------------------------------------------
+    # 6. Draw one circular Gaussian blob per source
+    # --------------------------------------------------------------
+    base_radius = 60   # adjust for overall blob size
+
+    for i in range(Nsrc):
+        strength = strengths[i]
+        peak_idx = peak_indices[i]
+
+        cx = ang_to_px(peak_idx)
+        cy = h // 2
+
+        # Size varies with combined strength (0.6× to 1.0×)
+        blob_radius = base_radius * (0.6 + 0.4 * strength)
+        sigma = blob_radius / 2.0
+
+        # Gaussian blob
+        blob = strength * np.exp(
+            -((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma * sigma)
+        )
+
+        heatmap += blob
+
+    # --------------------------------------------------------------
+    # 7. Normalize final heatmap 0..255
+    # --------------------------------------------------------------
+    heatmap -= heatmap.min()
+    heatmap /= heatmap.max() + 1e-12
+    heatmap = (heatmap * 255).astype(np.uint8)
+
+    return heatmap
+
 
 # ===============================================================
 # 6. Main loop
@@ -223,17 +320,24 @@ def main():
 
             # Build [N_SOURCES x N_ANGLES] MUSIC matrix
             spec_matrix = np.zeros((N_SOURCES, len(ANGLES)), dtype=np.float32)
+            power_per_source = np.zeros(N_SOURCES, dtype=np.float32)
 
             for k, f_sig in enumerate(SOURCE_FREQS):
                 f_idx = int(np.argmin(np.abs(f_axis - f_sig)))
                 Xf = frame.fft_data[:, f_idx][:, np.newaxis]  # (N_MICS, 1)
                 R = Xf @ Xf.conj().T                           # (N_MICS, N_MICS)
 
+                # MUSIC spectrum
                 spec = music_spectrum(R, ANGLES, f_sig, n_sources=N_SOURCES)
                 spec_matrix[k, :] = spec
 
-            # Map spectra to heatmap image
-            heatmap_2d = spectra_to_heatmap(spec_matrix, WIDTH, HEIGHT)
+                # Signal power at this frequency across all mics
+                power = np.sum(np.abs(Xf)**2).real
+                power_per_source[k] = power
+
+            # Map spectra + power to heatmap image
+            heatmap_2d = spectra_to_heatmap(spec_matrix, power_per_source,
+                                            WIDTH, HEIGHT)
 
             # Overlay heatmap on background
             output_frame = apply_heatmap_overlay(heatmap_2d, background, ALPHA)
@@ -249,6 +353,7 @@ def main():
                 (255, 255, 255),
                 2,
             )
+
             cv2.putText(
                 output_frame,
                 f"t = {elapsed:.2f}s",
@@ -258,8 +363,23 @@ def main():
                 (255, 255, 255),
                 2,
             )
+
+            # Fs top-right
+            fs_text = f"Fs: {SAMPLE_RATE_HZ} Hz"
+            (tw, th), _ = cv2.getTextSize(fs_text, cv2.FONT_HERSHEY_SIMPLEX,
+                                          0.7, 2)
+            cv2.putText(
+                output_frame,
+                fs_text,
+                (WIDTH - tw - 10, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 255, 255),
+                2,
+            )
+
             angle_str = " | ".join(
-                f"{f/1000:.1f} kHz: {ang:.1f}°"
+                f"{f/1000:.1f} kHz: {ang:.1f} deg"
                 for f, ang in zip(SOURCE_FREQS, SOURCE_ANGLES)
             )
             cv2.putText(
@@ -304,3 +424,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+#TODO: Wishlist
+# 1) Fix ?? units for source frequencies
+# 2) Display the sample rate
+# 3) Widening the true sources lines for visibility
+# 4) Make separate test script without FFMPEG (infinite loop for live demo)
