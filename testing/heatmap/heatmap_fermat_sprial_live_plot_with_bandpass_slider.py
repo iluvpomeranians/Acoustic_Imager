@@ -453,7 +453,7 @@ def main():
             )
 
             angle_str = " | ".join(
-                f"{f/1000:.1f} kHz: {ang:.1f}°"
+                f"{f/1000:.1f} kHz: {ang:.1f} deg"
                 for f, ang in zip(SOURCE_FREQS, SOURCE_ANGLES)
             )
             cv2.putText(
