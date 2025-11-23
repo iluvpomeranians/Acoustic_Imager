@@ -46,6 +46,7 @@ SAMPLES_PER_CHANNEL = 1024
 SAMPLE_RATE_HZ = 150000
 SPEED_SOUND = 343.0
 NOISE_POWER = 0.0005
+WINDOW_NAME = "Fermat Heatmap (MUSIC, Multi-Source)"
 
 # Heatmap / display config
 # Actual physical width = 15.5 cm, height = 8.5 cm, diagonal ~17.5 cm
@@ -53,7 +54,7 @@ WIDTH = 1024
 HEIGHT = 600
 FPS = 30
 ALPHA = 0.7
-NUM_FRAMES = 600
+NUM_FRAMES = 1200
 OUTPUT_FILE = "heatmap_fermat_multisrc.mp4"
 USE_FFMPEG = True  # set False if you don't want to record
 
@@ -235,6 +236,7 @@ def spectra_to_heatmap(spec_matrix: np.ndarray,
     # combined strength = MUSIC quality * power
     strengths = music_strengths * power
 
+
     # Normalize
     strengths /= strengths.max() + 1e-12
 
@@ -325,7 +327,7 @@ def main():
             for k, f_sig in enumerate(SOURCE_FREQS):
                 f_idx = int(np.argmin(np.abs(f_axis - f_sig)))
                 Xf = frame.fft_data[:, f_idx][:, np.newaxis]  # (N_MICS, 1)
-                R = Xf @ Xf.conj().T                           # (N_MICS, N_MICS)
+                R = Xf @ Xf.conj().T                          # (N_MICS, N_MICS)
 
                 # MUSIC spectrum
                 spec = music_spectrum(R, ANGLES, f_sig, n_sources=N_SOURCES)
@@ -392,16 +394,15 @@ def main():
                 2,
             )
 
-            # Show in OpenCV
-            cv2.imshow("Fermat Heatmap (MUSIC, Multi-Source)", output_frame)
+            cv2.imshow(WINDOW_NAME, output_frame)
 
-            # Send to FFmpeg if enabled
-            if ffmpeg_process is not None:
-                send_to_ffmpeg(output_frame, ffmpeg_process)
-
-            # Handle key input / frame pacing
             key = cv2.waitKey(int(1000 // FPS)) & 0xFF
-            if key == ord("q"):
+
+            if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                print("Window closed by user.")
+                break
+
+            if key == ord("q") or key == 27:
                 print("Quit requested by user.")
                 break
 
