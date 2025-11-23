@@ -40,6 +40,7 @@ SPEED_SOUND = 343.0
 NOISE_POWER = 0.0005
 WINDOW_NAME = "Fermat Heatmap + Bandpass (MUSIC)"
 
+
 # Display config
 WIDTH = 1024
 HEIGHT = 600
@@ -63,6 +64,7 @@ f_axis = np.fft.rfftfreq(SAMPLES_PER_CHANNEL, 1 / SAMPLE_RATE_HZ)
 
 # Max frequency shown / controlled (Hz)
 F_DISPLAY_MAX = 45000.0
+ABSOLUTE_MAX_POWER = 1e-12
 
 # ===============================================================
 # 2. Geometry setup (Fermat spiral)
@@ -169,6 +171,94 @@ def esprit_estimate(R: np.ndarray,
 # ===============================================================
 # 5. Heatmap mapping (same logic as your tuned version)
 # ===============================================================
+def spectra_to_heatmap_absolute(spec_matrix: np.ndarray,
+                                power_per_source: np.ndarray,
+                                out_width: int,
+                                out_height: int,
+                                db_min: float = -40.0,
+                                db_max: float = 0.0) -> np.ndarray:
+    """
+    Convert MUSIC + absolute power into an absolute dB-scaled heatmap.
+
+    - No per-frame normalization
+    - Amplitude comes ONLY from absolute |Xf|^2 converted to dB
+    - MUSIC only determines ANGLE and spatial sharpness
+    """
+
+    Nsrc, Nang = spec_matrix.shape
+
+    # ===========================================================
+    # 1) Convert absolute power to dB (does NOT depend on other sources)
+    # ===========================================================
+    power_abs = np.maximum(power_per_source, 1e-12)
+    power_db  = 10 * np.log10(power_abs)
+
+    # Normalize into [0..1] based on fixed absolute dB range
+    power_norm = (power_db - db_min) / (db_max - db_min)
+    power_norm = np.clip(power_norm, 0.0, 1.0)
+
+    # ===========================================================
+    # 2) Find MUSIC peaks for the ANGLE ONLY (no amplitude scaling)
+    # ===========================================================
+    peak_indices = []
+    sharpness = []
+
+    for i in range(Nsrc):
+        row = spec_matrix[i]
+
+        # get location of peak
+        idx = np.argmax(row)
+        peak_indices.append(idx)
+
+        # compute sharpness for blob width (NOT for amplitude)
+        p  = row[idx]
+        left  = row[idx-1] if idx > 0 else p
+        right = row[idx+1] if idx < Nang-1 else p
+        sh = max(p - 0.5*(left + right), 1e-12)
+        sharpness.append(sh)
+
+    sharpness = np.array(sharpness)
+    sharpness /= sharpness.max() + 1e-12   # only affects width, not amplitude
+
+    # ===========================================================
+    # 3) Create heatmap canvas
+    # ===========================================================
+    h, w = out_height, out_width
+    heatmap = np.zeros((h, w), dtype=np.float32)
+
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+
+    def ang_to_px(idx: int) -> int:
+        return int(idx / Nang * w)
+
+    # ===========================================================
+    # 4) Draw Gaussian blobs with absolute dB-scaling
+    # ===========================================================
+    base_radius = 60
+
+    for i in range(Nsrc):
+        cx = ang_to_px(peak_indices[i])
+        cy = h // 2
+
+        # blob width from MUSIC sharpness
+        blob_radius = base_radius * (0.7 + 0.3 * sharpness[i])
+        sigma = blob_radius / 1.8
+
+        # ABSOLUTE amplitude = dB-normalized
+        amp = power_norm[i]     # 0..1
+
+        blob = amp * np.exp(
+            -((xx - cx)**2 + (yy - cy)**2) / (2*sigma*sigma)
+        )
+
+        heatmap += blob
+
+    # clip and convert to uint8
+    heatmap = np.clip(heatmap, 0.0, 1.0)
+    heatmap_u8 = (heatmap * 255).astype(np.uint8)
+
+    return heatmap_u8
+
 def spectra_to_heatmap(spec_matrix: np.ndarray,
                        power_per_source: np.ndarray,
                        out_width: int,
@@ -336,6 +426,33 @@ def draw_frequency_bar(frame: np.ndarray,
     # Insert into right side of frame
     frame[:, left:right, :] = bar
 
+def draw_db_colorbar(frame: np.ndarray,
+                     db_min: float,
+                     db_max: float,
+                     width: int = 50):
+    """
+    Draw a vertical colorbar using the same colormap as the heatmap.
+    """
+    h = frame.shape[0]
+    bar = np.zeros((h, width), dtype=np.uint8)
+
+    # gradient bottom→top
+    for y in range(h):
+        val = y / (h - 1)         # 0 (bottom) → 1 (top)
+        bar[h - 1 - y, :] = int(val * 255)
+
+    # apply colormap
+    bar_color = cv2.applyColorMap(bar, cv2.COLORMAP_JET)
+
+    # overlay
+    frame[:, :width] = bar_color
+
+    # labels
+    cv2.putText(frame, f"{db_max:.0f} dB", (5, 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+    cv2.putText(frame, f"{db_min:.0f} dB", (5, h-10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
+
 
 # ===============================================================
 # 7. Main loop (infinite, no FFmpeg)
@@ -343,15 +460,25 @@ def draw_frequency_bar(frame: np.ndarray,
 def nothing(x):
     pass
 
+CURSOR_POS = (0, 0)
+def mouse_move(event, x, y, flags, param):
+    global CURSOR_POS
+    if event == cv2.EVENT_MOUSEMOVE:
+        CURSOR_POS = (x, y)
+
 
 def main():
     print("Acoustic Imager - Fermat Spiral Bandpass Demo")
     print("=" * 70)
 
+    GLOBAL_DB_MIN = -60.0
+    GLOBAL_DB_MAX = 0.0
+
     background_full = create_background_frame(WIDTH, HEIGHT)
     left_width = WIDTH - FREQ_BAR_WIDTH
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    cv2.setMouseCallback(WINDOW_NAME, mouse_move)
 
     # Interactive bandpass sliders (kHz)
     cv2.createTrackbar("f_min_kHz", WINDOW_NAME, 0, 45, nothing)
@@ -406,10 +533,25 @@ def main():
 
                     power = np.sum(np.abs(Xf) ** 2).real
                     power_per_source[row_idx] = power
+                    global ABSOLUTE_MAX_POWER
+                    ABSOLUTE_MAX_POWER = max(ABSOLUTE_MAX_POWER, power)
 
-                heatmap_full = spectra_to_heatmap(
-                    spec_matrix, power_per_source, left_width, HEIGHT
+                    # Update global auto-range
+                    p_db = 10*np.log10(power/(ABSOLUTE_MAX_POWER+1e-12))
+                    GLOBAL_DB_MIN = min(GLOBAL_DB_MIN, p_db)
+                    GLOBAL_DB_MAX = max(GLOBAL_DB_MAX, p_db)
+
+
+
+                heatmap_full = spectra_to_heatmap_absolute(
+                    spec_matrix,
+                    power_per_source / (ABSOLUTE_MAX_POWER + 1e-12),
+                    left_width,
+                    HEIGHT,
+                    db_min=GLOBAL_DB_MIN,
+                    db_max=GLOBAL_DB_MAX
                 )
+
                 heatmap_left = heatmap_full  # already correct size
 
             # Compose background and overlay heatmap on left region
@@ -421,13 +563,33 @@ def main():
 
             # Draw frequency bar on the right based on full FFT data
             draw_frequency_bar(output_frame, frame.fft_data, f_axis, f_min, f_max)
+            #draw_db_colorbar(output_frame, db_min=-40, db_max=0)
+            # -------------------------------------------------------------------
+            # AUTO-SCALE dB RANGE BASED ON WHAT IS ACTUALLY VISIBLE IN HEATMAP
+            # -------------------------------------------------------------------
+            if selected_indices:
+                # Convert back to dB using the same mapping as the heatmap generator
+                p_abs = np.maximum(power_per_source, 1e-12)
+                p_db  = 10 * np.log10(p_abs)
+
+                # Only use selected sources
+                LOCAL_DB_MIN = np.min(p_db)
+                LOCAL_DB_MAX = np.max(p_db)
+            else:
+                LOCAL_DB_MIN = -60
+                LOCAL_DB_MAX = 0
+
+            draw_db_colorbar(output_frame,
+                            db_min=LOCAL_DB_MIN,
+                            db_max=LOCAL_DB_MAX)
+
 
             # Overlays (text)
             elapsed = time.time() - start_time
             cv2.putText(
                 output_frame,
                 f"Frame: {frame_count}",
-                (10, 30),
+                (100, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 255, 255),
@@ -436,7 +598,7 @@ def main():
             cv2.putText(
                 output_frame,
                 f"t = {elapsed:.2f}s",
-                (10, 60),
+                (100, 60),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.7,
                 (255, 255, 255),
@@ -461,12 +623,52 @@ def main():
             cv2.putText(
                 output_frame,
                 angle_str,
-                (10, HEIGHT - 20),
+                (100, HEIGHT - 20),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.6,
                 (255, 255, 255),
                 2,
             )
+
+            # ----------------------------------------------------------
+            #  CROSSHAIR + TOOLTIP OVERLAY
+            # ----------------------------------------------------------
+
+            # Now read cursor:
+            cx, cy = CURSOR_POS
+
+            # Draw crosshair
+            # cv2.drawMarker(output_frame, (cx, cy), (255,255,255),
+            #             markerType=cv2.MARKER_CROSS, markerSize=12, thickness=1)
+
+            tooltip = ""
+            if cx < left_width:
+                # Convert x → angle
+                ang = (cx / left_width) * 180.0 - 90.0
+
+                # --- PIXEL-BASED dB from heatmap ---
+                # real FFT power at the nearest MUSIC peak
+                px_db = LOCAL_DB_MIN + (heatmap_left[cy, cx] / 255.0) * (LOCAL_DB_MAX - LOCAL_DB_MIN)
+
+                tooltip = f"| {ang:.1f} deg | {px_db:.1f} dB "
+
+                # Optional: try to infer nearest source frequency
+                if selected_indices:
+                    # Which beam peak is closest to cursor angle?
+                    source_angles = []
+                    for row in range(spec_matrix.shape[0]):
+                        idx = np.argmax(spec_matrix[row])
+                        source_angles.append(ANGLES[idx])
+
+                    nearest_idx = int(np.argmin(np.abs(np.array(source_angles) - ang)))
+                    tooltip += f" | {SOURCE_FREQS[selected_indices[nearest_idx]]/1000:.1f} kHz |"
+
+            # Draw tooltip on screen
+            cv2.putText(output_frame, tooltip,
+                        (cx + 15, cy - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (255,255,255), 1)
+
 
             # Show
             cv2.imshow(WINDOW_NAME, output_frame)
