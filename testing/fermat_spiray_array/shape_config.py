@@ -2,13 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Parameters
-N = 16                           # number of microphones
-golden_angle = np.deg2rad(137.5) # golden angle in radians
-aperture_radius = 0.025           # meters (example: 8 cm aperture)
+N = 16                             # number of microphones
+golden_angle = np.deg2rad(137.5)   # golden angle in radians
+aperture_radius = 0.025            # meters (example: 5 cm aperture)
 c = aperture_radius / np.sqrt(N-1) # scaling factor to fit aperture
 
-speed_of_sound = 343.0           # m/s
-f_max = 36000                    # microphone bandwidth in Hz
+speed_of_sound = 343.0             # m/s
+f_max = 36000                      # microphone bandwidth in Hz
 
 #TODO: We need to treat each point as a camera
 #that includes dimensions of each mic's packaging
