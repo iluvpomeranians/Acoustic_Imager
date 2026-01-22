@@ -505,56 +505,56 @@ def main():
             test_indices.extend([1, 2])  # Try a few more common indices
             
             for test_idx in test_indices:
-            if camera_found:
-                break
-                
-            print(f"  Trying camera index {test_idx}...")
-            try:
-                # Try V4L2 first (Linux/Raspberry Pi)
-                test_cam = cv2.VideoCapture(test_idx, cv2.CAP_V4L2)
-                if not test_cam.isOpened():
-                    print(f"    V4L2 backend failed for index {test_idx}, trying default backend...")
-                    test_cam = cv2.VideoCapture(test_idx)
-                
-                if test_cam.isOpened():
-                    print(f"    Camera at index {test_idx} opened successfully")
-                    # Try to read a frame to verify it works
-                    ret, test_frame = test_cam.read()
-                    print(f"    Frame read attempt: ret={ret}, frame is None: {test_frame is None}, frame size: {test_frame.size if test_frame is not None else 'N/A'}")
+                if camera_found:
+                    break
                     
-                    if ret and test_frame is not None and test_frame.size > 0:
-                        if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                            print(f"    ✓ Camera found at index {test_idx}! Frame shape: {test_frame.shape}")
-                            cam = test_cam
-                            camera_found = True
-                            CAMERA_INDEX = test_idx  # Update to working index
-                        else:
-                            print(f"    Camera at index {test_idx} opened but frame has invalid shape: {test_frame.shape}")
-                            test_cam.release()
-                    else:
-                        print(f"    Camera at index {test_idx} opened but cannot read frames (ret={ret})")
-                        print(f"      This might be normal for the first read - trying a few more times...")
-                        # Try a few more times (sometimes first frame is empty)
-                        success = False
-                        for retry in range(3):
-                            time.sleep(0.1)
-                            ret, test_frame = test_cam.read()
-                            if ret and test_frame is not None and test_frame.size > 0:
-                                if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                                    print(f"    ✓ Camera found at index {test_idx} on retry {retry+1}! Frame shape: {test_frame.shape}")
-                                    cam = test_cam
-                                    camera_found = True
-                                    CAMERA_INDEX = test_idx
-                                    success = True
-                                    break
+                print(f"  Trying camera index {test_idx}...")
+                try:
+                    # Try V4L2 first (Linux/Raspberry Pi)
+                    test_cam = cv2.VideoCapture(test_idx, cv2.CAP_V4L2)
+                    if not test_cam.isOpened():
+                        print(f"    V4L2 backend failed for index {test_idx}, trying default backend...")
+                        test_cam = cv2.VideoCapture(test_idx)
+                    
+                    if test_cam.isOpened():
+                        print(f"    Camera at index {test_idx} opened successfully")
+                        # Try to read a frame to verify it works
+                        ret, test_frame = test_cam.read()
+                        print(f"    Frame read attempt: ret={ret}, frame is None: {test_frame is None}, frame size: {test_frame.size if test_frame is not None else 'N/A'}")
                         
-                        if not success:
-                            print(f"    Camera at index {test_idx} still cannot read frames after retries")
-                            test_cam.release()
-                else:
-                    print(f"    Could not open camera at index {test_idx}")
-            except Exception as e:
-                print(f"    Exception while testing index {test_idx}: {e}")
+                        if ret and test_frame is not None and test_frame.size > 0:
+                            if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
+                                print(f"    ✓ Camera found at index {test_idx}! Frame shape: {test_frame.shape}")
+                                cam = test_cam
+                                camera_found = True
+                                CAMERA_INDEX = test_idx  # Update to working index
+                            else:
+                                print(f"    Camera at index {test_idx} opened but frame has invalid shape: {test_frame.shape}")
+                                test_cam.release()
+                        else:
+                            print(f"    Camera at index {test_idx} opened but cannot read frames (ret={ret})")
+                            print(f"      This might be normal for the first read - trying a few more times...")
+                            # Try a few more times (sometimes first frame is empty)
+                            success = False
+                            for retry in range(3):
+                                time.sleep(0.1)
+                                ret, test_frame = test_cam.read()
+                                if ret and test_frame is not None and test_frame.size > 0:
+                                    if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
+                                        print(f"    ✓ Camera found at index {test_idx} on retry {retry+1}! Frame shape: {test_frame.shape}")
+                                        cam = test_cam
+                                        camera_found = True
+                                        CAMERA_INDEX = test_idx
+                                        success = True
+                                        break
+                            
+                            if not success:
+                                print(f"    Camera at index {test_idx} still cannot read frames after retries")
+                                test_cam.release()
+                    else:
+                        print(f"    Could not open camera at index {test_idx}")
+                except Exception as e:
+                    print(f"    Exception while testing index {test_idx}: {e}")
         
         if not camera_found:
             print(f"ERROR: Could not find any working camera (tried indices: {test_indices}).")
