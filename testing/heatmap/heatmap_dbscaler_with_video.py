@@ -555,62 +555,62 @@ def main():
                         print(f"    Could not open camera at index {test_idx}")
                 except Exception as e:
                     print(f"    Exception while testing index {test_idx}: {e}")
-        
-        if not camera_found:
-            print(f"ERROR: Could not find any working camera (tried indices: {test_indices}).")
-            print("Falling back to static background.")
-            print("\nTroubleshooting tips:")
-            print("  - Check if camera is connected and powered")
-            print("  - For Raspberry Pi Camera Module: ensure it's enabled in raspi-config")
-            print("  - Try: libcamera-hello (to test camera)")
-            print("  - Check permissions: sudo usermod -a -G video $USER")
-            print("  - Check if camera is in use: lsof /dev/video*")
-            use_camera = False
-            cam = None
-        else:
-            # Camera found and opened successfully, now configure it
-            # Set camera properties
-            cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-            cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-            cam.set(cv2.CAP_PROP_FPS, FPS)
             
-            # For Raspberry Pi camera, sometimes need to set buffer size
-            try:
-                cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
-            except:
-                pass  # Some backends don't support this
-            
-            # Verify actual resolution
-            actual_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
-            actual_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            print(f"Camera configured successfully.")
-            print(f"  Requested: {CAMERA_WIDTH}x{CAMERA_HEIGHT}, Actual: {actual_width}x{actual_height}")
-            
-            # Try to read a test frame to verify camera works
-            # Give camera a moment to initialize (especially important for Pi camera)
-            print("Testing camera read (warming up camera)...")
-            time.sleep(0.5)  # Small delay for camera to initialize
-            
-            # Try reading a few frames (first few might be black/empty)
-            test_success = False
-            for test_attempt in range(5):
-                ret, test_frame = cam.read()
-                if ret and test_frame is not None and test_frame.size > 0:
-                    if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                        print(f"  Camera test read successful (attempt {test_attempt+1}): frame shape = {test_frame.shape}")
-                        test_success = True
-                        break
-                time.sleep(0.1)
-            
-            if not test_success:
-                print("  WARNING: Camera test read failed after 5 attempts.")
-                print("  Camera may not be working properly.")
-                print("  Will continue but may fall back to static background.")
-                print("  Common issues:")
-                print("    - Camera not connected or powered")
-                print("    - Camera already in use by another process")
-                print("    - Wrong camera index (try CAMERA_INDEX = 0, 1, or 2)")
-                print("    - Permissions issue (try: sudo usermod -a -G video $USER)")
+            if not camera_found:
+                print(f"ERROR: Could not find any working camera (tried indices: {test_indices}).")
+                print("Falling back to static background.")
+                print("\nTroubleshooting tips:")
+                print("  - Check if camera is connected and powered")
+                print("  - For Raspberry Pi Camera Module: ensure it's enabled in raspi-config")
+                print("  - Try: libcamera-hello (to test camera)")
+                print("  - Check permissions: sudo usermod -a -G video $USER")
+                print("  - Check if camera is in use: lsof /dev/video*")
+                use_camera = False
+                cam = None
+            else:
+                # Camera found and opened successfully, now configure it
+                # Set camera properties
+                cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+                cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+                cam.set(cv2.CAP_PROP_FPS, FPS)
+                
+                # For Raspberry Pi camera, sometimes need to set buffer size
+                try:
+                    cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
+                except:
+                    pass  # Some backends don't support this
+                
+                # Verify actual resolution
+                actual_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"Camera configured successfully.")
+                print(f"  Requested: {CAMERA_WIDTH}x{CAMERA_HEIGHT}, Actual: {actual_width}x{actual_height}")
+                
+                # Try to read a test frame to verify camera works
+                # Give camera a moment to initialize (especially important for Pi camera)
+                print("Testing camera read (warming up camera)...")
+                time.sleep(0.5)  # Small delay for camera to initialize
+                
+                # Try reading a few frames (first few might be black/empty)
+                test_success = False
+                for test_attempt in range(5):
+                    ret, test_frame = cam.read()
+                    if ret and test_frame is not None and test_frame.size > 0:
+                        if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
+                            print(f"  Camera test read successful (attempt {test_attempt+1}): frame shape = {test_frame.shape}")
+                            test_success = True
+                            break
+                    time.sleep(0.1)
+                
+                if not test_success:
+                    print("  WARNING: Camera test read failed after 5 attempts.")
+                    print("  Camera may not be working properly.")
+                    print("  Will continue but may fall back to static background.")
+                    print("  Common issues:")
+                    print("    - Camera not connected or powered")
+                    print("    - Camera already in use by another process")
+                    print("    - Wrong camera index (try CAMERA_INDEX = 0, 1, or 2)")
+                    print("    - Permissions issue (try: sudo usermod -a -G video $USER)")
         except Exception as e:
             print(f"ERROR: Exception while opening camera: {e}")
             import traceback
