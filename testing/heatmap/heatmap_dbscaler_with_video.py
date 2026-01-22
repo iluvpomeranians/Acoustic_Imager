@@ -510,39 +510,122 @@ def main():
 
     try:
         while True:
-            # >>> CAMERA ADDITION >>>
+            # Read slider positions
+            f_min_khz = cv2.getTrackbarPos("f_min_kHz", WINDOW_NAME)
+            f_max_khz = cv2.getTrackbarPos("f_max_kHz", WINDOW_NAME)
+            if f_max_khz < f_min_khz:
+                f_max_khz = f_min_khz
+
+            f_min = f_min_khz * 1000.0
+            f_max = f_max_khz * 1000.0
+            f_min = max(0.0, min(F_DISPLAY_MAX, f_min))
+            f_max = max(0.0, min(F_DISPLAY_MAX, f_max))
+
+            # Animate sources (slow sweep across FoV)
+            for k in range(N_SOURCES):
+                SOURCE_ANGLES[k] += (0.15 + 0.05 * k)
+                if SOURCE_ANGLES[k] > 90.0:
+                    SOURCE_ANGLES[k] = -90.0
+
+            frame = generate_fft_frame_from_dataframe(SOURCE_ANGLES)
+
+            # Build spec_matrix only for freqs within band
+            selected_indices = [
+                i for i, f in enumerate(SOURCE_FREQS)
+                if f_min <= f <= f_max
+            ]
+
+            # Default: no sources in band => blank heatmap
+            if not selected_indices:
+                heatmap_left = np.zeros((HEIGHT, left_width), dtype=np.uint8)
+            else:
+                n_sel = len(selected_indices)
+                spec_matrix = np.zeros((n_sel, len(ANGLES)), dtype=np.float32)
+                power_per_source = np.zeros(n_sel, dtype=np.float32)
+
+                for row_idx, src_idx in enumerate(selected_indices):
+                    f_sig = SOURCE_FREQS[src_idx]
+                    f_idx = int(np.argmin(np.abs(f_axis - f_sig)))
+                    Xf = frame.fft_data[:, f_idx][:, np.newaxis]
+                    R = Xf @ Xf.conj().T
+
+                    spec = music_spectrum(R, ANGLES, f_sig, n_sources=n_sel)
+                    spec_matrix[row_idx, :] = spec
+
+                    power = np.sum(np.abs(Xf) ** 2).real
+                    power_per_source[row_idx] = power
+                    global ABSOLUTE_MAX_POWER
+                    ABSOLUTE_MAX_POWER = max(ABSOLUTE_MAX_POWER, power)
+
+                    p_db = 10*np.log10(power/(ABSOLUTE_MAX_POWER+1e-12))
+                    GLOBAL_DB_MIN = min(GLOBAL_DB_MIN, p_db)
+                    GLOBAL_DB_MAX = max(GLOBAL_DB_MAX, p_db)
+
+                heatmap_full = spectra_to_heatmap_absolute(
+                    spec_matrix,
+                    power_per_source / (ABSOLUTE_MAX_POWER + 1e-12),
+                    left_width,
+                    HEIGHT,
+                    db_min=GLOBAL_DB_MIN,
+                    db_max=GLOBAL_DB_MAX
+                )
+
+                heatmap_left = heatmap_full
+
+            # ===================================================
+            # CAMERA BACKGROUND SUBSTITUTION (CORRECT LOCATION)
+            # ===================================================
             if USE_CAMERA and cam is not None:
                 ret, cam_frame = cam.read()
                 if ret:
-                    cam_frame = cv2.resize(cam_frame, (WIDTH, HEIGHT))
-                    background = cam_frame
+                    background = cv2.resize(cam_frame, (WIDTH, HEIGHT))
                 else:
                     background = background_full.copy()
             else:
                 background = background_full.copy()
-            # <<< CAMERA ADDITION <<<
 
-            # --- ORIGINAL CODE CONTINUES UNCHANGED ---
             # Compose background and overlay heatmap on left region
             left_bg = background[:, :left_width, :]
             left_out = apply_heatmap_overlay(heatmap_left, left_bg, ALPHA)
             background[:, :left_width, :] = left_out
             output_frame = background
 
+            # Draw frequency bar on the right
+            draw_frequency_bar(output_frame, frame.fft_data, f_axis, f_min, f_max)
+
+            # AUTO-SCALE dB RANGE BASED ON WHAT IS ACTUALLY VISIBLE
+            if selected_indices:
+                p_abs = np.maximum(power_per_source, 1e-12)
+                p_db  = 10 * np.log10(p_abs)
+                LOCAL_DB_MIN = np.min(p_db)
+                LOCAL_DB_MAX = np.max(p_db)
+            else:
+                LOCAL_DB_MIN = -60
+                LOCAL_DB_MAX = 0
+
+            draw_db_colorbar(output_frame,
+                             db_min=LOCAL_DB_MIN,
+                             db_max=LOCAL_DB_MAX)
+
+            elapsed = time.time() - start_time
+            cv2.putText(output_frame, f"Frame: {frame_count}",
+                        (100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (255, 255, 255), 2)
+            cv2.putText(output_frame, f"t = {elapsed:.2f}s",
+                        (100, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (255, 255, 255), 2)
+
             cv2.imshow(WINDOW_NAME, output_frame)
 
             key = cv2.waitKey(int(1000 // FPS)) & 0xFF
+            if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                break
             if key == ord("q") or key == 27:
                 break
 
             frame_count += 1
 
     finally:
-        # >>> CAMERA ADDITION >>>
         if cam is not None:
             cam.release()
-        # <<< CAMERA ADDITION <<<
         cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    main()
