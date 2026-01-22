@@ -18,21 +18,24 @@ from typing import List
 import numpy as np
 import cv2
 from numpy.linalg import eigh, pinv, eig
-
-# >>> CAMERA ADDITION >>>
 import threading
-# <<< CAMERA ADDITION <<<
 
 # ---------------------------------------------------------------------
 # Local imports
 # ---------------------------------------------------------------------
-sys.path.append(str(Path(__file__).resolve().parents[1] / "dataframe"))
-from fftframe import FFTFrame  # type: ignore
+try:
+    sys.path.append(str(Path(__file__).resolve().parents[1] / "dataframe"))
+    from fftframe import FFTFrame  # type: ignore
 
-from heatmap_pipeline_test import (  # type: ignore
-    apply_heatmap_overlay,
-    create_background_frame,
-)
+    from heatmap_pipeline_test import (  # type: ignore
+        apply_heatmap_overlay,
+        create_background_frame,
+    )
+except ImportError as e:
+    print(f"ERROR: Failed to import required modules: {e}")
+    print(f"Current working directory: {Path.cwd()}")
+    print(f"Script location: {Path(__file__).resolve()}")
+    sys.exit(1)
 
 # ===============================================================
 # 1. Configuration
@@ -489,17 +492,37 @@ def main():
 
     # >>> CAMERA ADDITION >>>
     cam = None
+    use_camera = USE_CAMERA  # Local variable to track camera availability
     if USE_CAMERA:
-        cam = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
-        cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-        cam.set(cv2.CAP_PROP_FPS, FPS)
-
-        if not cam.isOpened():
-            print("ERROR: Could not open camera.")
-            return
-
-        print("Camera initialized successfully.")
+        print(f"Attempting to open camera at index {CAMERA_INDEX}...")
+        try:
+            # Try V4L2 first (Linux/Raspberry Pi)
+            cam = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
+            if not cam.isOpened():
+                print("V4L2 backend failed, trying default backend...")
+                cam = cv2.VideoCapture(CAMERA_INDEX)
+            
+            if not cam.isOpened():
+                print(f"ERROR: Could not open camera at index {CAMERA_INDEX}.")
+                print("Falling back to static background.")
+                use_camera = False
+                cam = None
+            else:
+                # Set camera properties
+                cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+                cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+                cam.set(cv2.CAP_PROP_FPS, FPS)
+                
+                # Verify actual resolution
+                actual_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
+                actual_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                print(f"Camera initialized successfully.")
+                print(f"  Requested: {CAMERA_WIDTH}x{CAMERA_HEIGHT}, Actual: {actual_width}x{actual_height}")
+        except Exception as e:
+            print(f"ERROR: Exception while opening camera: {e}")
+            print("Falling back to static background.")
+            use_camera = False
+            cam = None
     # <<< CAMERA ADDITION <<<
 
     cv2.createTrackbar("f_min_kHz", WINDOW_NAME, 0, 45, nothing)
@@ -575,11 +598,12 @@ def main():
             # ===================================================
             # CAMERA BACKGROUND SUBSTITUTION (CORRECT LOCATION)
             # ===================================================
-            if USE_CAMERA and cam is not None:
+            if use_camera and cam is not None:
                 ret, cam_frame = cam.read()
-                if ret:
+                if ret and cam_frame is not None and cam_frame.size > 0:
                     background = cv2.resize(cam_frame, (WIDTH, HEIGHT))
                 else:
+                    # Camera read failed, use static background
                     background = background_full.copy()
             else:
                 background = background_full.copy()
@@ -625,7 +649,24 @@ def main():
 
             frame_count += 1
 
+    except KeyboardInterrupt:
+        print("\nSimulation interrupted by user.")
+    except Exception as e:
+        print(f"\nERROR: Unexpected exception: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
+        print("Cleaning up...")
         if cam is not None:
             cam.release()
         cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
