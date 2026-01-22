@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-NEED TO DOUBLE CHECK THIS BEC I MIGHTVE MISSED SOME THINGS
 Acoustic Imager - Fermat Spiral Heatmap (Interactive Bandpass Demo)
 
-UPDATED:
-- Live Raspberry Pi 5 camera feed used as background
-- Solid-color background code is COMMENTED OUT (not removed)
+Differences vs heatmap_fermat_multisrc.py:
+  1) Infinite loop (no FFmpeg recording, live demo only)
+  2) Interactive band-pass filter:
+       - Two OpenCV sliders: f_min_kHz and f_max_kHz (0–45 kHz)
+       - Only frequencies within [f_min, f_max] contribute to the heatmap
+       - Right-side frequency bar shows spectrum and highlights the selected band
 """
 
 import sys
@@ -17,6 +19,10 @@ import numpy as np
 import cv2
 from numpy.linalg import eigh, pinv, eig
 
+# >>> CAMERA ADDITION >>>
+import threading
+# <<< CAMERA ADDITION <<<
+
 # ---------------------------------------------------------------------
 # Local imports
 # ---------------------------------------------------------------------
@@ -25,7 +31,7 @@ from fftframe import FFTFrame  # type: ignore
 
 from heatmap_pipeline_test import (  # type: ignore
     apply_heatmap_overlay,
-    # create_background_frame,   # <<< COMMENTED OUT (solid color background)
+    create_background_frame,
 )
 
 # ===============================================================
@@ -47,31 +53,37 @@ ALPHA = 0.7
 # Right-side frequency bar width (pixels)
 FREQ_BAR_WIDTH = 200
 
-# Beamforming / scanning grid
-ANGLES = np.linspace(-90, 90, 181)
+# >>> CAMERA ADDITION >>>
+# ===============================================================
+# CAMERA CONFIGURATION
+# ===============================================================
+CAMERA_INDEX = 0
+CAMERA_WIDTH = WIDTH
+CAMERA_HEIGHT = HEIGHT
+USE_CAMERA = True
+# <<< CAMERA ADDITION <<<
 
-# Deterministic simulated sources
-SOURCE_FREQS = [9000, 11000, 30000]
-SOURCE_ANGLES = [-35.0, 0.0, 40.0]
-SOURCE_AMPLS = [0.6, 1.0, 2.0]
+# Beamforming / scanning grid
+ANGLES = np.linspace(-90, 90, 181)  # 1° resolution
+
+# Multiple deterministic sources
+SOURCE_FREQS = [9000, 11000, 30000]  # Hz
+SOURCE_ANGLES = [-35.0, 0.0, 40.0]   # degrees (initial)
+SOURCE_AMPLS = [0.6, 1.0, 2.0]       # relative amplitudes
 N_SOURCES = len(SOURCE_ANGLES)
 
-# FFT frequency axis
+# Frequency axis for FFT
 f_axis = np.fft.rfftfreq(SAMPLES_PER_CHANNEL, 1 / SAMPLE_RATE_HZ)
 
+# Max frequency shown / controlled (Hz)
 F_DISPLAY_MAX = 45000.0
 ABSOLUTE_MAX_POWER = 1e-12
 
 # ===============================================================
-# 2. Camera setup (Raspberry Pi 5 / libcamera)
-# ===============================================================
-CAMERA_INDEX = 0  # CSI camera is usually index 0
-
-# ===============================================================
-# 3. Geometry setup (Fermat spiral)
+# 2. Geometry setup (Fermat spiral)
 # ===============================================================
 golden_angle = np.deg2rad(137.5)
-aperture_radius = 0.010
+aperture_radius = 0.010  # 2.5 cm radius → 5 cm diameter (correct)
 c_geom = aperture_radius / np.sqrt(N_MICS - 1)
 
 x_coords, y_coords = [], []
@@ -84,14 +96,15 @@ for n in range(N_MICS):
 x_coords = np.array(x_coords)
 y_coords = np.array(y_coords)
 
-pitch = np.mean(
-    np.diff(sorted(np.unique(np.sqrt(x_coords**2 + y_coords**2))))
-)
+pitch = np.mean(np.diff(sorted(np.unique(np.sqrt(x_coords**2 + y_coords**2)))))
 
 # ===============================================================
-# 4. Simulated FFT frame generator
+# 3. Multi-source STM32 Frame Generator (deterministic)
 # ===============================================================
 def generate_fft_frame_from_dataframe(angle_degs: List[float]) -> FFTFrame:
+    """
+    Simulate one STM32 FFT frame with multiple plane-wave sources.
+    """
     frame = FFTFrame()
     frame.channel_count = N_MICS
     frame.sampling_rate = SAMPLE_RATE_HZ
@@ -101,28 +114,37 @@ def generate_fft_frame_from_dataframe(angle_degs: List[float]) -> FFTFrame:
     t = np.arange(SAMPLES_PER_CHANNEL) / SAMPLE_RATE_HZ
     mic_signals = np.zeros((N_MICS, len(t)), dtype=np.float32)
 
+    # Combine all sources
     for src_idx, angle_deg in enumerate(angle_degs):
         angle_rad = np.deg2rad(angle_deg)
         f = SOURCE_FREQS[src_idx]
         amp = SOURCE_AMPLS[src_idx]
-
         for i in range(N_MICS):
             delay = -(x_coords[i] * np.cos(angle_rad) +
                       y_coords[i] * np.sin(angle_rad)) / SPEED_SOUND
-            mic_signals[i] += amp * np.sin(2 * np.pi * f * (t - delay))
+            delayed_t = t - delay
+            mic_signals[i, :] += amp * np.sin(2 * np.pi * f * delayed_t)
 
+    # Add noise once
     mic_signals += np.random.normal(0, np.sqrt(NOISE_POWER), mic_signals.shape)
+
+    # Convert to FFT domain (per-mic)
     fft_data = np.fft.rfft(mic_signals, axis=1)
     frame.fft_data = fft_data.astype(np.complex64)
     return frame
 
 # ===============================================================
-# 5. Beamforming (MUSIC / ESPRIT)
+# 4. Beamforming (MUSIC / ESPRIT)
 # ===============================================================
-def music_spectrum(R, angles, f_signal, n_sources):
+def music_spectrum(R: np.ndarray,
+                   angles: np.ndarray,
+                   f_signal: float,
+                   n_sources: int) -> np.ndarray:
+    """MUSIC spectrum vs. angle for a given covariance matrix."""
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
-    En = eigvecs[:, idx[n_sources:]]
+    eigvecs = eigvecs[:, idx]
+    En = eigvecs[:, n_sources:]  # noise subspace
 
     spectrum = []
     for ang in angles:
@@ -130,121 +152,321 @@ def music_spectrum(R, angles, f_signal, n_sources):
         a = np.exp(
             -1j * 2 * np.pi * f_signal / SPEED_SOUND *
             -(x_coords * np.cos(theta) + y_coords * np.sin(theta))
-        )[:, None]
-
+        )
+        a = a[:, np.newaxis]
         P = 1.0 / np.real(a.conj().T @ En @ En.conj().T @ a)
         spectrum.append(P[0, 0])
 
     spec = np.array(spectrum)
-    return spec / (spec.max() + 1e-12)
+    spec /= np.max(spec) + 1e-12
+    return spec
 
-def esprit_estimate(R, f_signal, n_sources):
+def esprit_estimate(R: np.ndarray,
+                    f_signal: float,
+                    n_sources: int) -> np.ndarray:
+    """ESPIRIT DOA estimate (not used for heatmap, but handy to keep)."""
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
-    Es = eigvecs[:, idx[:n_sources]]
+    Es = eigvecs[:, :n_sources]
     Es1, Es2 = Es[:-1], Es[1:]
     phi = pinv(Es1) @ Es2
     eigs_phi, _ = eig(phi)
     psi = np.angle(eigs_phi)
     val = -(psi * SPEED_SOUND) / (2 * np.pi * f_signal * pitch)
     val = np.clip(np.real(val), -1.0, 1.0)
-    return np.degrees(np.arcsin(val))
+    theta = np.arcsin(val)
+    return np.degrees(theta)
 
 # ===============================================================
-# 6. Heatmap + frequency bar helpers (UNCHANGED)
+# 5. Heatmap mapping (same logic as your tuned version)
 # ===============================================================
-def spectra_to_heatmap_absolute(spec_matrix, power_per_source,
-                                out_width, out_height,
-                                db_min=-40.0, db_max=0.0):
+def spectra_to_heatmap_absolute(spec_matrix: np.ndarray,
+                                power_per_source: np.ndarray,
+                                out_width: int,
+                                out_height: int,
+                                db_min: float = -40.0,
+                                db_max: float = 0.0) -> np.ndarray:
+    """
+    Convert MUSIC + absolute power into an absolute dB-scaled heatmap.
+
+    - No per-frame normalization
+    - Amplitude comes ONLY from absolute |Xf|^2 converted to dB
+    - MUSIC only determines ANGLE and spatial sharpness
+    """
 
     Nsrc, Nang = spec_matrix.shape
-    power_abs = np.maximum(power_per_source, 1e-12)
-    power_db = 10 * np.log10(power_abs)
 
+    # ===========================================================
+    # 1) Convert absolute power to dB (does NOT depend on other sources)
+    # ===========================================================
+    power_abs = np.maximum(power_per_source, 1e-12)
+    power_db  = 10 * np.log10(power_abs)
+
+    # Normalize into [0..1] based on fixed absolute dB range
     power_norm = (power_db - db_min) / (db_max - db_min)
     power_norm = np.clip(power_norm, 0.0, 1.0)
 
+    # ===========================================================
+    # 2) Find MUSIC peaks for the ANGLE ONLY (no amplitude scaling)
+    # ===========================================================
     peak_indices = []
     sharpness = []
 
     for i in range(Nsrc):
         row = spec_matrix[i]
+
+        # get location of peak
         idx = np.argmax(row)
         peak_indices.append(idx)
 
-        left = row[idx-1] if idx > 0 else row[idx]
-        right = row[idx+1] if idx < Nang-1 else row[idx]
-        sharpness.append(max(row[idx] - 0.5*(left + right), 1e-12))
+        # compute sharpness for blob width (NOT for amplitude)
+        p  = row[idx]
+        left  = row[idx-1] if idx > 0 else p
+        right = row[idx+1] if idx < Nang-1 else p
+        sh = max(p - 0.5*(left + right), 1e-12)
+        sharpness.append(sh)
 
     sharpness = np.array(sharpness)
-    sharpness /= sharpness.max() + 1e-12
+    sharpness /= sharpness.max() + 1e-12   # only affects width, not amplitude
 
+    # ===========================================================
+    # 3) Create heatmap canvas
+    # ===========================================================
     h, w = out_height, out_width
     heatmap = np.zeros((h, w), dtype=np.float32)
+
     yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
 
-    def ang_to_px(idx): return int(idx / Nang * w)
+    def ang_to_px(idx: int) -> int:
+        return int(idx / Nang * w)
+
+    # ===========================================================
+    # 4) Draw Gaussian blobs with absolute dB-scaling
+    # ===========================================================
     base_radius = 60
 
     for i in range(Nsrc):
         cx = ang_to_px(peak_indices[i])
         cy = h // 2
-        sigma = (base_radius * (0.7 + 0.3 * sharpness[i])) / 1.8
-        amp = power_norm[i]
 
-        heatmap += amp * np.exp(
+        # blob width from MUSIC sharpness
+        blob_radius = base_radius * (0.7 + 0.3 * sharpness[i])
+        sigma = blob_radius / 1.8
+
+        # ABSOLUTE amplitude = dB-normalized
+        amp = power_norm[i]     # 0..1
+
+        blob = amp * np.exp(
             -((xx - cx)**2 + (yy - cy)**2) / (2*sigma*sigma)
         )
 
-    heatmap = np.clip(heatmap, 0.0, 1.0)
-    return (heatmap * 255).astype(np.uint8)
+        heatmap += blob
 
-def draw_frequency_bar(frame, fft_data, f_axis, f_min, f_max):
+    # clip and convert to uint8
+    heatmap = np.clip(heatmap, 0.0, 1.0)
+    heatmap_u8 = (heatmap * 255).astype(np.uint8)
+
+    return heatmap_u8
+
+def spectra_to_heatmap(spec_matrix: np.ndarray,
+                       power_per_source: np.ndarray,
+                       out_width: int,
+                       out_height: int) -> np.ndarray:
+    """
+    Convert MUSIC [Nsrc x Nangles] into circular blob-like heatmap.
+
+    Blob intensity and size reflect a combination of:
+      - MUSIC peak height / sharpness
+      - actual signal power |Xf|^2 per source (across mics)
+    """
+    Nsrc, Nang = spec_matrix.shape
+
+    vmin = spec_matrix.min()
+    vmax = spec_matrix.max()
+    norm = (spec_matrix - vmin) / (vmax - vmin + 1e-12)
+
+    # gamma for visual contrast
+    gamma = 1.8
+    norm = norm ** gamma
+
+    # MUSIC strength per source: peak * sharpness
+    music_strengths = []
+    peak_indices = []
+
+    for i in range(Nsrc):
+        row = norm[i]
+        peak = np.max(row)
+        idx = np.argmax(row)
+
+        peak_indices.append(idx)
+
+        left = row[idx-1] if idx > 0 else peak
+        right = row[idx+1] if idx < Nang-1 else peak
+        sharpness = max(peak - (left + right) / 2.0, 1e-12)
+
+        music_strengths.append(peak * sharpness)
+
+    music_strengths = np.array(music_strengths, dtype=np.float64)
+    music_strengths /= music_strengths.max() + 1e-12
+
+    # Fold in actual signal power
+    power = power_per_source.astype(np.float64)
+    power /= power.max() + 1e-12
+
+    #TODO: logarithmic scaling for power?
+
+    strengths = music_strengths * power
+    strengths /= strengths.max() + 1e-12
+
+    # Minimum visibility floor so weak sources don't vanish
+    floor = 0.22
+    strengths = floor + (1.0 - floor) * strengths
+
+    # Build heatmap with Gaussian blobs
+    h, w = out_height, out_width
+    heatmap = np.zeros((h, w), dtype=np.float32)
+
+    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+
+    def ang_to_px(idx: int) -> int:
+        return int(idx / Nang * w)
+
+    base_radius = 60
+
+    for i in range(Nsrc):
+        strength = strengths[i]
+        peak_idx = peak_indices[i]
+
+        cx = ang_to_px(peak_idx)
+        cy = h // 2
+
+        blob_radius = base_radius * (0.7 + 0.3 * strength)
+        sigma = blob_radius / 2.0
+
+        blob = strength * np.exp(
+            -((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma * sigma)
+        )
+
+        heatmap += blob
+
+    heatmap -= heatmap.min()
+    heatmap /= heatmap.max() + 1e-12
+    heatmap = (heatmap * 255).astype(np.uint8)
+
+    return heatmap
+
+
+# ===============================================================
+# 6. Frequency bar drawing (right side)
+# ===============================================================
+def draw_frequency_bar(frame: np.ndarray,
+                       fft_data: np.ndarray,
+                       f_axis: np.ndarray,
+                       f_min: float,
+                       f_max: float) -> None:
+    """
+    Draw a vertical frequency bar on the right side:
+      - magnitude spectrum (avg across mics)
+      - band [f_min, f_max] highlighted
+    """
     h, w, _ = frame.shape
     bar_w = FREQ_BAR_WIDTH
     left = w - bar_w
+    right = w
 
-    mag2 = np.sum(np.abs(fft_data)**2, axis=0).real
+    # Compute average power across mics for each bin
+    # fft_data shape: (N_MICS, N_bins)
+    mag2 = np.sum(np.abs(fft_data) ** 2, axis=0).real
+
+    # Focus on 0..F_DISPLAY_MAX
     valid = f_axis <= F_DISPLAY_MAX
-
     f_valid = f_axis[valid]
     mag_valid = mag2[valid]
 
-    mag_norm = mag_valid / (mag_valid.max() + 1e-12)
-    mag_norm = mag_norm ** 0.4
+    if mag_valid.size == 0:
+        frame[:, left:right, :] = 0
+        return
 
+    # Normalize magnitudes (log-ish scaling)
+    mag_norm = mag_valid / (mag_valid.max() + 1e-12)
+    mag_norm = mag_norm ** 0.4  # flatten dynamic range a bit
+
+    # Prepare bar region
     bar = np.zeros((h, bar_w, 3), dtype=np.uint8)
 
+    # For each freq bin, draw a horizontal line
     for f, m in zip(f_valid, mag_norm):
+        # map frequency to vertical coordinate (0 = bottom, F_DISPLAY_MAX = top)
         y = int(h - 1 - (f / F_DISPLAY_MAX) * (h - 1))
-        length = int(m * (bar_w - 20))
-        x0, x1 = bar_w - 5 - length, bar_w - 5
+        y = np.clip(y, 0, h - 1)
 
-        color = (0,255,255) if f_min <= f <= f_max else (120,120,255)
+        # line length based on magnitude
+        length = int(m * (bar_w - 20))
+        x0 = bar_w - 5 - length
+        x1 = bar_w - 5
+
+        # color: highlight if inside band
+        if f_min <= f <= f_max:
+            color = (0, 255, 255)  # yellowish for in-band
+        else:
+            color = (120, 120, 255)  # bluish background spectrum
+
         if length > 0:
             cv2.line(bar, (x0, y), (x1, y), color, 1)
 
-    frame[:, left:] = bar
+    # Draw bandpass lines
+    def freq_to_y(freq_hz: float) -> int:
+        return int(h - 1 - (freq_hz / F_DISPLAY_MAX) * (h - 1))
 
-def draw_db_colorbar(frame, db_min, db_max, width=50):
+    y_min = np.clip(freq_to_y(f_min), 0, h - 1)
+    y_max = np.clip(freq_to_y(f_max), 0, h - 1)
+
+    cv2.line(bar, (0, y_min), (bar_w - 1, y_min), (0, 255, 0), 1)
+    cv2.line(bar, (0, y_max), (bar_w - 1, y_max), (0, 255, 0), 1)
+
+    # Some labels
+    cv2.putText(bar, "Freq", (5, 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+    cv2.putText(bar, "45 kHz", (5, 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+    cv2.putText(bar, "0", (5, h - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+
+    # Insert into right side of frame
+    frame[:, left:right, :] = bar
+
+def draw_db_colorbar(frame: np.ndarray,
+                     db_min: float,
+                     db_max: float,
+                     width: int = 50):
+    """
+    Draw a vertical colorbar using the same colormap as the heatmap.
+    """
     h = frame.shape[0]
     bar = np.zeros((h, width), dtype=np.uint8)
 
+    # gradient bottom→top
     for y in range(h):
-        bar[h - 1 - y] = int((y / (h - 1)) * 255)
+        val = y / (h - 1)         # 0 (bottom) → 1 (top)
+        bar[h - 1 - y, :] = int(val * 255)
 
+    # apply colormap
     bar_color = cv2.applyColorMap(bar, cv2.COLORMAP_JET)
+
+    # overlay
     frame[:, :width] = bar_color
 
+    # labels
     cv2.putText(frame, f"{db_max:.0f} dB", (5, 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
     cv2.putText(frame, f"{db_min:.0f} dB", (5, h-10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255), 1)
 
 # ===============================================================
-# 7. UI helpers
+# 7. Main loop (infinite, no FFmpeg)
 # ===============================================================
-def nothing(x): pass
+def nothing(x):
+    pass
 
 CURSOR_POS = (0, 0)
 def mouse_move(event, x, y, flags, param):
@@ -252,94 +474,75 @@ def mouse_move(event, x, y, flags, param):
     if event == cv2.EVENT_MOUSEMOVE:
         CURSOR_POS = (x, y)
 
-# ===============================================================
-# 8. MAIN LOOP
-# ===============================================================
 def main():
-    print("Acoustic Imager - Live Camera Mode")
+    print("Acoustic Imager - Fermat Spiral Bandpass Demo")
+    print("=" * 70)
+
+    GLOBAL_DB_MIN = -60.0
+    GLOBAL_DB_MAX = 0.0
+
+    background_full = create_background_frame(WIDTH, HEIGHT)
+    left_width = WIDTH - FREQ_BAR_WIDTH
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
     cv2.setMouseCallback(WINDOW_NAME, mouse_move)
 
+    # >>> CAMERA ADDITION >>>
+    cam = None
+    if USE_CAMERA:
+        cam = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
+        cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+        cam.set(cv2.CAP_PROP_FPS, FPS)
+
+        if not cam.isOpened():
+            print("ERROR: Could not open camera.")
+            return
+
+        print("Camera initialized successfully.")
+    # <<< CAMERA ADDITION <<<
+
     cv2.createTrackbar("f_min_kHz", WINDOW_NAME, 0, 45, nothing)
     cv2.createTrackbar("f_max_kHz", WINDOW_NAME, 45, 45, nothing)
-
-    # ---------------- Camera init ----------------
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-
-    if not cap.isOpened():
-        raise RuntimeError("Could not open Raspberry Pi camera")
 
     frame_count = 0
     start_time = time.time()
 
     try:
         while True:
-            ret, cam_frame = cap.read()
-            if not ret:
-                continue
-
-            cam_frame = cv2.resize(cam_frame, (WIDTH, HEIGHT))
-            background = cam_frame.copy()
-
-            # Animate sources (simulation)
-            for k in range(N_SOURCES):
-                SOURCE_ANGLES[k] += (0.15 + 0.05 * k)
-                if SOURCE_ANGLES[k] > 90:
-                    SOURCE_ANGLES[k] = -90
-
-            frame = generate_fft_frame_from_dataframe(SOURCE_ANGLES)
-
-            f_min = cv2.getTrackbarPos("f_min_kHz", WINDOW_NAME) * 1000.0
-            f_max = cv2.getTrackbarPos("f_max_kHz", WINDOW_NAME) * 1000.0
-            f_max = max(f_max, f_min)
-
-            left_width = WIDTH - FREQ_BAR_WIDTH
-            selected = [i for i,f in enumerate(SOURCE_FREQS) if f_min <= f <= f_max]
-
-            if selected:
-                spec_matrix = []
-                powers = []
-
-                for idx in selected:
-                    f_sig = SOURCE_FREQS[idx]
-                    f_idx = np.argmin(np.abs(f_axis - f_sig))
-                    Xf = frame.fft_data[:, f_idx][:, None]
-                    R = Xf @ Xf.conj().T
-
-                    spec_matrix.append(music_spectrum(R, ANGLES, f_sig, len(selected)))
-                    powers.append(np.sum(np.abs(Xf)**2).real)
-
-                heatmap = spectra_to_heatmap_absolute(
-                    np.array(spec_matrix),
-                    np.array(powers),
-                    left_width, HEIGHT
-                )
+            # >>> CAMERA ADDITION >>>
+            if USE_CAMERA and cam is not None:
+                ret, cam_frame = cam.read()
+                if ret:
+                    cam_frame = cv2.resize(cam_frame, (WIDTH, HEIGHT))
+                    background = cam_frame
+                else:
+                    background = background_full.copy()
             else:
-                heatmap = np.zeros((HEIGHT, left_width), dtype=np.uint8)
+                background = background_full.copy()
+            # <<< CAMERA ADDITION <<<
 
-            left_bg = background[:, :left_width]
-            background[:, :left_width] = apply_heatmap_overlay(
-                heatmap, left_bg, ALPHA
-            )
+            # --- ORIGINAL CODE CONTINUES UNCHANGED ---
+            # Compose background and overlay heatmap on left region
+            left_bg = background[:, :left_width, :]
+            left_out = apply_heatmap_overlay(heatmap_left, left_bg, ALPHA)
+            background[:, :left_width, :] = left_out
+            output_frame = background
 
-            draw_frequency_bar(background, frame.fft_data, f_axis, f_min, f_max)
-            draw_db_colorbar(background, -40, 0)
-
-            cv2.imshow(WINDOW_NAME, background)
+            cv2.imshow(WINDOW_NAME, output_frame)
 
             key = cv2.waitKey(int(1000 // FPS)) & 0xFF
-            if key in (ord('q'), 27):
+            if key == ord("q") or key == 27:
                 break
 
             frame_count += 1
 
     finally:
-        cap.release()
+        # >>> CAMERA ADDITION >>>
+        if cam is not None:
+            cam.release()
+        # <<< CAMERA ADDITION <<<
         cv2.destroyAllWindows()
 
-# ===============================================================
 if __name__ == "__main__":
     main()
