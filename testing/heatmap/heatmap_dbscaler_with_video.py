@@ -494,16 +494,17 @@ def main():
     cam = None
     use_camera = USE_CAMERA  # Local variable to track camera availability
     if USE_CAMERA:
-        print(f"Attempting to open camera at index {CAMERA_INDEX}...")
-        
-        # Try to find a working camera by testing multiple indices
-        camera_found = False
-        test_indices = [CAMERA_INDEX]  # Try configured index first
-        if CAMERA_INDEX != 0:
-            test_indices.append(0)  # Also try index 0
-        test_indices.extend([1, 2])  # Try a few more common indices
-        
-        for test_idx in test_indices:
+        try:
+            print(f"Attempting to open camera at index {CAMERA_INDEX}...")
+            
+            # Try to find a working camera by testing multiple indices
+            camera_found = False
+            test_indices = [CAMERA_INDEX]  # Try configured index first
+            if CAMERA_INDEX != 0:
+                test_indices.append(0)  # Also try index 0
+            test_indices.extend([1, 2])  # Try a few more common indices
+            
+            for test_idx in test_indices:
             if camera_found:
                 break
                 
@@ -612,6 +613,8 @@ def main():
                 print("    - Permissions issue (try: sudo usermod -a -G video $USER)")
         except Exception as e:
             print(f"ERROR: Exception while opening camera: {e}")
+            import traceback
+            traceback.print_exc()
             print("Falling back to static background.")
             use_camera = False
             cam = None
