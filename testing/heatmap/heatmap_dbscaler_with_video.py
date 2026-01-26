@@ -770,7 +770,21 @@ def main():
 
             # Compose background and overlay heatmap on left region
             left_bg = background[:, :left_width, :]
-            left_out = apply_heatmap_overlay(heatmap_left, left_bg, ALPHA)
+            
+            # Apply heatmap with transparency for zero values
+            # Convert heatmap to colored version
+            colored_heatmap = cv2.applyColorMap(heatmap_left, cv2.COLORMAP_JET)
+            
+            # Create alpha mask based on heatmap intensity
+            # Where heatmap is zero (or very low), make it fully transparent
+            heatmap_mask = heatmap_left.astype(np.float32) / 255.0
+            heatmap_mask = np.power(heatmap_mask, 0.5)  # Adjust curve for better visibility
+            heatmap_mask = np.stack([heatmap_mask] * 3, axis=-1)  # Convert to 3-channel
+            
+            # Blend: only show heatmap where there's actual signal
+            left_out = (colored_heatmap * heatmap_mask * ALPHA + 
+                       left_bg * (1 - heatmap_mask * ALPHA)).astype(np.uint8)
+            
             background[:, :left_width, :] = left_out
             output_frame = background
 
