@@ -19,6 +19,15 @@ import numpy as np
 import cv2
 from numpy.linalg import eigh, pinv, eig
 import threading
+import subprocess
+
+# Try to import picamera2 (modern Raspberry Pi camera library)
+try:
+    from picamera2 import Picamera2
+    PICAMERA2_AVAILABLE = True
+except ImportError:
+    PICAMERA2_AVAILABLE = False
+    Picamera2 = None
 
 # ---------------------------------------------------------------------
 # Local imports
@@ -64,6 +73,9 @@ CAMERA_INDEX = 0
 CAMERA_WIDTH = WIDTH
 CAMERA_HEIGHT = HEIGHT
 USE_CAMERA = True
+# For Raspberry Pi, you may need to use libcamera or picamera2
+# Set to True to try libcamera-based capture (Raspberry Pi Camera Module)
+USE_LIBCAMERA = True  # Try libcamera first (for Pi Camera Module)
 # <<< CAMERA ADDITION <<<
 
 # Beamforming / scanning grid
@@ -492,133 +504,158 @@ def main():
 
     # >>> CAMERA ADDITION >>>
     cam = None
-    use_camera = USE_CAMERA  # Local variable to track camera availability
-    camera_index = CAMERA_INDEX  # Local copy of camera index
+    picam2 = None
+    use_camera = USE_CAMERA
+    camera_type = None  # Will be 'picamera2', 'opencv', or None
+    
     if USE_CAMERA:
-        try:
-            print(f"Attempting to open camera at index {camera_index}...")
-            
-            # Try to find a working camera by testing multiple indices
-            camera_found = False
-            test_indices = [camera_index]  # Try configured index first
-            if camera_index != 0:
-                test_indices.append(0)  # Also try index 0
-            test_indices.extend([1, 2])  # Try a few more common indices
-            
-            for test_idx in test_indices:
-                if camera_found:
-                    break
+        # ============================================================
+        # METHOD 1: Try Picamera2 (Raspberry Pi Camera Module)
+        # ============================================================
+        if USE_LIBCAMERA and PICAMERA2_AVAILABLE:
+            try:
+                print("Attempting to open Raspberry Pi camera using picamera2...")
+                picam2 = Picamera2()
+                
+                # Configure camera for video capture
+                config = picam2.create_preview_configuration(
+                    main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
+                )
+                picam2.configure(config)
+                picam2.start()
+                
+                # Give camera time to warm up
+                print("  Warming up camera...")
+                time.sleep(2)
+                
+                # Test capture
+                test_frame = picam2.capture_array()
+                if test_frame is not None and test_frame.size > 0:
+                    print(f"  ✓ Picamera2 initialized successfully! Frame shape: {test_frame.shape}")
+                    camera_type = 'picamera2'
+                    use_camera = True
+                else:
+                    print("  Picamera2 opened but cannot capture frames")
+                    picam2.stop()
+                    picam2.close()
+                    picam2 = None
+            except Exception as e:
+                print(f"  Picamera2 failed: {e}")
+                if picam2 is not None:
+                    try:
+                        picam2.stop()
+                        picam2.close()
+                    except:
+                        pass
+                    picam2 = None
+        
+        # ============================================================
+        # METHOD 2: Try libcamera-vid with GStreamer pipeline
+        # ============================================================
+        if camera_type is None and USE_LIBCAMERA:
+            try:
+                print("Attempting to open camera using GStreamer with libcamera...")
+                # GStreamer pipeline for libcamera
+                gst_pipeline = (
+                    f"libcamerasrc ! "
+                    f"video/x-raw,width={CAMERA_WIDTH},height={CAMERA_HEIGHT},framerate={FPS}/1 ! "
+                    f"videoconvert ! appsink"
+                )
+                
+                cam = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+                
+                if cam.isOpened():
+                    print("  Testing GStreamer libcamera pipeline...")
+                    time.sleep(1)
+                    ret, test_frame = cam.read()
                     
-                print(f"  Trying camera index {test_idx}...")
-                try:
-                    # Try V4L2 first (Linux/Raspberry Pi)
+                    if ret and test_frame is not None and test_frame.size > 0:
+                        print(f"  ✓ GStreamer libcamera pipeline working! Frame shape: {test_frame.shape}")
+                        camera_type = 'opencv'
+                        use_camera = True
+                    else:
+                        print("  GStreamer pipeline opened but cannot read frames")
+                        cam.release()
+                        cam = None
+                else:
+                    print("  Could not open GStreamer libcamera pipeline")
+                    cam = None
+            except Exception as e:
+                print(f"  GStreamer libcamera failed: {e}")
+                if cam is not None:
+                    cam.release()
+                    cam = None
+        
+        # ============================================================
+        # METHOD 3: Try standard OpenCV VideoCapture (USB cameras)
+        # ============================================================
+        if camera_type is None:
+            try:
+                print("Attempting to open camera using standard OpenCV...")
+                camera_index = CAMERA_INDEX
+                test_indices = [camera_index, 0, 1, 2] if camera_index != 0 else [0, 1, 2]
+                test_indices = list(dict.fromkeys(test_indices))  # Remove duplicates
+                
+                for test_idx in test_indices:
+                    print(f"  Trying camera index {test_idx}...")
+                    
+                    # Try V4L2 backend first
                     test_cam = cv2.VideoCapture(test_idx, cv2.CAP_V4L2)
                     if not test_cam.isOpened():
-                        print(f"    V4L2 backend failed for index {test_idx}, trying default backend...")
                         test_cam = cv2.VideoCapture(test_idx)
                     
                     if test_cam.isOpened():
-                        print(f"    Camera at index {test_idx} opened successfully")
-                        # Try to read a frame to verify it works
-                        ret, test_frame = test_cam.read()
-                        print(f"    Frame read attempt: ret={ret}, frame is None: {test_frame is None}, frame size: {test_frame.size if test_frame is not None else 'N/A'}")
+                        # Configure camera
+                        test_cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
+                        test_cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+                        test_cam.set(cv2.CAP_PROP_FPS, FPS)
+                        test_cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                         
+                        # Warm up and test
+                        time.sleep(0.5)
+                        for _ in range(5):  # Discard first few frames
+                            test_cam.read()
+                        
+                        ret, test_frame = test_cam.read()
                         if ret and test_frame is not None and test_frame.size > 0:
                             if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                                print(f"    ✓ Camera found at index {test_idx}! Frame shape: {test_frame.shape}")
+                                print(f"  ✓ OpenCV camera at index {test_idx} working! Frame shape: {test_frame.shape}")
                                 cam = test_cam
-                                camera_found = True
-                                camera_index = test_idx  # Update to working index
-                            else:
-                                print(f"    Camera at index {test_idx} opened but frame has invalid shape: {test_frame.shape}")
-                                test_cam.release()
-                        else:
-                            print(f"    Camera at index {test_idx} opened but cannot read frames (ret={ret})")
-                            print(f"      This might be normal for the first read - trying a few more times...")
-                            # Try a few more times (sometimes first frame is empty)
-                            success = False
-                            for retry in range(3):
-                                time.sleep(0.1)
-                                ret, test_frame = test_cam.read()
-                                if ret and test_frame is not None and test_frame.size > 0:
-                                    if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                                        print(f"    ✓ Camera found at index {test_idx} on retry {retry+1}! Frame shape: {test_frame.shape}")
-                                        cam = test_cam
-                                        camera_found = True
-                                        camera_index = test_idx
-                                        success = True
-                                        break
-                            
-                            if not success:
-                                print(f"    Camera at index {test_idx} still cannot read frames after retries")
-                                test_cam.release()
-                    else:
-                        print(f"    Could not open camera at index {test_idx}")
-                except Exception as e:
-                    print(f"    Exception while testing index {test_idx}: {e}")
-            
-            if not camera_found:
-                print(f"ERROR: Could not find any working camera (tried indices: {test_indices}).")
-                print("Falling back to static background.")
-                print("\nTroubleshooting tips:")
-                print("  - Check if camera is connected and powered")
-                print("  - For Raspberry Pi Camera Module: ensure it's enabled in raspi-config")
-                print("  - Try: libcamera-hello (to test camera)")
-                print("  - Check permissions: sudo usermod -a -G video $USER")
-                print("  - Check if camera is in use: lsof /dev/video*")
-                use_camera = False
-                cam = None
-            else:
-                # Camera found and opened successfully, now configure it
-                # Set camera properties
-                cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-                cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-                cam.set(cv2.CAP_PROP_FPS, FPS)
+                                camera_type = 'opencv'
+                                use_camera = True
+                                break
+                        
+                        test_cam.release()
                 
-                # For Raspberry Pi camera, sometimes need to set buffer size
-                try:
-                    cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Reduce latency
-                except:
-                    pass  # Some backends don't support this
-                
-                # Verify actual resolution
-                actual_width = int(cam.get(cv2.CAP_PROP_FRAME_WIDTH))
-                actual_height = int(cam.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                print(f"Camera configured successfully.")
-                print(f"  Requested: {CAMERA_WIDTH}x{CAMERA_HEIGHT}, Actual: {actual_width}x{actual_height}")
-                
-                # Try to read a test frame to verify camera works
-                # Give camera a moment to initialize (especially important for Pi camera)
-                print("Testing camera read (warming up camera)...")
-                time.sleep(0.5)  # Small delay for camera to initialize
-                
-                # Try reading a few frames (first few might be black/empty)
-                test_success = False
-                for test_attempt in range(5):
-                    ret, test_frame = cam.read()
-                    if ret and test_frame is not None and test_frame.size > 0:
-                        if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                            print(f"  Camera test read successful (attempt {test_attempt+1}): frame shape = {test_frame.shape}")
-                            test_success = True
-                            break
-                    time.sleep(0.1)
-                
-                if not test_success:
-                    print("  WARNING: Camera test read failed after 5 attempts.")
-                    print("  Camera may not be working properly.")
-                    print("  Will continue but may fall back to static background.")
-                    print("  Common issues:")
-                    print("    - Camera not connected or powered")
-                    print("    - Camera already in use by another process")
-                    print("    - Wrong camera index (try CAMERA_INDEX = 0, 1, or 2)")
-                    print("    - Permissions issue (try: sudo usermod -a -G video $USER)")
-        except Exception as e:
-            print(f"ERROR: Exception while opening camera: {e}")
-            import traceback
-            traceback.print_exc()
-            print("Falling back to static background.")
+                if camera_type is None:
+                    print("  Could not find working camera with OpenCV")
+            except Exception as e:
+                print(f"  OpenCV camera failed: {e}")
+                if cam is not None:
+                    cam.release()
+                    cam = None
+        
+        # ============================================================
+        # Final status
+        # ============================================================
+        if camera_type is None:
+            print("\n" + "="*70)
+            print("ERROR: Could not initialize camera with any method")
+            print("="*70)
+            print("\nTroubleshooting for Raspberry Pi Camera Module:")
+            print("  1. Enable camera: sudo raspi-config → Interface Options → Camera")
+            print("  2. Install picamera2: sudo apt install -y python3-picamera2")
+            print("  3. Test camera: libcamera-hello")
+            print("  4. Check camera detection: libcamera-hello --list-cameras")
+            print("\nTroubleshooting for USB cameras:")
+            print("  5. List video devices: ls -l /dev/video*")
+            print("  6. Check permissions: sudo usermod -a -G video $USER")
+            print("  7. Check if in use: sudo lsof /dev/video*")
+            print("\nFalling back to static background.")
+            print("="*70 + "\n")
             use_camera = False
-            cam = None
+        else:
+            print(f"\n✓ Camera initialized successfully using: {camera_type}")
     # <<< CAMERA ADDITION <<<
 
     cv2.createTrackbar("f_min_kHz", WINDOW_NAME, 0, 45, nothing)
@@ -694,21 +731,39 @@ def main():
             # ===================================================
             # CAMERA BACKGROUND SUBSTITUTION (CORRECT LOCATION)
             # ===================================================
-            if use_camera and cam is not None:
-                ret, cam_frame = cam.read()
-                if ret and cam_frame is not None and cam_frame.size > 0:
-                    # Verify frame has valid dimensions
-                    if cam_frame.shape[0] > 0 and cam_frame.shape[1] > 0:
-                        background = cv2.resize(cam_frame, (WIDTH, HEIGHT))
+            if use_camera and camera_type is not None:
+                cam_frame = None
+                
+                try:
+                    if camera_type == 'picamera2' and picam2 is not None:
+                        # Capture from picamera2
+                        cam_frame = picam2.capture_array()
+                        # picamera2 returns RGB, OpenCV uses BGR
+                        if cam_frame is not None and cam_frame.size > 0:
+                            cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
+                    
+                    elif camera_type == 'opencv' and cam is not None:
+                        # Capture from OpenCV VideoCapture
+                        ret, cam_frame = cam.read()
+                        if not ret or cam_frame is None:
+                            cam_frame = None
+                    
+                    # Process captured frame
+                    if cam_frame is not None and cam_frame.size > 0:
+                        if cam_frame.shape[0] > 0 and cam_frame.shape[1] > 0:
+                            background = cv2.resize(cam_frame, (WIDTH, HEIGHT))
+                        else:
+                            if frame_count % 60 == 0:
+                                print(f"WARNING: Camera frame has invalid dimensions: {cam_frame.shape}")
+                            background = background_full.copy()
                     else:
-                        # Invalid frame dimensions
-                        if frame_count % 60 == 0:  # Print every ~2 seconds at 30fps
-                            print(f"WARNING: Camera frame has invalid dimensions: {cam_frame.shape}")
+                        if frame_count % 60 == 0:
+                            print(f"WARNING: Camera frame capture failed")
                         background = background_full.copy()
-                else:
-                    # Camera read failed
-                    if frame_count % 60 == 0:  # Print every ~2 seconds at 30fps
-                        print(f"WARNING: Camera read failed (ret={ret}, frame is None: {cam_frame is None})")
+                
+                except Exception as e:
+                    if frame_count % 60 == 0:
+                        print(f"WARNING: Camera capture exception: {e}")
                     background = background_full.copy()
             else:
                 background = background_full.copy()
@@ -763,7 +818,16 @@ def main():
     finally:
         print("Cleaning up...")
         if cam is not None:
-            cam.release()
+            try:
+                cam.release()
+            except:
+                pass
+        if picam2 is not None:
+            try:
+                picam2.stop()
+                picam2.close()
+            except:
+                pass
         cv2.destroyAllWindows()
 
 
