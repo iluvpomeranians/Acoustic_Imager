@@ -493,14 +493,15 @@ def main():
     # >>> CAMERA ADDITION >>>
     cam = None
     use_camera = USE_CAMERA  # Local variable to track camera availability
+    camera_index = CAMERA_INDEX  # Local copy of camera index
     if USE_CAMERA:
         try:
-            print(f"Attempting to open camera at index {CAMERA_INDEX}...")
+            print(f"Attempting to open camera at index {camera_index}...")
             
             # Try to find a working camera by testing multiple indices
             camera_found = False
-            test_indices = [CAMERA_INDEX]  # Try configured index first
-            if CAMERA_INDEX != 0:
+            test_indices = [camera_index]  # Try configured index first
+            if camera_index != 0:
                 test_indices.append(0)  # Also try index 0
             test_indices.extend([1, 2])  # Try a few more common indices
             
@@ -527,7 +528,7 @@ def main():
                                 print(f"    ✓ Camera found at index {test_idx}! Frame shape: {test_frame.shape}")
                                 cam = test_cam
                                 camera_found = True
-                                CAMERA_INDEX = test_idx  # Update to working index
+                                camera_index = test_idx  # Update to working index
                             else:
                                 print(f"    Camera at index {test_idx} opened but frame has invalid shape: {test_frame.shape}")
                                 test_cam.release()
@@ -544,7 +545,7 @@ def main():
                                         print(f"    ✓ Camera found at index {test_idx} on retry {retry+1}! Frame shape: {test_frame.shape}")
                                         cam = test_cam
                                         camera_found = True
-                                        CAMERA_INDEX = test_idx
+                                        camera_index = test_idx
                                         success = True
                                         break
                             
