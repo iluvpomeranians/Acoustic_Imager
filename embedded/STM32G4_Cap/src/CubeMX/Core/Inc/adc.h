@@ -50,7 +50,10 @@ void MX_ADC3_Init(void);
 void MX_ADC4_Init(void);
 
 /* USER CODE BEGIN Prototypes */
-
+uint8_t ADC_HalfReady(void);
+uint8_t ADC_FullReady(void);
+void ADC_ClearHalfReady(void);
+void ADC_ClearFullReady(void);
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus

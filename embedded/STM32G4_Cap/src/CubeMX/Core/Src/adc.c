@@ -21,6 +21,13 @@
 #include "adc.h"
 
 /* USER CODE BEGIN 0 */
+static volatile uint8_t adc_half_ready = 0;
+static volatile uint8_t adc_full_ready = 0;
+
+uint8_t ADC_HalfReady(void)      { return adc_half_ready; }
+uint8_t ADC_FullReady(void)      { return adc_full_ready; }
+void    ADC_ClearHalfReady(void) { adc_half_ready = 0; }
+void    ADC_ClearFullReady(void) { adc_full_ready = 0; }
 
 /* USER CODE END 0 */
 
@@ -58,11 +65,11 @@ void MX_ADC1_Init(void)
   hadc1.Init.ScanConvMode = ADC_SCAN_ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.NbrOfConversion = 4;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   hadc1.Init.OversamplingMode = DISABLE;
@@ -763,5 +770,18 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 }
 
 /* USER CODE BEGIN 1 */
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1) {
+        adc_half_ready = 1;
+    }
+}
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1) {
+        adc_full_ready = 1;
+    }
+}
+  
 /* USER CODE END 1 */

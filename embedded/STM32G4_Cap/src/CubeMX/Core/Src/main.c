@@ -38,6 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define N_SAMPLES 2048
 
 /* USER CODE END PD */
 
@@ -49,6 +50,10 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+// ADC is 12-bit but pads to 16-bit
+ static uint16_t adc_buf[N_SAMPLES];
+
+
 
 /* USER CODE END PV */
 
@@ -110,9 +115,17 @@ int main(void)
   if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK) {
     Error_Handler();
   }
-  
-  HAL_TIM_Base_Start(&htim6);
-  HAL_ADC_Start(&hadc1);
+
+  // Case of multimode enabled (when multimode feature is available): HAL_ADC_Start_DMA()
+  // *         is designed for single-ADC mode only. For multimode, the dedicated
+  // *         HAL_ADCEx_MultiModeStart_DMA() function must be used.
+  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, N_SAMPLES) != HAL_OK) {
+      Error_Handler();
+  }
+
+  if (HAL_TIM_Base_Start(&htim6) != HAL_OK) {
+      Error_Handler();
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -123,17 +136,33 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+    if (ADC_HalfReady()) {
+        ADC_ClearHalfReady();
+        // process first half
+        // Test blinking an LED here using GPIO?
+        value = adc_buf[0]; // just as a quick peek
+        voltage = value * adc_scalar;
+
+        // Copy from adc_buf to another buffer for processing
+
+    }
+
+    if (ADC_FullReady()) {
+        ADC_ClearFullReady();
+        // process second half
+
+        // Copy from adc_buf to another buffer for processing
+    }
 
 
-
-    value = hadc1.Instance->DR;
-    voltage = value * adc_scalar;
+    // value = hadc1.Instance->DR;
+    // voltage = value * adc_scalar;
     
-    timer_value = __HAL_TIM_GET_COUNTER(&htim6);
+    // timer_value = __HAL_TIM_GET_COUNTER(&htim6);
 
      
     
-    HAL_Delay(100);
+    HAL_Delay(10);
   
   }
   /* USER CODE END 3 */
