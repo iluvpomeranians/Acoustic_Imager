@@ -158,8 +158,8 @@ void MX_ADC2_Init(void)
   hadc2.Init.ContinuousConvMode = ENABLE;
   hadc2.Init.NbrOfConversion = 4;
   hadc2.Init.DiscontinuousConvMode = DISABLE;
-  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc2.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc2.Init.DMAContinuousRequests = ENABLE;
   hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc2.Init.OversamplingMode = DISABLE;
@@ -240,8 +240,8 @@ void MX_ADC3_Init(void)
   hadc3.Init.ContinuousConvMode = ENABLE;
   hadc3.Init.NbrOfConversion = 4;
   hadc3.Init.DiscontinuousConvMode = DISABLE;
-  hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc3.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc3.Init.DMAContinuousRequests = ENABLE;
   hadc3.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc3.Init.OversamplingMode = DISABLE;
@@ -329,8 +329,8 @@ void MX_ADC4_Init(void)
   hadc4.Init.ContinuousConvMode = DISABLE;
   hadc4.Init.NbrOfConversion = 4;
   hadc4.Init.DiscontinuousConvMode = DISABLE;
-  hadc4.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc4.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc4.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc4.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc4.Init.DMAContinuousRequests = ENABLE;
   hadc4.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc4.Init.OversamplingMode = DISABLE;
@@ -770,18 +770,57 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 }
 
 /* USER CODE BEGIN 1 */
+
+// External references to flags in main.c
+extern volatile uint32_t adc_ready_mask;
+extern volatile uint8_t ready_half[4];
+
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    // First half of DMA buffer (samples 0-1023) complete
+    // Set bit [0-3]: Half-complete flags for ADC1-4
+    
     if (hadc->Instance == ADC1) {
+        adc_ready_mask |= (1 << 0);  // ADC1 half-complete
         adc_half_ready = 1;
+        ready_half[0] = 0;  // First half
+    }
+    else if (hadc->Instance == ADC2) {
+        adc_ready_mask |= (1 << 1);  // ADC2 half-complete
+        ready_half[1] = 0;
+    }
+    else if (hadc->Instance == ADC3) {
+        adc_ready_mask |= (1 << 2);  // ADC3 half-complete
+        ready_half[2] = 0;
+    }
+    else if (hadc->Instance == ADC4) {
+        adc_ready_mask |= (1 << 3);  // ADC4 half-complete
+        ready_half[3] = 0;
     }
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
+    // Full DMA buffer (samples 1024-2047) complete, circular restart at 0
+    // Set bit [4-7]: Full-complete flags for ADC1-4
+    
     if (hadc->Instance == ADC1) {
+        adc_ready_mask |= (1 << 4);  // ADC1 full-complete
         adc_full_ready = 1;
+        ready_half[0] = 1;  // Second half
+    }
+    else if (hadc->Instance == ADC2) {
+        adc_ready_mask |= (1 << 5);  // ADC2 full-complete
+        ready_half[1] = 1;
+    }
+    else if (hadc->Instance == ADC3) {
+        adc_ready_mask |= (1 << 6);  // ADC3 full-complete
+        ready_half[2] = 1;
+    }
+    else if (hadc->Instance == ADC4) {
+        adc_ready_mask |= (1 << 7);  // ADC4 full-complete
+        ready_half[3] = 1;
     }
 }
-  
+
 /* USER CODE END 1 */

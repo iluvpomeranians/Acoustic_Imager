@@ -50,10 +50,27 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-// ADC is 12-bit but pads to 16-bit
- static uint16_t adc_buf[N_SAMPLES];
+// Each ADC gets dedicated DMA circular buffer (2048 samples total)
+// Half-buffer = 1024 samples (at 48kHz = 21.3ms)
+static uint16_t adc1_buf[2048];
+static uint16_t adc2_buf[2048];
+static uint16_t adc3_buf[2048];
+static uint16_t adc4_buf[2048];
 
+// FFT Output: Frequency domain results (1024-point FFT → 512 bins per ADC)
+static float fft_out_adc1[512];
+static float fft_out_adc2[512];
+static float fft_out_adc3[512];
+static float fft_out_adc4[512];
 
+// Ping-pong processing flags
+// Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
+static volatile uint32_t adc_ready_mask = 0;
+static volatile uint8_t fft_in_progress = 0;  // Prevent overlapping FFT calculations
+
+// Track which half of buffer is ready for FFT
+// ready_half: 0=first half (0-1023), 1=second half (1024-2047)
+static volatile uint8_t ready_half[4] = {0};  // One per ADC
 
 /* USER CODE END PV */
 
@@ -65,11 +82,10 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+// Optional: For I/O debugging
 uint32_t value = 0;
 float voltage;
 const float adc_scalar = 3.3f / 4095.0f; // 12-bit ADC, 3.3V reference
-const uint32_t adc_timeout_ms = 10;       // short timeout per sample
-uint32_t timer_value;
 /* USER CODE END 0 */
 
 /**
@@ -111,21 +127,22 @@ int main(void)
   MX_TIM6_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-  // ADC calibration is recommended for STM32G4 before using ADC
-  if (HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED) != HAL_OK) {
-    Error_Handler();
-  }
+  
+  // Calibrate all ADCs before use
+  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc3, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc4, ADC_SINGLE_ENDED);
 
-  // Case of multimode enabled (when multimode feature is available): HAL_ADC_Start_DMA()
-  // *         is designed for single-ADC mode only. For multimode, the dedicated
-  // *         HAL_ADCEx_MultiModeStart_DMA() function must be used.
-  if (HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buf, N_SAMPLES) != HAL_OK) {
-      Error_Handler();
-  }
+  // Start Timer6 (triggers all ADCs synchronously)
+  HAL_TIM_Base_Start(&htim6);
 
-  if (HAL_TIM_Base_Start(&htim6) != HAL_OK) {
-      Error_Handler();
-  }
+  // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, 2048);
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, 2048);
+  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2048);
+  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2048);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -136,33 +153,63 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-    if (ADC_HalfReady()) {
-        ADC_ClearHalfReady();
-        // process first half
-        // Test blinking an LED here using GPIO?
-        value = adc_buf[0]; // just as a quick peek
-        voltage = value * adc_scalar;
-
-        // Copy from adc_buf to another buffer for processing
-
+    // FFT Processing Pipeline
+    // When any ADC half-buffer completes, process that acoustic window
+    if (adc_ready_mask && !fft_in_progress) {
+      fft_in_progress = 1;
+      
+      // Check each ADC for ready half-buffers
+      for (int adc = 0; adc < 4; adc++) {
+        uint8_t half_flag = (adc_ready_mask >> adc) & 1;       // Half-complete
+        uint8_t full_flag = (adc_ready_mask >> (adc + 4)) & 1; // Full-complete
+        
+        if (half_flag || full_flag) {
+          // Determine which half of buffer to process
+          uint16_t *buf_ptr = NULL;
+          uint32_t half_offset = 0;
+          
+          if (half_flag) {
+            // Half-complete: First half (0-1023) just finished
+            half_offset = 0;
+            ready_half[adc] = 0;
+          } else {
+            // Full-complete: Second half (1024-2047) just finished
+            half_offset = 1024;
+            ready_half[adc] = 1;
+          }
+          
+          // Select buffer based on ADC
+          if (adc == 0) buf_ptr = adc1_buf;
+          else if (adc == 1) buf_ptr = adc2_buf;
+          else if (adc == 2) buf_ptr = adc3_buf;
+          else if (adc == 3) buf_ptr = adc4_buf;
+          
+          if (buf_ptr) {
+            // ========================================================
+            // FFT PROCESSING SECTION
+            // ========================================================
+            // Process 1024 time-domain samples (4 channels × 256 samples)
+            // Call your FFT here on buf_ptr[half_offset .. half_offset+1023]
+            // Output stored in appropriate fft_out_adc* array
+            // 
+            // Example pseudocode:
+            // float *input = (float*)&buf_ptr[half_offset];
+            // Generate_FFT(input, 256, output_fft);
+            // Send output_fft via SPI to GPU/processing unit
+            // ========================================================
+            
+            // TODO: Call FFT function here
+            // fft_process(adc, buf_ptr, half_offset);
+          }
+        }
+      }
+      
+      // Clear ready flags after processing
+      adc_ready_mask = 0;
+      fft_in_progress = 0;
     }
 
-    if (ADC_FullReady()) {
-        ADC_ClearFullReady();
-        // process second half
-
-        // Copy from adc_buf to another buffer for processing
-    }
-
-
-    // value = hadc1.Instance->DR;
-    // voltage = value * adc_scalar;
-    
-    // timer_value = __HAL_TIM_GET_COUNTER(&htim6);
-
-     
-    
-    HAL_Delay(10);
+    HAL_Delay(1);
   
   }
   /* USER CODE END 3 */
