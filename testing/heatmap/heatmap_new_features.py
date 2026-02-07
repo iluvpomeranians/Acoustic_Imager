@@ -943,11 +943,29 @@ def main():
                     main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
                 )
                 picam2.configure(config)
+                
+                # Set camera controls to fix blue hue issue
+                # The blue hue is typically caused by incorrect white balance
+                try:
+                    # Try different white balance modes to fix blue tint
+                    # Mode 0 = Auto, 1 = Tungsten (warm), 5 = Daylight, 6 = Cloudy
+                    # For blue tint, try Tungsten (1) which adds warmth
+                    controls = {
+                        "AwbEnable": True,
+                        "AwbMode": 1,  # Tungsten mode (adds warmth to counteract blue)
+                        # You can also try: 0 (auto), 5 (daylight), 6 (cloudy)
+                    }
+                    picam2.set_controls(controls)
+                    print(f"  Camera controls set: {controls}")
+                except Exception as e:
+                    print(f"  Note: Could not set camera controls: {e}")
+                    print(f"  You may need to manually adjust white balance")
+                
                 picam2.start()
                 
-                # Give camera time to warm up
-                print("  Warming up camera...")
-                time.sleep(2)
+                # Give camera time to warm up and adjust white balance
+                print("  Warming up camera and adjusting white balance...")
+                time.sleep(3)  # Increased warm-up time for white balance to settle
                 
                 # Test capture
                 test_frame = picam2.capture_array()
@@ -1168,9 +1186,6 @@ def main():
                         # picamera2 returns RGB, OpenCV uses BGR
                         if cam_frame is not None and cam_frame.size > 0:
                             cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
-
-                        # If colors still look wrong, try: cv2.cvtColor(cam_frame, cv2.COLOR_BGR2RGB) instead
-                        # Original line was: cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
                     
                     elif camera_type == 'opencv' and cam is not None:
                         # Capture from OpenCV VideoCapture
