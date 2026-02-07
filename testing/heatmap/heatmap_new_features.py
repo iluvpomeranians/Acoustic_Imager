@@ -514,10 +514,10 @@ def save_screenshot(frame: np.ndarray, output_dir: Path) -> str:
     success = cv2.imwrite(str(filepath), frame)
     
     if success:
-        print(f"✓ Screenshot saved: {filepath}")
+        print(f"Screenshot saved: {filepath}")
         return str(filepath)
     else:
-        print(f"✗ Failed to save screenshot: {filepath}")
+        print(f"Failed to save screenshot: {filepath}")
         return None
 
 
@@ -585,11 +585,11 @@ class VideoRecorder:
             self.frame_count = 0
             self.paused_frames = []
             
-            print(f"✓ Recording started: {self.current_file}")
+            print(f"Recording started: {self.current_file}")
             return True
             
         except Exception as e:
-            print(f"✗ Failed to start recording: {e}")
+            print(f"Failed to start recording: {e}")
             self.is_recording = False
             return False
     
@@ -609,7 +609,7 @@ class VideoRecorder:
             self.frame_count += 1
             return True
         except Exception as e:
-            print(f"✗ Error writing frame: {e}")
+            print(f"Error writing frame: {e}")
             return False
     
     def pause_recording(self):
@@ -623,7 +623,7 @@ class VideoRecorder:
             return False
         
         self.is_paused = True
-        print("⏸ Recording paused")
+        print("Recording paused")
         return True
     
     def resume_recording(self):
@@ -637,7 +637,7 @@ class VideoRecorder:
             return False
         
         self.is_paused = False
-        print("▶ Recording resumed")
+        print("Recording resumed")
         return True
     
     def stop_recording(self) -> str:
@@ -661,18 +661,18 @@ class VideoRecorder:
             self.current_file = None
             self.frame_count = 0
             
-            print(f"✓ Recording stopped: {file_path}")
-            print(f"  Total frames: {frame_count}")
+            print(f"Recording stopped: {file_path}")
+            print(f"Total frames: {frame_count}")
             
             return file_path
             
         except subprocess.TimeoutExpired:
-            print("✗ ffmpeg did not finish in time, forcing termination")
+            print("ffmpeg did not finish in time, forcing termination")
             self.process.kill()
             self.process.wait()
             return None
         except Exception as e:
-            print(f"✗ Error stopping recording: {e}")
+            print(f"Error stopping recording: {e}")
             if self.process:
                 self.process.kill()
             return None
@@ -847,7 +847,7 @@ def handle_button_click(x, y, current_frame=None, output_dir=None, camera_availa
                 buttons['record'].text = "Stop Recording"
                 buttons['record'].is_active = True
             else:
-                print("✗ Failed to start recording")
+                print("Failed to start recording")
                 button_state.is_recording = False
         else:
             # Stop recording
@@ -879,9 +879,9 @@ def handle_button_click(x, y, current_frame=None, output_dir=None, camera_availa
             button_state.camera_enabled = not button_state.camera_enabled
             buttons['camera'].is_active = button_state.camera_enabled
             buttons['camera'].text = "Camera: ON" if button_state.camera_enabled else "Camera: OFF"
-            print(f"📷 Camera toggled: {'ON' if button_state.camera_enabled else 'OFF'}")
+            print(f"Camera toggled: {'ON' if button_state.camera_enabled else 'OFF'}")
         else:
-            print("✗ Camera not available - cannot toggle")
+            print("Camera not available - cannot toggle")
 
 CURSOR_POS = (0, 0)
 CURRENT_FRAME = None
@@ -940,7 +940,7 @@ def main():
                 
                 # Configure camera for video capture
                 config = picam2.create_preview_configuration(
-                    main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
+                    main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "BGR888"}
                 )
                 picam2.configure(config)
                 picam2.start()
@@ -952,16 +952,16 @@ def main():
                 # Test capture
                 test_frame = picam2.capture_array()
                 if test_frame is not None and test_frame.size > 0:
-                    print(f"  ✓ Picamera2 initialized successfully! Frame shape: {test_frame.shape}")
+                    print(f"Picamera2 initialized successfully! Frame shape: {test_frame.shape}")
                     camera_type = 'picamera2'
                     use_camera = True
                 else:
-                    print("  Picamera2 opened but cannot capture frames")
+                    print("Picamera2 opened but cannot capture frames")
                     picam2.stop()
                     picam2.close()
                     picam2 = None
             except Exception as e:
-                print(f"  Picamera2 failed: {e}")
+                print(f"Picamera2 failed: {e}")
                 if picam2 is not None:
                     try:
                         picam2.stop()
@@ -986,23 +986,23 @@ def main():
                 cam = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
                 
                 if cam.isOpened():
-                    print("  Testing GStreamer libcamera pipeline...")
+                    print("Testing GStreamer libcamera pipeline...")
                     time.sleep(1)
                     ret, test_frame = cam.read()
                     
                     if ret and test_frame is not None and test_frame.size > 0:
-                        print(f"  ✓ GStreamer libcamera pipeline working! Frame shape: {test_frame.shape}")
+                        print(f"GStreamer libcamera pipeline working! Frame shape: {test_frame.shape}")
                         camera_type = 'opencv'
                         use_camera = True
                     else:
-                        print("  GStreamer pipeline opened but cannot read frames")
+                        print("GStreamer pipeline opened but cannot read frames")
                         cam.release()
                         cam = None
                 else:
-                    print("  Could not open GStreamer libcamera pipeline")
+                    print("Could not open GStreamer libcamera pipeline")
                     cam = None
             except Exception as e:
-                print(f"  GStreamer libcamera failed: {e}")
+                print(f"GStreamer libcamera failed: {e}")
                 if cam is not None:
                     cam.release()
                     cam = None
@@ -1040,7 +1040,7 @@ def main():
                         ret, test_frame = test_cam.read()
                         if ret and test_frame is not None and test_frame.size > 0:
                             if test_frame.shape[0] > 0 and test_frame.shape[1] > 0:
-                                print(f"  ✓ OpenCV camera at index {test_idx} working! Frame shape: {test_frame.shape}")
+                                print(f"OpenCV camera at index {test_idx} working! Frame shape: {test_frame.shape}")
                                 cam = test_cam
                                 camera_type = 'opencv'
                                 use_camera = True
@@ -1166,8 +1166,11 @@ def main():
                         # Capture from picamera2
                         cam_frame = picam2.capture_array()
                         # picamera2 returns RGB, OpenCV uses BGR
-                        if cam_frame is not None and cam_frame.size > 0:
-                            cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
+                        #if cam_frame is not None and cam_frame.size > 0:
+                        #    cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
+                        # Try without color conversion first - Picamera2 might already output in correct format
+                        # If colors still look wrong, try: cv2.cvtColor(cam_frame, cv2.COLOR_BGR2RGB) instead
+                        # Original line was: cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
                     
                     elif camera_type == 'opencv' and cam is not None:
                         # Capture from OpenCV VideoCapture
