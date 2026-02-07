@@ -940,7 +940,7 @@ def main():
                 
                 # Configure camera for video capture
                 config = picam2.create_preview_configuration(
-                    main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "BGR888"}
+                    main={"size": (CAMERA_WIDTH, CAMERA_HEIGHT), "format": "RGB888"}
                 )
                 picam2.configure(config)
                 picam2.start()
@@ -1166,9 +1166,9 @@ def main():
                         # Capture from picamera2
                         cam_frame = picam2.capture_array()
                         # picamera2 returns RGB, OpenCV uses BGR
-                        #if cam_frame is not None and cam_frame.size > 0:
-                        #    cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
-                        # Try without color conversion first - Picamera2 might already output in correct format
+                        if cam_frame is not None and cam_frame.size > 0:
+                            cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_BGR2RGB)
+
                         # If colors still look wrong, try: cv2.cvtColor(cam_frame, cv2.COLOR_BGR2RGB) instead
                         # Original line was: cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
                     
