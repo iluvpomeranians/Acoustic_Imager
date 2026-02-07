@@ -1167,7 +1167,7 @@ def main():
                         cam_frame = picam2.capture_array()
                         # picamera2 returns RGB, OpenCV uses BGR
                         if cam_frame is not None and cam_frame.size > 0:
-                            cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_BGR2RGB)
+                            cam_frame = cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
 
                         # If colors still look wrong, try: cv2.cvtColor(cam_frame, cv2.COLOR_BGR2RGB) instead
                         # Original line was: cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR)
