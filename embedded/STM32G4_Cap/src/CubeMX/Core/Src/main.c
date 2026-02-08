@@ -67,12 +67,12 @@ static float fft_out_adc4[512];
 
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
-static volatile uint32_t adc_ready_mask = 0;
-static volatile uint8_t fft_in_progress = 0;  // Prevent overlapping FFT calculations
+volatile uint32_t adc_ready_mask = 0;
+volatile uint8_t fft_in_progress = 0;  // Prevent overlapping FFT calculations
 
 // Track which half of buffer is ready for FFT
 // ready_half: 0=first half (0-1023), 1=second half (1024-2047)
-static volatile uint8_t ready_half[4] = {0};  // One per ADC
+volatile uint8_t ready_half[4] = {0};  // One per ADC
 
 /* USER CODE END PV */
 
@@ -84,7 +84,6 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// Optional: For I/O debugging
 uint32_t value = 0;
 float voltage;
 const float adc_scalar = 3.3f / 4095.0f; // 12-bit ADC, 3.3V reference
@@ -187,18 +186,10 @@ int main(void)
           else if (adc == 3) buf_ptr = adc4_buf;
           
           if (buf_ptr) {
-            // ========================================================
-            // FFT PROCESSING SECTION
-            // ========================================================
-            // Process 1024 time-domain samples (4 channels × 256 samples)
-            // Call your FFT here on buf_ptr[half_offset .. half_offset+1023]
-            // Output stored in appropriate fft_out_adc* array
-            // 
             // Example pseudocode:
             // float *input = (float*)&buf_ptr[half_offset];
             // Generate_FFT(input, 256, output_fft);
-            // Send output_fft via SPI to GPU/processing unit
-            // ========================================================
+            // Send output_fft via SPI to RasPi
             
             // TODO: Call FFT function here
             // fft_process(adc, buf_ptr, half_offset);
