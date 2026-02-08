@@ -50,6 +50,8 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+// TODO: Implement LUT for DC bias removal for two gains
+
 // Each ADC gets dedicated DMA circular buffer (2048 samples total)
 // Half-buffer = 1024 samples (at 48kHz = 21.3ms)
 static uint16_t adc1_buf[2048];
