@@ -25,6 +25,7 @@
 #include "usart.h"
 #include "usb.h"
 #include "gpio.h"
+#include "arm_math.h"  // CMSIS-DSP library
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -87,6 +88,17 @@ void SystemClock_Config(void);
 uint32_t value = 0;
 float voltage;
 const float adc_scalar = 3.3f / 4095.0f; // 12-bit ADC, 3.3V reference
+
+float abi_probe(float a, float b) {
+    return a + b;
+}
+
+void cmsis_dsp_smoketest(void)
+{
+    arm_rfft_fast_instance_f32 fft;
+    arm_rfft_fast_init_f32(&fft, 128);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -193,6 +205,7 @@ int main(void)
             
             // TODO: Call FFT function here
             // fft_process(adc, buf_ptr, half_offset);
+            
           }
         }
       }

@@ -23,6 +23,11 @@ downloads/
 eggs/
 .eggs/
 lib/
+
+# Bypass lib/ ignore for CubeMX DSP library
+!src/CubeMX/Drivers/CMSIS/DSP/Lib/
+!src/CubeMX/Drivers/CMSIS/DSP/Lib/**
+
 lib64/
 parts/
 sdist/
