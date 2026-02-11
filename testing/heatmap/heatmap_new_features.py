@@ -917,6 +917,7 @@ def main():
     video_recorder = VideoRecorder(OUTPUT_DIR, WIDTH, HEIGHT, FPS)
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.setMouseCallback(WINDOW_NAME, mouse_move)
     
     # Initialize buttons (pass left_width and camera availability)
