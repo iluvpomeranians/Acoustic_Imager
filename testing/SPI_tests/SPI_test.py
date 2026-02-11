@@ -1,5 +1,6 @@
 import spidev
 import time
+import random
 
 # Open SPI bus 0, device 0 (CE0)
 spi = spidev.SpiDev()
@@ -14,7 +15,7 @@ print("SPI loopback test started...")
 
 try:
     while True:
-        tx_data = [0x12, 0x34, 0xAB, 0xCD]
+        tx_data = [random.randint(0, 255) for _ in range(16)]  # 16 random bytes
 
         rx_data = spi.xfer2(tx_data)
 
