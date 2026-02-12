@@ -774,6 +774,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 // External references to flags in main.c
 extern volatile uint32_t adc_ready_mask;
 extern volatile uint8_t ready_half[4];
+extern volatile uint32_t irq_events;
 extern volatile uint32_t irq_count_adc[4];
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
