@@ -1,7 +1,7 @@
 
 # Firmware TODO
 
-- [ ] Check one ADC with 3 diff resistor combinations (increasing resistance) and check
+- [ ] Check one ADC with 3 diff resistor combinations (increasing resistance) and check -> CHECKED, MUST FIX GAIN, EITHER 0 OR 3.3V
 - [ ] Test counter in the main loop for the interrupts
 - [x] Evaluate using CMSIS for FFTs and fixed point representation
         -> Added CMSIS DSP to build. Probably not worth to switch to fixed point.

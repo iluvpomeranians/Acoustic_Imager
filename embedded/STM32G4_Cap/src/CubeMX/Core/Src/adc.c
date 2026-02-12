@@ -774,53 +774,70 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 // External references to flags in main.c
 extern volatile uint32_t adc_ready_mask;
 extern volatile uint8_t ready_half[4];
+extern volatile uint32_t irq_count_adc[4];
 
 void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
 {
-    // First half of DMA buffer (samples 0-1023) complete
-    // Set bit [0-3]: Half-complete flags for ADC1-4
+  // First half of DMA buffer (samples 0-1023) complete
+  // Set bit [0-3]: Half-complete flags for ADC1-4
     
-    if (hadc->Instance == ADC1) {
-        adc_ready_mask |= (1 << 0);  // ADC1 half-complete
-        adc_half_ready = 1;
-        ready_half[0] = 0;  // First half
-    }
-    else if (hadc->Instance == ADC2) {
-        adc_ready_mask |= (1 << 1);  // ADC2 half-complete
-        ready_half[1] = 0;
-    }
-    else if (hadc->Instance == ADC3) {
-        adc_ready_mask |= (1 << 2);  // ADC3 half-complete
-        ready_half[2] = 0;
-    }
-    else if (hadc->Instance == ADC4) {
-        adc_ready_mask |= (1 << 3);  // ADC4 half-complete
-        ready_half[3] = 0;
-    }
+  if (hadc->Instance == ADC1) {
+    adc_ready_mask |= (1 << 0);  // ADC1 half-complete
+    adc_half_ready = 1;
+    ready_half[0] = 0;  // First half
+    irq_events++;
+    irq_count_adc[0]++;
+  }
+  else if (hadc->Instance == ADC2) {
+    adc_ready_mask |= (1 << 1);  // ADC2 half-complete
+    ready_half[1] = 0;
+    irq_events++;
+    irq_count_adc[1]++;
+  }
+  else if (hadc->Instance == ADC3) {
+    adc_ready_mask |= (1 << 2);  // ADC3 half-complete
+    ready_half[2] = 0;
+    irq_events++;
+    irq_count_adc[2]++;
+  }
+  else if (hadc->Instance == ADC4) {
+    adc_ready_mask |= (1 << 3);  // ADC4 half-complete
+    ready_half[3] = 0;
+    irq_events++;
+    irq_count_adc[3]++;
+  }
 }
 
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 {
-    // Full DMA buffer (samples 1024-2047) complete, circular restart at 0
-    // Set bit [4-7]: Full-complete flags for ADC1-4
+  // Full DMA buffer (samples 1024-2047) complete, circular restart at 0
+  // Set bit [4-7]: Full-complete flags for ADC1-4
     
-    if (hadc->Instance == ADC1) {
-        adc_ready_mask |= (1 << 4);  // ADC1 full-complete
-        adc_full_ready = 1;
-        ready_half[0] = 1;  // Second half
-    }
-    else if (hadc->Instance == ADC2) {
-        adc_ready_mask |= (1 << 5);  // ADC2 full-complete
-        ready_half[1] = 1;
-    }
-    else if (hadc->Instance == ADC3) {
-        adc_ready_mask |= (1 << 6);  // ADC3 full-complete
-        ready_half[2] = 1;
-    }
-    else if (hadc->Instance == ADC4) {
-        adc_ready_mask |= (1 << 7);  // ADC4 full-complete
-        ready_half[3] = 1;
-    }
+  if (hadc->Instance == ADC1) {
+    adc_ready_mask |= (1 << 4);  // ADC1 full-complete
+    adc_full_ready = 1;
+    ready_half[0] = 1;  // Second half
+    irq_events++;
+    irq_count_adc[0]++;
+  }
+  else if (hadc->Instance == ADC2) {
+    adc_ready_mask |= (1 << 5);  // ADC2 full-complete
+    ready_half[1] = 1;
+    irq_events++;
+    irq_count_adc[1]++;
+  }
+  else if (hadc->Instance == ADC3) {
+    adc_ready_mask |= (1 << 6);  // ADC3 full-complete
+    ready_half[2] = 1;
+    irq_events++;
+    irq_count_adc[2]++;
+  }
+  else if (hadc->Instance == ADC4) {
+    adc_ready_mask |= (1 << 7);  // ADC4 full-complete
+    ready_half[3] = 1;
+    irq_events++;
+    irq_count_adc[3]++;
+  }
 }
 
 /* USER CODE END 1 */

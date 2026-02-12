@@ -25,6 +25,7 @@
 #include "usart.h"
 #include "usb.h"
 #include "gpio.h"
+#include <stdio.h>
 #include "arm_math.h"  // CMSIS-DSP library
 
 /* Private includes ----------------------------------------------------------*/
@@ -51,8 +52,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-// TODO: Implement LUT for DC bias removal for two gains
-
 // Each ADC gets dedicated DMA circular buffer (2048 samples total)
 // Half-buffer = 1024 samples (at 48kHz = 21.3ms)
 static uint16_t adc1_buf[2048];
@@ -74,6 +73,10 @@ volatile uint8_t fft_in_progress = 0;  // Prevent overlapping FFT calculations
 // Track which half of buffer is ready for FFT
 // ready_half: 0=first half (0-1023), 1=second half (1024-2047)
 volatile uint8_t ready_half[4] = {0};  // One per ADC
+
+// Interrupt counters (for debug / watch)
+volatile uint32_t irq_events = 0;            // total ADC IRQ events
+volatile uint32_t irq_count_adc[4] = {0};    // per-ADC IRQ counters
 
 /* USER CODE END PV */
 
@@ -213,6 +216,24 @@ int main(void)
       // Clear ready flags after processing
       adc_ready_mask = 0;
       fft_in_progress = 0;
+    }
+
+    /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
+    static uint32_t _print_counter = 0;
+    if (++_print_counter >= 1000) {
+      _print_counter = 0;
+      char _buf[128];
+      int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
+                          (unsigned long)irq_events,
+                          (unsigned long)irq_count_adc[0],
+                          (unsigned long)irq_count_adc[1],
+                          (unsigned long)irq_count_adc[2],
+                          (unsigned long)irq_count_adc[3],
+                          (unsigned long)adc_ready_mask);
+      if (_len > 0) {
+        extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h */
+        HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
+      }
     }
 
     HAL_Delay(1);
