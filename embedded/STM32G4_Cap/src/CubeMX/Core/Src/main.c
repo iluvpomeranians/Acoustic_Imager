@@ -23,10 +23,8 @@
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
-#include "usb.h"
+#include "usb_device.h"
 #include "gpio.h"
-#include <stdio.h>
-#include "arm_math.h"  // CMSIS-DSP library
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -96,11 +94,13 @@ float abi_probe(float a, float b) {
     return a + b;
 }
 
+/*
 void cmsis_dsp_smoketest(void)
 {
     arm_rfft_fast_instance_f32 fft;
     arm_rfft_fast_init_f32(&fft, 128);
 }
+*/
 
 /* USER CODE END 0 */
 
@@ -139,9 +139,9 @@ int main(void)
   MX_ADC3_Init();
   MX_ADC4_Init();
   MX_SPI4_Init();
-  MX_USB_PCD_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
+  MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
   
   // Calibrate all ADCs before use
