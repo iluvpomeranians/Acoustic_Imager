@@ -2,14 +2,24 @@ import spidev
 import time
 import os
 import zlib
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1] / "dataframe"))
+from fftframe import FFTFrame
+
+N_MICS = 16
+SAMPLE_RATE_HZ = 100000
+SAMPLES_PER_CHANNEL = 1024
+
 
 # Target payload: 513 bins * 4 bytes * 16 channels
 FRAME_BYTES = 513 * 4 * 16          # 32832 bytes
 FPS_TARGET = 30
 CHUNK = 4096                         # 4096 or 8192 are good starting points
-SPI_HZ = 12_000_000                  # try 10_000_000 first, then 12/16/20 MHz
+SPI_HZ = 16_000_000                  # try 10_000_000 first, then 12/16/20 MHz
 
-DURATION_S = 10                      # how long to run the test
+DURATION_S = 100                     # how long to run the test
 
 def make_frame(seq: int) -> bytearray:
     """
