@@ -13,7 +13,7 @@ ACOUSTIC_USER="acousticlord"
 ACOUSTIC_GROUP="acousticlord"
 PROJECT_DIR="/home/acousticlord/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/acousticlord/Capstone_490_Software/main.py"
+APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_new_features.py"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
@@ -98,7 +98,9 @@ echo "Installing Acoustic UI service..."
 apt-get update -y
 apt-get install -y tmux
 
-# Create wrapper
+# ----------------------------
+# Create runtime wrapper
+# ----------------------------
 cat > "$RUN_WRAPPER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -121,11 +123,14 @@ EOF
 
 chmod 0755 "$RUN_WRAPPER"
 
+# ----------------------------
 # Create systemd service
+# ----------------------------
 cat > "/etc/systemd/system/$SERVICE_NAME" <<EOF
 [Unit]
 Description=Acoustic Imager UI (tmux managed)
-After=network.target
+After=graphical.target network-online.target
+Wants=graphical.target
 
 [Service]
 Type=oneshot
@@ -133,20 +138,29 @@ User=$ACOUSTIC_USER
 Group=$ACOUSTIC_GROUP
 WorkingDirectory=$PROJECT_DIR
 RemainAfterExit=yes
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/$ACOUSTIC_USER/.Xauthority
 ExecStart=$RUN_WRAPPER
 ExecStop=/usr/bin/tmux kill-session -t $TMUX_SESSION
 Restart=on-failure
 RestartSec=1
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
 EOF
 
+# ----------------------------
+# Activate service
+# ----------------------------
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
+systemctl start "$SERVICE_NAME"
 
 echo "Installation complete."
 
 handle_dev_mode
 
+echo
 echo "Setup complete."
+echo "Reboot to verify auto-start:"
+echo "  sudo reboot"
