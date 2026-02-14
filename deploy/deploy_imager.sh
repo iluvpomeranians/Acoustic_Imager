@@ -13,7 +13,7 @@ ACOUSTIC_USER="acousticlord"
 ACOUSTIC_GROUP="acousticlord"
 PROJECT_DIR="/home/acousticlord/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_new_features.py"
+APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing.py"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
@@ -114,10 +114,13 @@ fi
 
 cd "$PROJECT_DIR"
 
+LOGFILE="/tmp/acoustic_ui.log"
+
 if /usr/bin/tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
   echo "[acoustic-ui] Session already running."
 else
-  exec /usr/bin/tmux new-session -d -s "$TMUX_SESSION" "$PYTHON_BIN $APP_ENTRY"
+  exec /usr/bin/tmux new-session -d -s "$TMUX_SESSION" \
+  "$PYTHON_BIN -u $APP_ENTRY 2>&1 | tee -a \$LOGFILE"
 fi
 EOF
 
