@@ -129,8 +129,9 @@ chmod 0755 "$RUN_WRAPPER"
 cat > "/etc/systemd/system/$SERVICE_NAME" <<EOF
 [Unit]
 Description=Acoustic Imager UI (tmux managed)
-After=graphical.target network-online.target
-Wants=graphical.target
+After=display-manager.service
+Wants=display-manager.service
+WantedBy=graphical.target
 
 [Service]
 Type=oneshot
