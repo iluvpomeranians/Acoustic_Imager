@@ -218,3 +218,6 @@ __marimo__/
 testing/heatmap/heatmap_captures/
 *.mp4
 *.png
+
+# wav files
+*.wav
