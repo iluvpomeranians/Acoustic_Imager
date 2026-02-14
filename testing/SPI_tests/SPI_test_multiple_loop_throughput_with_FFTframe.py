@@ -3,13 +3,15 @@ import time
 import zlib
 import sys
 import struct
-import os
+import csv
 import resource
 import numpy as np
+import matplotlib.pyplot as plt
 from pathlib import Path
 
+# If you don't need FFTFrame for this sweep test, you can remove these two lines.
 sys.path.append(str(Path(__file__).resolve().parents[1] / "dataframe"))
-from fftframe import FFTFrame
+from fftframe import FFTFrame  # noqa: F401
 
 # ---------------------------
 # Config
@@ -23,17 +25,19 @@ N_BINS = SAMPLES_PER_CHANNEL // 2 + 1  # 513
 
 FPS_TARGET = 30
 CHUNK = 4096
-SPI_HZ = 100_000_000
-DURATION_S = 10
+DURATION_S = 5  # per-speed test duration (seconds)
 
-LIMIT_30_FPS_MODE = False
-CRC_EVERY_N = 10
+LIMIT_30_FPS_MODE = False   # False = unthrottled
+CRC_EVERY_N = 1             # set to 1 during sweep to find corruption cliff
 
+SWEEP_MHZ_START = 30
+SWEEP_MHZ_END = 120
+SWEEP_MHZ_STEP = 10
 
 # ---------------------------
-# Frame format (example)
+# Frame format
 # ---------------------------
-MAGIC_START = 0x46524654  # 'TF RF' (just a tag) - pick anything stable
+MAGIC_START = 0x46524654  # arbitrary stable tag
 MAGIC_END   = 0x454E4421  # 'END!'
 
 VERSION = 1
@@ -61,12 +65,11 @@ def make_payload(seq: int) -> bytes:
     Deterministic payload shaped like (N_MICS, N_BINS) float32.
     This emulates '513 bins * 4 bytes * 16 channels'.
     """
-    # Create stable-but-changing values based on seq
-    # (fast to generate; no trig)
     base = (seq % 1024) * 0.01
     arr = np.empty((N_MICS, N_BINS), dtype=np.float32)
+    bins_vec = (np.arange(N_BINS, dtype=np.float32) * 1e-4)
     for ch in range(N_MICS):
-        arr[ch, :] = base + ch + (np.arange(N_BINS, dtype=np.float32) * 1e-4)
+        arr[ch, :] = base + ch + bins_vec
     return arr.tobytes(order="C")
 
 
@@ -87,10 +90,8 @@ def make_frame(seq: int) -> bytearray:
         len(payload),
     )
 
-    # CRC over header + payload (common embedded pattern)
     crc = zlib.crc32(header)
     crc = zlib.crc32(payload, crc) & 0xFFFFFFFF
-
     trailer = struct.pack(TRAILER_FMT, crc, MAGIC_END)
 
     return bytearray(header + payload + trailer)
@@ -101,19 +102,18 @@ def xfer_bytes(spi: spidev.SpiDev, tx: memoryview) -> bytearray:
     offset = 0
     while offset < len(tx):
         end = min(offset + CHUNK, len(tx))
-        chunk = tx[offset:end]           # bytes/bytearray slice
-        r = spi.xfer2(chunk)
+        chunk = tx[offset:end]
+        r = spi.xfer2(chunk)  # works on your Pi; avoids list() conversion
         rx[offset:end] = bytes(r)
         offset = end
     return rx
 
 
 def crc_validate_frame(buf: bytes) -> bool:
-    """Basic check: header magic, lengths, end magic, crc."""
+    """Full validation: framing + CRC."""
     if len(buf) != FRAME_BYTES:
         return False
 
-    # Parse header
     try:
         (magic, ver, hdr_len, seq, mic, fft_size, fs, bins, _res, pay_len) = struct.unpack_from(
             HEADER_FMT, buf, 0
@@ -128,31 +128,27 @@ def crc_validate_frame(buf: bytes) -> bool:
     if pay_len != PAYLOAD_LEN:
         return False
 
-    payload_off = HEADER_LEN
     trailer_off = HEADER_LEN + PAYLOAD_LEN
-
     (crc_rx, magic_end) = struct.unpack_from(TRAILER_FMT, buf, trailer_off)
     if magic_end != MAGIC_END:
         return False
 
     header = buf[:HEADER_LEN]
-    payload = buf[payload_off:payload_off + PAYLOAD_LEN]
+    payload = buf[HEADER_LEN:HEADER_LEN + PAYLOAD_LEN]
     crc = zlib.crc32(header)
     crc = zlib.crc32(payload, crc) & 0xFFFFFFFF
-
     return crc == crc_rx
 
 
-def fast_validate_frame(buf: bytes) -> tuple[bool, str]:
+def framing_validate_frame(buf: bytes) -> tuple[bool, str]:
+    """Fast framing validation only (no CRC)."""
     if len(buf) != FRAME_BYTES:
         return False, "len"
 
-    # header magic quick
     (magic,) = struct.unpack_from("<I", buf, 0)
     if magic != MAGIC_START:
         return False, "magic_start"
 
-    # unpack header once
     try:
         (magic, ver, hdr_len, seq, mic, fft_size, fs, bins, _res, pay_len) = struct.unpack_from(
             HEADER_FMT, buf, 0
@@ -167,7 +163,6 @@ def fast_validate_frame(buf: bytes) -> tuple[bool, str]:
     if pay_len != PAYLOAD_LEN:
         return False, "pay_len"
 
-    # footer magic quick
     (_, magic_end) = struct.unpack_from(TRAILER_FMT, buf, HEADER_LEN + PAYLOAD_LEN)
     if magic_end != MAGIC_END:
         return False, "magic_end"
@@ -175,59 +170,18 @@ def fast_validate_frame(buf: bytes) -> tuple[bool, str]:
     return True, "ok"
 
 
-def get_mem_stats_linux():
-    """Return (rss_mb, mem_total_mb, mem_avail_mb) using /proc on Linux."""
-    rss_kb = 0
-    with open("/proc/self/status", "r") as f:
-        for line in f:
-            if line.startswith("VmRSS:"):
-                rss_kb = int(line.split()[1])
-                break
-
-    mem_total_kb = mem_avail_kb = 0
-    with open("/proc/meminfo", "r") as f:
-        for line in f:
-            if line.startswith("MemTotal:"):
-                mem_total_kb = int(line.split()[1])
-            elif line.startswith("MemAvailable:"):
-                mem_avail_kb = int(line.split()[1])
-
-    return rss_kb / 1024.0, mem_total_kb / 1024.0, mem_avail_kb / 1024.0
-
-
 def get_cpu_time_seconds():
-    """Return (user_cpu_s, sys_cpu_s) consumed by this process."""
     ru = resource.getrusage(resource.RUSAGE_SELF)
     return ru.ru_utime, ru.ru_stime
 
 
-def print_kv_table(title: str, rows, col1_w=24):
-    """
-    rows: list of (key, value_str)
-    """
-    print(f"\n{title}")
-    print("-" * (col1_w + 2 + 40))
-    for k, v in rows:
-        print(f"{k:<{col1_w}} : {v}")
-
-
-def main():
+def run_test(spi_hz: int) -> dict:
     spi = spidev.SpiDev()
     spi.open(0, 0)
     spi.mode = 0
     spi.bits_per_word = 8
-    spi.max_speed_hz = SPI_HZ
-    sclk_reported_hz = spi.max_speed_hz
-
-
-    print(f"SPI Hz: {SPI_HZ:,}")
-    print(f"Frame bytes (with hdr+crc+footer): {FRAME_BYTES}")
-    # print(f"Target FPS: {FPS_TARGET}  | Target rate: {FRAME_BYTES*FPS_TARGET/1e6:.3f} MB/s")
-    print(f"Chunk size: {CHUNK}")
-    print("Running... (no printing in the loop)")
-
-    t_start = time.perf_counter()
-    t_end = t_start + DURATION_S
+    spi.max_speed_hz = spi_hz
+    sclk_reported_hz = spi.max_speed_hz  # snapshot
 
     frames = 0
     bad_loopback = 0
@@ -235,13 +189,15 @@ def main():
     crc_checked = 0
     crc_skipped = 0
     bad_crc = 0
-
     bytes_total = 0
-    next_deadline = t_start
+    next_deadline = time.perf_counter()
+
+    t_start = time.perf_counter()
+    t_end = t_start + DURATION_S
+    u0, s0 = get_cpu_time_seconds()
 
     try:
         seq = 0
-        u0, s0 = get_cpu_time_seconds()
         while True:
             now = time.perf_counter()
             if now >= t_end:
@@ -258,8 +214,7 @@ def main():
             if rx != tx:
                 bad_loopback += 1
 
-            # Framing: Magic, length, version, sanity
-            ok, why = fast_validate_frame(rx)
+            ok, why = framing_validate_frame(rx)
             if not ok:
                 bad_parse += 1
                 crc_skipped += 1
@@ -269,8 +224,6 @@ def main():
                     if not crc_validate_frame(rx):
                         bad_crc += 1
 
-
-
             frames += 1
             bytes_total += FRAME_BYTES
             seq += 1
@@ -279,48 +232,96 @@ def main():
         spi.close()
 
     elapsed = time.perf_counter() - t_start
+    u1, s1 = get_cpu_time_seconds()
+    proc_cpu = (u1 - u0) + (s1 - s0)
+    cpu_pct_1core = 100.0 * proc_cpu / elapsed
+
     mb_s = bytes_total / elapsed / 1e6
     mbps = (bytes_total * 8) / elapsed / 1e6
     fps = frames / elapsed
 
-    # Get CPU time and memory stats
-    u1, s1 = get_cpu_time_seconds()
-    proc_cpu = (u1 - u0) + (s1 - s0)
-    cpu_pct_1core = 100.0 * proc_cpu / elapsed  # can exceed 100% if multithreaded (yours isn't)
-
-    rss_mb, mem_total_mb, mem_avail_mb = get_mem_stats_linux()
-    mem_used_pct = 100.0 * (mem_total_mb - mem_avail_mb) / mem_total_mb
-
-
-    print_kv_table("RESULTS", [
-    ("Elapsed", f"{elapsed:.3f} s"),
-    ("Frames", f"{frames}"),
-    ("FPS achieved", f"{fps:.2f}"),
-    ("Data transferred", f"{bytes_total/1e6:.3f} MB"),
-    ("Throughput", f"{mb_s:.3f} MB/s  ({mbps:.3f} Mb/s)"),
-    ("Loopback mismatches", f"{bad_loopback}"),
-    ("Frame validate fails", f"{bad_parse}"),
-    ("CRC fails (1/N frames)", f"{bad_crc}  (every {CRC_EVERY_N})"),
-    ("CRC checked", f"{crc_checked}"),
-    ("CRC skipped (framing failed)", f"{crc_skipped}"),
+    return {
+        "spi_hz_req": spi_hz,
+        "sclk_hz_rep": sclk_reported_hz,
+        "elapsed_s": elapsed,
+        "frames": frames,
+        "fps": fps,
+        "mb_s": mb_s,
+        "mbps": mbps,
+        "bad_loopback": bad_loopback,
+        "bad_parse": bad_parse,
+        "crc_checked": crc_checked,
+        "crc_skipped": crc_skipped,
+        "bad_crc": bad_crc,
+        "cpu_pct_1core": cpu_pct_1core,
+    }
 
 
-    ])
+def main():
+    speeds_mhz = list(range(SWEEP_MHZ_START, SWEEP_MHZ_END + 1, SWEEP_MHZ_STEP))
+    results = []
 
-    print_kv_table("RESOURCE USAGE", [
-        ("Process CPU time", f"{proc_cpu:.3f} s"),
-        ("Process CPU load", f"~{cpu_pct_1core:.1f}% of 1 core"),
-        ("Process RSS", f"{rss_mb:.1f} MB"),
-        ("System RAM used", f"{mem_used_pct:.1f}%"),
-        ("System RAM avail", f"{mem_avail_mb:.0f} MB / {mem_total_mb:.0f} MB"),
-        ("Mode", f"LIMITED {FPS_TARGET} FPS" if LIMIT_30_FPS_MODE else "UNTHROTTLED (max)"),
-        ("Chunk size", f"{CHUNK} B"),
-        ("Frame size", f"{FRAME_BYTES} B"),
-        ("SCLK requested", f"{SPI_HZ/1e6:.1f} MHz"),
-        ("SCLK reported", f"{sclk_reported_hz/1e6:.1f} MHz"),
+    print(f"Frame bytes: {FRAME_BYTES} | Chunk: {CHUNK} | Duration/pt: {DURATION_S}s")
+    print(f"Mode: {'LIMITED' if LIMIT_30_FPS_MODE else 'UNTHROTTLED'} | CRC every N: {CRC_EVERY_N}")
+    print("Sweep:", speeds_mhz, "MHz\n")
 
+    for mhz in speeds_mhz:
+        hz = mhz * 1_000_000
+        r = run_test(hz)
+        results.append(r)
 
-    ])
+        print(
+            f"{mhz:>3} MHz -> {r['mbps']:>6.2f} Mb/s | fps {r['fps']:>6.1f} | "
+            f"loopBad {r['bad_loopback']:>4} | parseBad {r['bad_parse']:>4} | "
+            f"crcBad {r['bad_crc']:>3} (chk {r['crc_checked']}, skip {r['crc_skipped']})"
+        )
+
+    # Summary table
+    print("\nSUMMARY")
+    print("MHz  Mb/s    FPS   loopBad  parseBad  crcBad  crcChk  crcSkip  CPU%")
+    print("--------------------------------------------------------------------")
+    for r in results:
+        mhz = r["spi_hz_req"] / 1e6
+        print(
+            f"{mhz:>3.0f}  {r['mbps']:>6.1f}  {r['fps']:>6.1f}  "
+            f"{r['bad_loopback']:>7}  {r['bad_parse']:>8}  {r['bad_crc']:>6}  "
+            f"{r['crc_checked']:>6}  {r['crc_skipped']:>7}  {r['cpu_pct_1core']:>4.1f}"
+        )
+
+    # Save CSV
+    out_csv = "spi_sweep_results.csv"
+    with open(out_csv, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=results[0].keys())
+        w.writeheader()
+        w.writerows(results)
+    print(f"\nWrote: {out_csv}")
+
+    # Plot throughput vs MHz
+    mhz = [r["spi_hz_req"] / 1e6 for r in results]
+    mbps = [r["mbps"] for r in results]
+    loop_bad = [r["bad_loopback"] for r in results]
+    parse_bad = [r["bad_parse"] for r in results]
+    crc_bad = [r["bad_crc"] for r in results]
+
+    plt.figure()
+    plt.plot(mhz, mbps, marker="o")
+    plt.xlabel("SPI clock (MHz)")
+    plt.ylabel("Throughput (Mb/s)")
+    plt.title("SPI loopback throughput vs clock")
+    plt.grid(True)
+
+    plt.figure()
+    plt.plot(mhz, loop_bad, marker="o", label="Loopback mismatches")
+    plt.plot(mhz, parse_bad, marker="o", label="Framing fails")
+    plt.plot(mhz, crc_bad, marker="o", label="CRC fails (sampled)")
+    plt.xlabel("SPI clock (MHz)")
+    plt.ylabel("Count")
+    plt.title("SPI loopback errors vs clock")
+    plt.grid(True)
+    plt.legend()
+
+    plt.show()
+
 
 if __name__ == "__main__":
     main()
