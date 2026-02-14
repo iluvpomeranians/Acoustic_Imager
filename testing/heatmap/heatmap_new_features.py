@@ -63,26 +63,25 @@ HEIGHT = 600
 FPS = 30
 ALPHA = 0.7
 
-# Right-side frequency bar width (pixels)
 FREQ_BAR_WIDTH = 200
-
-# Button area configuration
 BUTTON_HEIGHT = 50
 BUTTON_WIDTH = 150
 BUTTON_MARGIN = 10
 
-# >>> CAMERA ADDITION >>>
-# ===============================================================
-# CAMERA CONFIGURATION
-# ===============================================================
 CAMERA_INDEX = 0
 CAMERA_WIDTH = WIDTH
 CAMERA_HEIGHT = HEIGHT
 USE_CAMERA = True
-# For Raspberry Pi, you may need to use libcamera or picamera2
-# Set to True to try libcamera-based capture (Raspberry Pi Camera Module)
-USE_LIBCAMERA = True  # Try libcamera first (for Pi Camera Module)
-# <<< CAMERA ADDITION <<<
+USE_LIBCAMERA = True
+
+# Bandpass state (replaces trackbars)
+F_MIN_HZ = 0.0
+F_MAX_HZ = 45000.0
+
+# Touch/drag state
+DRAG_ACTIVE = False
+DRAG_TARGET = None  # "min" or "max"
+DRAG_MARGIN_PX = 18  # how close finger must be to grab a handle
 
 # Beamforming / scanning grid
 ANGLES = np.linspace(-90, 90, 181)  # 1° resolution
@@ -452,6 +451,26 @@ def draw_frequency_bar(frame: np.ndarray,
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
     cv2.putText(bar, "0", (5, h - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
+
+    fmin_txt = f"{f_min/1000.0:.1f} kHz"
+    fmax_txt = f"{f_max/1000.0:.1f} kHz"
+
+    handle_x = bar_w // 2
+    cv2.circle(bar, (handle_x, int(y_min)), 7, (0, 255, 0), -1, cv2.LINE_AA)
+    cv2.circle(bar, (handle_x, int(y_max)), 7, (0, 255, 0), -1, cv2.LINE_AA)
+
+    # optional: outline for contrast
+    cv2.circle(bar, (handle_x, int(y_min)), 7, (0, 0, 0), 1, cv2.LINE_AA)
+    cv2.circle(bar, (handle_x, int(y_max)), 7, (0, 0, 0), 1, cv2.LINE_AA)
+
+    # Put labels near the lines, keep them inside bounds
+    y_min_lbl = int(np.clip(y_min - 6, 12, h - 6))
+    y_max_lbl = int(np.clip(y_max - 6, 12, h - 6))
+
+    cv2.putText(bar, fmax_txt, (5, y_max_lbl),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
+    cv2.putText(bar, fmin_txt, (5, y_min_lbl),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1, cv2.LINE_AA)
 
     # Insert into right side of frame
     frame[:, left:right, :] = bar
@@ -889,13 +908,85 @@ OUTPUT_DIR = None
 CAMERA_AVAILABLE = False
 
 def mouse_move(event, x, y, flags, param):
-    global CURSOR_POS
-    if event == cv2.EVENT_MOUSEMOVE:
-        CURSOR_POS = (x, y)
-        update_button_states(x, y)
-    elif event == cv2.EVENT_LBUTTONDOWN:
-        handle_button_click(x, y, CURRENT_FRAME, OUTPUT_DIR, CAMERA_AVAILABLE)
+    global CURSOR_POS, DRAG_ACTIVE, DRAG_TARGET, F_MIN_HZ, F_MAX_HZ
 
+    CURSOR_POS = (x, y)
+    update_button_states(x, y)
+
+    # still allow button clicks first
+    if event == cv2.EVENT_LBUTTONDOWN:
+        # If user clicked a button, handle it and return
+        for b in buttons.values():
+            if b.contains(x, y):
+                handle_button_click(x, y, CURRENT_FRAME, OUTPUT_DIR, CAMERA_AVAILABLE)
+                return
+
+        # Otherwise, maybe they clicked inside the freq bar
+        # param contains (left_width, height)
+        left_width, h = param
+        bar_left = left_width
+        if x >= bar_left:
+            y_min = freq_to_y(F_MIN_HZ, h)
+            y_max = freq_to_y(F_MAX_HZ, h)
+
+            # pick closest handle if within margin, else choose nearest handle anyway
+            dmin = abs(y - y_min)
+            dmax = abs(y - y_max)
+
+            if min(dmin, dmax) <= DRAG_MARGIN_PX:
+                DRAG_TARGET = "min" if dmin <= dmax else "max"
+            else:
+                # tap-to-move nearest handle
+                DRAG_TARGET = "min" if dmin <= dmax else "max"
+
+            DRAG_ACTIVE = True
+
+            # apply immediately on tap
+            f = y_to_freq(y, h)
+            if DRAG_TARGET == "min":
+                F_MIN_HZ = min(f, F_MAX_HZ)
+            else:
+                F_MAX_HZ = max(f, F_MIN_HZ)
+
+        F_MIN_HZ = float(np.clip(F_MIN_HZ, 0.0, F_DISPLAY_MAX))
+        F_MAX_HZ = float(np.clip(F_MAX_HZ, 0.0, F_DISPLAY_MAX))
+        if F_MIN_HZ > F_MAX_HZ:
+            F_MIN_HZ, F_MAX_HZ = F_MAX_HZ, F_MIN_HZ
+
+
+    elif event == cv2.EVENT_MOUSEMOVE:
+        if DRAG_ACTIVE:
+            left_width, h = param
+            if x >= left_width:  # only drag when inside bar region
+                f = y_to_freq(y, h)
+                if DRAG_TARGET == "min":
+                    F_MIN_HZ = min(f, F_MAX_HZ)
+                elif DRAG_TARGET == "max":
+                    F_MAX_HZ = max(f, F_MIN_HZ)
+
+            F_MIN_HZ = float(np.clip(F_MIN_HZ, 0.0, F_DISPLAY_MAX))
+            F_MAX_HZ = float(np.clip(F_MAX_HZ, 0.0, F_DISPLAY_MAX))
+            if F_MIN_HZ > F_MAX_HZ:
+                F_MIN_HZ, F_MAX_HZ = F_MAX_HZ, F_MIN_HZ
+
+    elif event == cv2.EVENT_LBUTTONUP:
+        DRAG_ACTIVE = False
+        DRAG_TARGET = None
+
+
+def freq_to_y(freq_hz: float, h: int) -> int:
+    freq_hz = float(np.clip(freq_hz, 0.0, F_DISPLAY_MAX))
+    return int(h - 1 - (freq_hz / F_DISPLAY_MAX) * (h - 1))
+
+def y_to_freq(y: int, h: int) -> float:
+    y = int(np.clip(y, 0, h - 1))
+    frac = 1.0 - (y / (h - 1))   # 0 bottom -> 1 top
+    return float(np.clip(frac * F_DISPLAY_MAX, 0.0, F_DISPLAY_MAX))
+
+
+#-------------------------#
+#---- MAIN FUNCTION ------#
+#-------------------------#
 def main():
     global OUTPUT_DIR, CURRENT_FRAME, video_recorder, CAMERA_AVAILABLE
 
@@ -918,7 +1009,7 @@ def main():
 
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
     cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    cv2.setMouseCallback(WINDOW_NAME, mouse_move)
+    cv2.setMouseCallback(WINDOW_NAME, mouse_move, param=(left_width, HEIGHT))
 
     # Initialize buttons (pass left_width and camera availability)
     # Note: CAMERA_AVAILABLE will be set after camera initialization below
@@ -1103,8 +1194,8 @@ def main():
     # Initialize buttons now that we know camera availability
     init_buttons(left_width, CAMERA_AVAILABLE)
 
-    cv2.createTrackbar("f_min_kHz", WINDOW_NAME, 0, 45, nothing)
-    cv2.createTrackbar("f_max_kHz", WINDOW_NAME, 45, 45, nothing)
+    # cv2.createTrackbar("f_min_kHz", WINDOW_NAME, 0, 45, nothing)
+    # cv2.createTrackbar("f_max_kHz", WINDOW_NAME, 45, 45, nothing)
 
     frame_count = 0
     start_time = time.time()
@@ -1112,15 +1203,18 @@ def main():
     try:
         while True:
             # Read slider positions
-            f_min_khz = cv2.getTrackbarPos("f_min_kHz", WINDOW_NAME)
-            f_max_khz = cv2.getTrackbarPos("f_max_kHz", WINDOW_NAME)
-            if f_max_khz < f_min_khz:
-                f_max_khz = f_min_khz
+            # f_min_khz = cv2.getTrackbarPos("f_min_kHz", WINDOW_NAME)
+            # f_max_khz = cv2.getTrackbarPos("f_max_kHz", WINDOW_NAME)
+            # if f_max_khz < f_min_khz:
+            #     f_max_khz = f_min_khz
 
-            f_min = f_min_khz * 1000.0
-            f_max = f_max_khz * 1000.0
-            f_min = max(0.0, min(F_DISPLAY_MAX, f_min))
-            f_max = max(0.0, min(F_DISPLAY_MAX, f_max))
+            # f_min = f_min_khz * 1000.0
+            # f_max = f_max_khz * 1000.0
+            # f_min = max(0.0, min(F_DISPLAY_MAX, f_min))
+            # f_max = max(0.0, min(F_DISPLAY_MAX, f_max))
+
+            f_min = F_MIN_HZ
+            f_max = F_MAX_HZ
 
             # Animate sources (slow sweep across FoV)
             for k in range(N_SOURCES):
