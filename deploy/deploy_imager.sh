@@ -13,7 +13,7 @@ ACOUSTIC_USER="acousticlord"
 ACOUSTIC_GROUP="acousticlord"
 PROJECT_DIR="/home/acousticlord/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing.py"
+APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing_v2.py"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
@@ -79,9 +79,9 @@ fi
 # If service exists already,
 # just toggle DEV mode
 # ----------------------------
-if systemctl list-unit-files | grep -q "$SERVICE_NAME"; then
+if [[ -f "/etc/systemd/system/$SERVICE_NAME" ]]; then
+    echo "Service already installed."
     handle_dev_mode
-    echo "Done."
     exit 0
 fi
 
@@ -95,8 +95,14 @@ fi
 
 echo "Installing Acoustic UI service..."
 
-apt-get update -y
-apt-get install -y tmux
+if ! command -v tmux >/dev/null 2>&1; then
+    echo "Installing tmux..."
+    apt-get update -y
+    apt-get install -y tmux
+else
+    echo "tmux already installed."
+fi
+
 
 # ----------------------------
 # Create runtime wrapper
