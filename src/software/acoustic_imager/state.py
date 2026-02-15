@@ -55,3 +55,10 @@ CURRENT_FRAME: Optional[Any] = None  # typically a numpy ndarray (H,W,3) uint8
 OUTPUT_DIR: Optional[Path] = None
 
 CAMERA_AVAILABLE: bool = False
+
+# ===============================================================
+# Recording timestamp tracking
+# ===============================================================
+RECORDING_START_TIME: Optional[float] = None  # time.time() when recording started
+RECORDING_PAUSED_TIME: Optional[float] = None  # time.time() when paused
+RECORDING_TOTAL_PAUSED: float = 0.0  # total time spent paused

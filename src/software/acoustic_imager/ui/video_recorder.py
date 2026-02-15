@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+import time
 
 import subprocess
 import numpy as np
@@ -36,6 +37,11 @@ class VideoRecorder:
         self.is_paused = False
         self.current_file = None
         self.frame_count = 0
+        
+        # Timestamp tracking
+        self.start_time = None
+        self.pause_time = None
+        self.total_paused_time = 0.0
 
     def start_recording(self) -> bool:
         if self.is_recording:
@@ -67,6 +73,9 @@ class VideoRecorder:
             self.is_recording = True
             self.is_paused = False
             self.frame_count = 0
+            self.start_time = time.time()
+            self.pause_time = None
+            self.total_paused_time = 0.0
             print(f"Recording started: {self.current_file}")
             return True
         except Exception as e:
@@ -91,11 +100,15 @@ class VideoRecorder:
         if not self.is_recording or self.is_paused:
             return False
         self.is_paused = True
+        self.pause_time = time.time()
         return True
 
     def resume_recording(self) -> bool:
         if not self.is_recording or not self.is_paused:
             return False
+        if self.pause_time is not None:
+            self.total_paused_time += time.time() - self.pause_time
+            self.pause_time = None
         self.is_paused = False
         return True
 
@@ -117,7 +130,24 @@ class VideoRecorder:
             self.current_file = None
             self.frame_count = 0
             self.process = None
+            self.start_time = None
+            self.pause_time = None
+            self.total_paused_time = 0.0
 
     def cleanup(self) -> None:
         if self.is_recording:
             self.stop_recording()
+    
+    def get_elapsed_time(self) -> float:
+        """Get the elapsed recording time (excluding paused time)."""
+        if not self.is_recording or self.start_time is None:
+            return 0.0
+        
+        current_time = time.time()
+        elapsed = current_time - self.start_time - self.total_paused_time
+        
+        # If currently paused, subtract the current pause duration
+        if self.is_paused and self.pause_time is not None:
+            elapsed -= (current_time - self.pause_time)
+        
+        return max(0.0, elapsed)

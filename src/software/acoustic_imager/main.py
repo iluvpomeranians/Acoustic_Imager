@@ -71,6 +71,7 @@ from acoustic_imager.ui.ui_components import (
     update_button_states,
     draw_buttons,
     draw_menu,
+    draw_recording_timestamp,
     handle_button_click,
     FPS_MODE_TO_TARGET,
 )
@@ -504,6 +505,7 @@ def main() -> None:
             # ---- Draw UI buttons ----
             draw_buttons(output_frame)
             draw_menu(output_frame)
+            draw_recording_timestamp(output_frame, video_recorder)
             prof.mark("ui")
 
             # ---- Store current frame for screenshots ----
