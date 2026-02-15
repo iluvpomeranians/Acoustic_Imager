@@ -226,3 +226,4 @@ testing/heatmap/heatmap_captures/
 
 # wav files
 *.wav
+.DS_Store
