@@ -368,8 +368,8 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     # Draw timestamp text
     timestamp_text = f"{minutes:02d}:{seconds:02d}"
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.7
-    font_thick = 2
+    font_scale = 0.55
+    font_thick = 1
     text_color = (255, 255, 255) if not video_recorder.is_paused else (150, 150, 255)
     
     # Center the text
