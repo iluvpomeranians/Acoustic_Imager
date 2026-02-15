@@ -202,6 +202,10 @@ void transmit_spi_packet(uint8_t *packet_buffer, uint32_t packet_size)
 
 /* USER CODE END 0 */
 
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
 

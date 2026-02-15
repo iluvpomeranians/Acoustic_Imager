@@ -62,8 +62,6 @@ extern DMA_HandleTypeDef hdma_adc3;
 extern DMA_HandleTypeDef hdma_adc4;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
-extern ADC_HandleTypeDef hadc3;
-extern ADC_HandleTypeDef hadc4;
 extern SPI_HandleTypeDef hspi4;
 extern TIM_HandleTypeDef htim6;
 /* USER CODE BEGIN EV */
@@ -274,8 +272,6 @@ void ADC1_2_IRQHandler(void)
   /* USER CODE END ADC1_2_IRQn 0 */
   HAL_ADC_IRQHandler(&hadc1);
   HAL_ADC_IRQHandler(&hadc2);
-  HAL_ADC_IRQHandler(&hadc3);
-  HAL_ADC_IRQHandler(&hadc4);
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
 
   /* USER CODE END ADC1_2_IRQn 1 */
