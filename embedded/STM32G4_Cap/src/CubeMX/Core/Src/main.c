@@ -25,6 +25,7 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
+#include "arm_math.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -39,6 +40,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define N_SAMPLES 2048
+#define SPI_PACKET_HEADER 0xAA
+#define SPI_PACKET_SIZE (1 + 1 + 4 + 512*4 + 2)
 
 /* USER CODE END PD */
 
@@ -88,26 +91,117 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN 0 */
 uint32_t value = 0;
 float voltage;
-const float adc_scalar = 3.3f / 4095.0f; // 12-bit ADC, 3.3V reference
+const float adc_scalar = 3.3f / 4095.0f;
 
 float abi_probe(float a, float b) {
     return a + b;
 }
 
-/*
-void cmsis_dsp_smoketest(void)
+static float fft_input_buf[1024];
+static float fft_temp_buf[2048];
+static arm_rfft_fast_instance_f32 fft_instance;
+
+static uint32_t spi_frame_counter = 0;
+static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
+
+typedef struct {
+    uint8_t header;
+    uint8_t adc_id;
+    uint32_t frame_counter;
+    float fft_data[512];
+    uint16_t checksum;
+} __attribute__((packed)) SPI_Packet_t;
+
+void process_adc_to_float(uint16_t *adc_raw, float *output, uint32_t length)
 {
-    arm_rfft_fast_instance_f32 fft;
-    arm_rfft_fast_init_f32(&fft, 128);
+    for (uint32_t i = 0; i < length; i++) {
+        output[i] = (float)adc_raw[i] * adc_scalar;
+    }
 }
-*/
+
+float calculate_dc_offset(float *data, uint32_t length)
+{
+    float sum = 0.0f;
+    for (uint32_t i = 0; i < length; i++) {
+        sum += data[i];
+    }
+    return sum / (float)length;
+}
+
+void remove_dc_bias(float *data, uint32_t length, float dc_offset)
+{
+    for (uint32_t i = 0; i < length; i++) {
+        data[i] -= dc_offset;
+    }
+}
+
+void apply_fft(float *input, float *magnitude_output, uint32_t fft_size)
+{
+    arm_rfft_fast_f32(&fft_instance, input, fft_temp_buf, 0);
+    
+    uint32_t bin_count = fft_size / 2;
+    for (uint32_t k = 0; k < bin_count; k++) {
+        float real = fft_temp_buf[2*k];
+        float imag = fft_temp_buf[2*k + 1];
+        magnitude_output[k] = sqrtf(real*real + imag*imag);
+    }
+}
+
+void normalize_magnitude(float *mag, uint32_t length)
+{
+    float max = 0.0f;
+    for (uint32_t i = 0; i < length; i++) {
+        if (mag[i] > max) max = mag[i];
+    }
+    
+    if (max > 0.0f) {
+        for (uint32_t i = 0; i < length; i++) {
+            mag[i] /= max;
+        }
+    }
+}
+
+void process_adc_pipeline(uint16_t *adc_raw, uint32_t adc_id, float *fft_output)
+{
+    process_adc_to_float(adc_raw, fft_input_buf, 1024);
+    float dc_offset = calculate_dc_offset(fft_input_buf, 1024);
+    remove_dc_bias(fft_input_buf, 1024, dc_offset);
+    apply_fft(fft_input_buf, fft_output, 1024);
+    normalize_magnitude(fft_output, 512);
+}
+
+uint16_t calculate_checksum(uint8_t *data, uint32_t length)
+{
+    uint16_t sum = 0;
+    for (uint32_t i = 0; i < length; i++) {
+        sum += data[i];
+    }
+    return sum;
+}
+
+void package_adc_for_spi(uint8_t adc_id, float *fft_output, uint8_t *packet_buffer)
+{
+    SPI_Packet_t *pkt = (SPI_Packet_t *)packet_buffer;
+    
+    pkt->header = SPI_PACKET_HEADER;
+    pkt->adc_id = adc_id;
+    pkt->frame_counter = spi_frame_counter++;
+    
+    for (uint32_t i = 0; i < 512; i++) {
+        pkt->fft_data[i] = fft_output[i];
+    }
+    
+    uint32_t checksum_len = SPI_PACKET_SIZE - sizeof(uint16_t);
+    pkt->checksum = calculate_checksum(packet_buffer, checksum_len);
+}
+
+void transmit_spi_packet(uint8_t *packet_buffer, uint32_t packet_size)
+{
+    HAL_SPI_Transmit(&hspi4, packet_buffer, packet_size, HAL_MAX_DELAY);
+}
 
 /* USER CODE END 0 */
 
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
 int main(void)
 {
 
@@ -150,6 +244,8 @@ int main(void)
   HAL_ADCEx_Calibration_Start(&hadc3, ADC_SINGLE_ENDED);
   HAL_ADCEx_Calibration_Start(&hadc4, ADC_SINGLE_ENDED);
 
+  arm_rfft_fast_init_f32(&fft_instance, 1024);
+
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
 
@@ -180,35 +276,36 @@ int main(void)
         uint8_t full_flag = (adc_ready_mask >> (adc + 4)) & 1; // Full-complete
         
         if (half_flag || full_flag) {
-          // Determine which half of buffer to process
           uint16_t *buf_ptr = NULL;
+          float *fft_out_ptr = NULL;
           uint32_t half_offset = 0;
           
           if (half_flag) {
-            // Half-complete: First half (0-1023) just finished
             half_offset = 0;
             ready_half[adc] = 0;
           } else {
-            // Full-complete: Second half (1024-2047) just finished
             half_offset = 1024;
             ready_half[adc] = 1;
           }
           
-          // Select buffer based on ADC
-          if (adc == 0) buf_ptr = adc1_buf;
-          else if (adc == 1) buf_ptr = adc2_buf;
-          else if (adc == 2) buf_ptr = adc3_buf;
-          else if (adc == 3) buf_ptr = adc4_buf;
+          if (adc == 0) {
+            buf_ptr = adc1_buf;
+            fft_out_ptr = fft_out_adc1;
+          } else if (adc == 1) {
+            buf_ptr = adc2_buf;
+            fft_out_ptr = fft_out_adc2;
+          } else if (adc == 2) {
+            buf_ptr = adc3_buf;
+            fft_out_ptr = fft_out_adc3;
+          } else if (adc == 3) {
+            buf_ptr = adc4_buf;
+            fft_out_ptr = fft_out_adc4;
+          }
           
-          if (buf_ptr) {
-            // Example pseudocode:
-            // float *input = (float*)&buf_ptr[half_offset];
-            // Generate_FFT(input, 256, output_fft);
-            // Send output_fft via SPI to RasPi
-            
-            // TODO: Call FFT function here
-            // fft_process(adc, buf_ptr, half_offset);
-            
+          if (buf_ptr && fft_out_ptr) {
+            process_adc_pipeline(&buf_ptr[half_offset], adc, fft_out_ptr);
+            package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer);
+            transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
           }
         }
       }

@@ -62,6 +62,8 @@ extern DMA_HandleTypeDef hdma_adc3;
 extern DMA_HandleTypeDef hdma_adc4;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
+extern ADC_HandleTypeDef hadc3;
+extern ADC_HandleTypeDef hadc4;
 extern SPI_HandleTypeDef hspi4;
 extern TIM_HandleTypeDef htim6;
 /* USER CODE BEGIN EV */
