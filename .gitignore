@@ -25,8 +25,8 @@ eggs/
 lib/
 
 # Bypass lib/ ignore for CubeMX DSP library
-!embedded/STM32G4_Cap/src/CubeMX/Drivers/CMSIS/DSP/Lib
-!embedded/STM32G4_Cap/src/CubeMX/Drivers/CMSIS/DSP/Lib/**
+!src/firmware/STM32G4_Cap/src/CubeMX/Drivers/CMSIS/DSP/Lib
+!src/firmware/STM32G4_Cap/src/CubeMX/Drivers/CMSIS/DSP/Lib/**
 
 lib64/
 parts/
@@ -87,6 +87,10 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+
+# Bypass target/ ignore for CubeMX USB_Device Target
+!src/firmware/STM32G4_Cap/src/CubeMX/USB_Device/Target/
+!src/firmware/STM32G4_Cap/src/CubeMX/USB_Device/Target/**
 
 # Jupyter Notebook
 .ipynb_checkpoints
