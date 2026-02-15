@@ -16,7 +16,7 @@ from .config import USE_CAMERA, F_MIN_HZ_DEFAULT, F_MAX_HZ_DEFAULT
 
 
 # ===============================================================
-# UI / App state (was ButtonState class in the monolithic file)
+# UI / App state
 # ===============================================================
 @dataclass
 class ButtonState:
