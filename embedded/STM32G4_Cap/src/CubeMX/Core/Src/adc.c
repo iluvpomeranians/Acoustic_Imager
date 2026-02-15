@@ -7,7 +7,11 @@
   ******************************************************************************
   * @attention
   *
+<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
+=======
+  * Copyright (c) 2025 STMicroelectronics.
+>>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -21,6 +25,7 @@
 #include "adc.h"
 
 /* USER CODE BEGIN 0 */
+<<<<<<< HEAD
 static volatile uint8_t adc_half_ready = 0;
 static volatile uint8_t adc_full_ready = 0;
 
@@ -28,10 +33,13 @@ uint8_t ADC_HalfReady(void)      { return adc_half_ready; }
 uint8_t ADC_FullReady(void)      { return adc_full_ready; }
 void    ADC_ClearHalfReady(void) { adc_half_ready = 0; }
 void    ADC_ClearFullReady(void) { adc_full_ready = 0; }
+=======
+>>>>>>> main
 
 /* USER CODE END 0 */
 
 ADC_HandleTypeDef hadc1;
+<<<<<<< HEAD
 ADC_HandleTypeDef hadc2;
 ADC_HandleTypeDef hadc3;
 ADC_HandleTypeDef hadc4;
@@ -39,6 +47,9 @@ DMA_HandleTypeDef hdma_adc1;
 DMA_HandleTypeDef hdma_adc2;
 DMA_HandleTypeDef hdma_adc3;
 DMA_HandleTypeDef hdma_adc4;
+=======
+DMA_HandleTypeDef hdma_adc1;
+>>>>>>> main
 
 /* ADC1 init function */
 void MX_ADC1_Init(void)
@@ -58,6 +69,7 @@ void MX_ADC1_Init(void)
   /** Common config
   */
   hadc1.Instance = ADC1;
+<<<<<<< HEAD
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -72,6 +84,22 @@ void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+=======
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.GainCompensation = 0;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T2_TRGO;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc1.Init.DMAContinuousRequests = ENABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+>>>>>>> main
   hadc1.Init.OversamplingMode = DISABLE;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
@@ -98,6 +126,7 @@ void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
+<<<<<<< HEAD
 
   /** Configure Regular Channel
   */
@@ -126,11 +155,14 @@ void MX_ADC1_Init(void)
   {
     Error_Handler();
   }
+=======
+>>>>>>> main
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
 
 }
+<<<<<<< HEAD
 /* ADC2 init function */
 void MX_ADC2_Init(void)
 {
@@ -386,6 +418,8 @@ void MX_ADC4_Init(void)
 
 static uint32_t HAL_RCC_ADC12_CLK_ENABLED=0;
 static uint32_t HAL_RCC_ADC345_CLK_ENABLED=0;
+=======
+>>>>>>> main
 
 void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 {
@@ -408,19 +442,28 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
     }
 
     /* ADC1 clock enable */
+<<<<<<< HEAD
     HAL_RCC_ADC12_CLK_ENABLED++;
     if(HAL_RCC_ADC12_CLK_ENABLED==1){
       __HAL_RCC_ADC12_CLK_ENABLE();
     }
+=======
+    __HAL_RCC_ADC12_CLK_ENABLE();
+>>>>>>> main
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
     /**ADC1 GPIO Configuration
     PA0     ------> ADC1_IN1
+<<<<<<< HEAD
     PA1     ------> ADC1_IN2
     PA2     ------> ADC1_IN3
     PA3     ------> ADC1_IN4
     */
     GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3;
+=======
+    */
+    GPIO_InitStruct.Pin = GPIO_PIN_0;
+>>>>>>> main
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -450,6 +493,7 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 
   /* USER CODE END ADC1_MspInit 1 */
   }
+<<<<<<< HEAD
   else if(adcHandle->Instance==ADC2)
   {
   /* USER CODE BEGIN ADC2_MspInit 0 */
@@ -636,6 +680,8 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* adcHandle)
 
   /* USER CODE END ADC4_MspInit 1 */
   }
+=======
+>>>>>>> main
 }
 
 void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
@@ -647,6 +693,7 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 
   /* USER CODE END ADC1_MspDeInit 0 */
     /* Peripheral clock disable */
+<<<<<<< HEAD
     HAL_RCC_ADC12_CLK_ENABLED--;
     if(HAL_RCC_ADC12_CLK_ENABLED==0){
       __HAL_RCC_ADC12_CLK_DISABLE();
@@ -659,11 +706,20 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     PA3     ------> ADC1_IN4
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3);
+=======
+    __HAL_RCC_ADC12_CLK_DISABLE();
+
+    /**ADC1 GPIO Configuration
+    PA0     ------> ADC1_IN1
+    */
+    HAL_GPIO_DeInit(GPIOA, GPIO_PIN_0);
+>>>>>>> main
 
     /* ADC1 DMA DeInit */
     HAL_DMA_DeInit(adcHandle->DMA_Handle);
 
     /* ADC1 interrupt Deinit */
+<<<<<<< HEAD
   /* USER CODE BEGIN ADC1:ADC1_2_IRQn disable */
     /**
     * Uncomment the line below to disable the "ADC1_2_IRQn" interrupt
@@ -672,10 +728,14 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
     /* HAL_NVIC_DisableIRQ(ADC1_2_IRQn); */
   /* USER CODE END ADC1:ADC1_2_IRQn disable */
 
+=======
+    HAL_NVIC_DisableIRQ(ADC1_2_IRQn);
+>>>>>>> main
   /* USER CODE BEGIN ADC1_MspDeInit 1 */
 
   /* USER CODE END ADC1_MspDeInit 1 */
   }
+<<<<<<< HEAD
   else if(adcHandle->Instance==ADC2)
   {
   /* USER CODE BEGIN ADC2_MspDeInit 0 */
@@ -767,10 +827,13 @@ void HAL_ADC_MspDeInit(ADC_HandleTypeDef* adcHandle)
 
   /* USER CODE END ADC4_MspDeInit 1 */
   }
+=======
+>>>>>>> main
 }
 
 /* USER CODE BEGIN 1 */
 
+<<<<<<< HEAD
 // External references to flags in main.c
 extern volatile uint32_t adc_ready_mask;
 extern volatile uint8_t ready_half[4];
@@ -841,4 +904,6 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
   }
 }
 
+=======
+>>>>>>> main
 /* USER CODE END 1 */

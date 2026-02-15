@@ -7,7 +7,11 @@
   ******************************************************************************
   * @attention
   *
+<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
+=======
+  * Copyright (c) 2025 STMicroelectronics.
+>>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -33,6 +37,10 @@
 /* USER CODE END 1 */
 
 /** Configure pins
+<<<<<<< HEAD
+=======
+     PE3   ------> SPI4_NSS
+>>>>>>> main
      PA8   ------> ADC5_IN1
 */
 void MX_GPIO_Init(void)
@@ -42,10 +50,16 @@ void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
+<<<<<<< HEAD
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+=======
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+>>>>>>> main
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GAIN_CNTL_GPIO_Port, GAIN_CNTL_Pin, GPIO_PIN_RESET);
@@ -56,6 +70,17 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, MCU_STATUS_Pin|RPI_STATUS_Pin, GPIO_PIN_RESET);
 
+<<<<<<< HEAD
+=======
+  /*Configure GPIO pin : PE3 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3;
+  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  GPIO_InitStruct.Alternate = GPIO_AF5_SPI4;
+  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+>>>>>>> main
   /*Configure GPIO pin : GAIN_CNTL_Pin */
   GPIO_InitStruct.Pin = GAIN_CNTL_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
