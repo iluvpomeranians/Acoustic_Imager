@@ -144,17 +144,17 @@ if [[ -f "\$DEV_MODE_FILE" ]]; then
   exit 0
 fi
 
-cd "$PROJECT_DIR"
-
-LOGFILE="/tmp/acoustic_ui.log"
+# Run from the package-root so imports work
+cd "$PROJECT_DIR/src/software"
 
 if /usr/bin/tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
   echo "[acoustic-ui] Session already running."
 else
   exec /usr/bin/tmux new-session -d -s "$TMUX_SESSION" \
-  "$PYTHON_BIN -u $APP_ENTRY 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
+    "$PYTHON_BIN -u -m acoustic_imager.main 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
 fi
 EOF
+
 
 chmod 0755 "$RUN_WRAPPER"
 
@@ -166,7 +166,6 @@ cat > "/etc/systemd/system/$SERVICE_NAME" <<EOF
 Description=Acoustic Imager UI (tmux managed)
 After=display-manager.service
 Wants=display-manager.service
-WantedBy=graphical.target
 
 [Service]
 Type=oneshot
