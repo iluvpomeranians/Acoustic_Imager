@@ -22,6 +22,14 @@ from typing import Optional
 
 import numpy as np
 import cv2
+import os
+
+# ===============================================================
+# Display Configuration for SSH/Headless Operation
+# ===============================================================
+# Uncomment ONE of these if running over SSH:
+# os.environ['DISPLAY'] = ':0'              # Use local display on Pi (monitor attached)
+# os.environ['QT_QPA_PLATFORM'] = 'offscreen'  # Headless mode (no display, recording only)
 
 # ===============================================================
 # Import modularized components
