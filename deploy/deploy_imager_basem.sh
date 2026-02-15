@@ -13,7 +13,7 @@ ACOUSTIC_USER="basempi"
 ACOUSTIC_GROUP="basempi"
 PROJECT_DIR="/home/basempi/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/basempi/Capstone_490_Software/src/software/acoustic_imager/main.py"
+APP_ENTRY="/home/basempi/Capstone_490_Software/src/software/acoustic_imager.main"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
