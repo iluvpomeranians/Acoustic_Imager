@@ -102,6 +102,8 @@ PAYLOAD_LEN = N_MICS * N_BINS * 2 * 4  # 8 bytes per bin per mic
 FRAME_BYTES = HEADER_LEN + PAYLOAD_LEN + TRAILER_LEN
 
 # SPI config
+USE_SPI_LOOPBACK = True
+
 SPI_BUS = 0
 SPI_DEV = 0
 SPI_MODE = 0

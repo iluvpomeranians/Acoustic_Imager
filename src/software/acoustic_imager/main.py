@@ -41,6 +41,8 @@ from acoustic_imager.custom_types import LatestFrame
 # Data sources
 from acoustic_imager.sources.sim_source import SimSource
 from acoustic_imager.sources.spi_source import SPISource
+from acoustic_imager.sources.spi_loopback_source import SPILoopbackSource
+
 
 # DSP modules
 from acoustic_imager.dsp.beamforming import music_spectrum
@@ -111,16 +113,16 @@ except ImportError:
     class StageProfiler:
         def __init__(self, keep=120):
             self.stages = {}
-            
+
         def start_frame(self):
             pass
-            
+
         def mark(self, stage: str):
             pass
-            
+
         def end_frame(self):
             pass
-            
+
         def ms(self, stage: str) -> float:
             return 0.0
 
@@ -156,8 +158,8 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     video_recorder=video_recorder,
                     width=config.WIDTH,
                     height=config.HEIGHT,
-                    on_source_to_spi=lambda: spi_source.start(),
-                    on_source_to_sim=lambda: spi_source.stop(),
+                    on_source_to_spi=lambda: active_spi.start(),
+                    on_source_to_sim=lambda: active_spi.stop(),
                 )
                 return
 
@@ -234,6 +236,7 @@ def main() -> None:
     """Main application loop."""
     global video_recorder
 
+
     # ---- Profiler (for performance monitoring) ----
     prof = StageProfiler(keep=120)
     PRINT_EVERY = 60  # frames
@@ -252,9 +255,14 @@ def main() -> None:
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     # ---- Initialize data sources ----
-    global sim_source, spi_source
+    global sim_source, spi_hw, spi_loopback, active_spi
     sim_source = SimSource()
-    spi_source = SPISource()
+
+    spi_hw = SPISource()
+    spi_loopback = SPILoopbackSource()
+
+    active_spi = spi_loopback if config.USE_SPI_LOOPBACK else spi_hw
+
 
     # ---- Initialize camera ----
     camera_mgr = CameraManager()
@@ -334,7 +342,7 @@ def main() -> None:
                 source_stats = latest_frame.stats
                 fft_data = latest_frame.fft_data if latest_frame.ok else None
             else:
-                latest_frame = spi_source.get_latest()
+                latest_frame = active_spi.get_latest()
                 source_label = "SPI"
                 source_stats = latest_frame.stats
                 fft_data = latest_frame.fft_data if latest_frame.ok else None
@@ -387,7 +395,8 @@ def main() -> None:
                     )
 
             else:  # SPI mode
-                # Filter bins by bandpass
+                # TODO: FOR SPI, TOP K BINS
+                # FOR LOOPBACK ONLY:Filter bins by bandpass
                 bins = [
                     b for b in config.SPI_SIM_BINS
                     if 0 <= b < config.N_BINS and (f_min <= float(config.f_axis[b]) <= f_max)
@@ -548,7 +557,7 @@ def main() -> None:
         if video_recorder:
             video_recorder.cleanup()
 
-        spi_source.stop()
+        active_spi.stop()
         camera_mgr.close()
 
         cv2.destroyAllWindows()
