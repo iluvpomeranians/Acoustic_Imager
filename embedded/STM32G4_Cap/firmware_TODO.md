@@ -7,8 +7,8 @@
         -> Added CMSIS DSP to build. Probably not worth to switch to fixed point.
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
 - [ ] Address that ADCs are configured properly for channel scanning in CubeMX
-- [ ] 
-- [ ] 
+- [ ] Clean up branches
+- [ ] Fix adc_ready
 - [ ] 
  
 
