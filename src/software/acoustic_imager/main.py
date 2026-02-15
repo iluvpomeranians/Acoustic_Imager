@@ -106,7 +106,7 @@ except ImportError:
         return bg
 
 try:
-    sys.path.append(str(Path(__file__).resolve().parents[2] / "utilities"))
+    sys.path.append(str(Path(__file__).resolve().parents[3] / "utilities"))
     from stage_profiler import StageProfiler  # type: ignore
 except ImportError:
     # Fallback: minimal profiler stub
