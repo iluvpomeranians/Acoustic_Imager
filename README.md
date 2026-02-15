@@ -1,6 +1,6 @@
 # Acoustic Imager - Real-Time Sound Localization System
 
-## 📖 Overview
+## Overview
 
 This repository contains a complete **acoustic imaging system** developed as a student capstone project (COEN 490). The system uses a **16-microphone array** to localize sound sources and generate visual heatmaps in real-time, combining advanced signal processing with interactive visualization.
 
@@ -13,7 +13,7 @@ This repository contains a complete **acoustic imaging system** developed as a s
 
 ---
 
-## 🎯 Project Objectives
+## Project Objectives
 
 - Achieve **~9° angular resolution** with a 16-mic array
 - Manage spatial aliasing above ~8.6 kHz using **subspace DSP algorithms**
@@ -23,7 +23,7 @@ This repository contains a complete **acoustic imaging system** developed as a s
 
 ---
 
-## 👥 Team
+## Team
 
 - **David** – DSP lead, MUSIC/ESPRIT algorithms, visualization
 - **Basem** – C++ DSP implementation, software architecture
@@ -34,7 +34,7 @@ This repository contains a complete **acoustic imaging system** developed as a s
 
 ---
 
-## 🔧 Hardware Components
+## Hardware Components
 
 ### Microphone Array
 - **Configuration**: 16 MEMS microphones in Fermat spiral layout
@@ -53,7 +53,7 @@ This repository contains a complete **acoustic imaging system** developed as a s
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Installation
 
@@ -131,7 +131,7 @@ Capstone_490_Software/
 
 ---
 
-## 🔬 Scientific Basis
+## Scientific Basis
 
 ### Array Geometry: Fermat's Spiral
 
@@ -175,7 +175,7 @@ Where: a(θ) = steering vector, E_n = noise subspace
 
 ---
 
-## 🎮 User Interface & Controls
+## User Interface & Controls
 
 ### Mouse Controls
 - **Left Click**: Interact with buttons and menu items
@@ -207,7 +207,7 @@ Where: a(θ) = steering vector, E_n = noise subspace
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Edit `src/software/acoustic_imager/config.py` to customize system parameters:
 
@@ -238,7 +238,7 @@ SIM_SOURCE_AMPLS = [0.6, 1.0, 2.0]          # relative amplitudes
 
 ---
 
-## 🏗️ Software Architecture
+## Software Architecture
 
 ### Modular Design
 
@@ -281,7 +281,7 @@ from dsp.beamforming import music_spectrum
 
 ---
 
-## 🔧 Development
+## Development
 
 ### Adding a New Data Source
 
@@ -364,7 +364,7 @@ EOF
 
 ---
 
-## 📊 Performance
+## Performance
 
 ### Typical Performance (Raspberry Pi 4)
 - **SIM mode**: 60 FPS sustained
@@ -384,7 +384,7 @@ ms avg | read=0.52 heat=8.34 bg=2.15 blend=1.87 bars=0.94 ui=0.67 imshow=3.21 wa
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Import Errors
 
@@ -441,7 +441,7 @@ pip3 install spidev picamera2  # Optional, for hardware
 
 ---
 
-## 📚 References
+## References
 
 ### Academic Papers
 - Schmidt, R. (1986). "Multiple Emitter Location and Signal Parameter Estimation" (MUSIC algorithm)
@@ -456,7 +456,7 @@ pip3 install spidev picamera2  # Optional, for hardware
 
 ---
 
-## 🗺️ Project Roadmap
+## Project Roadmap
 
 ### Phase I (Fall Semester) ✅
 - ✅ Literature review and requirements analysis
@@ -484,32 +484,7 @@ pip3 install spidev picamera2  # Optional, for hardware
 
 ---
 
-## 📝 License
-
-This project is developed for academic purposes as part of COEN 490 Capstone at Concordia University.
-
-For use beyond this course, please contact the team for permissions.
-
----
-
-## 📧 Contact & Support
-
-For questions, issues, or contributions:
-- **Project Repository**: [GitHub Link]
-- **Team Email**: [Contact Email]
-- **Course**: COEN 490 - Capstone Design Project
-- **Institution**: Concordia University
-
----
-
-## 🙏 Acknowledgments
-
-- **Course Instructors**: For guidance and support throughout the project
-- **Industry Partners**: For providing reference systems and insights
-- **Open Source Community**: For tools and libraries (NumPy, OpenCV, etc.)
-
----
-
 **Version**: 2.0 (Refactored Architecture)  
 **Last Updated**: February 15, 2026  
 **Status**: ✅ Software Complete | 🔄 Hardware Integration In Progress
+
