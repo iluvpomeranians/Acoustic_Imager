@@ -7,11 +7,7 @@
   ******************************************************************************
   * @attention
   *
-<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
-=======
-  * Copyright (c) 2025 STMicroelectronics.
->>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -36,21 +32,13 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-<<<<<<< HEAD
 extern TIM_HandleTypeDef htim6;
-=======
-extern TIM_HandleTypeDef htim2;
->>>>>>> main
 
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
-<<<<<<< HEAD
 void MX_TIM6_Init(void);
-=======
-void MX_TIM2_Init(void);
->>>>>>> main
 
 /* USER CODE BEGIN Prototypes */
 
