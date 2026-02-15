@@ -16,34 +16,58 @@ def music_spectrum(
 ) -> np.ndarray:
     """
     Vectorized MUSIC spectrum over all angles (no Python loop).
-    Same output semantics: float32, normalized to max=1.
+    Output: float32 array (len(angles),), normalized so max=1.
 
-    NOTE: Signature matches your main code usage, except we pass x_coords/y_coords/speed_sound
-          as explicit inputs instead of relying on globals.
+    No globals: x_coords/y_coords/speed_sound are passed in.
     """
+    angles = np.asarray(angles)
+    A_len = int(angles.size)
+    if A_len == 0:
+        return np.zeros((0,), dtype=np.float32)
+
+    # Validate R shape
+    R = np.asarray(R)
+    if R.ndim != 2 or R.shape[0] != R.shape[1]:
+        return np.zeros((A_len,), dtype=np.float32)
+
+    M = int(R.shape[0])
+    if M < 2:
+        return np.zeros((A_len,), dtype=np.float32)
+
+    # Clamp n_sources
+    n_sources = int(np.clip(n_sources, 1, M - 1))
+
+    # Eigendecomposition
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
     eigvecs = eigvecs[:, idx]
 
-    En = eigvecs[:, n_sources:]
-    Pn = En @ En.conj().T
+    # Noise subspace projector
+    En = eigvecs[:, n_sources:]               # (M, M-nsrc)
+    Pn = En @ En.conj().T                     # (M, M)
 
-    theta = np.deg2rad(angles).astype(np.float32)
+    # Steering vectors for all angles
+    theta = np.deg2rad(angles).astype(np.float32)  # (A,)
     cth = np.cos(theta).astype(np.float32)
     sth = np.sin(theta).astype(np.float32)
 
+    x_coords = np.asarray(x_coords, dtype=np.float32).reshape(M)
+    y_coords = np.asarray(y_coords, dtype=np.float32).reshape(M)
+
     proj = (x_coords[:, None] * cth[None, :] +
-            y_coords[:, None] * sth[None, :]).astype(np.float32)
+            y_coords[:, None] * sth[None, :]).astype(np.float32)  # (M, A)
 
     k = (2.0 * np.pi * float(f_signal) / float(speed_sound))
-    A = np.exp(1j * k * proj).astype(np.complex64)
+    steering = np.exp(1j * k * proj).astype(np.complex64)         # (M, A)
 
-    PA = Pn @ A
-    denom = np.einsum("ma,ma->a", A.conj(), PA).real
+    # MUSIC pseudospectrum: 1 / Re(a^H Pn a)
+    PA = Pn @ steering
+    denom = np.einsum("ma,ma->a", steering.conj(), PA).real
     denom = np.maximum(denom, 1e-12)
 
     spec = (1.0 / denom).astype(np.float32)
 
+    # Normalize
     m = float(spec.max()) if spec.size else 1.0
     spec /= (m + 1e-12)
     return spec
@@ -57,8 +81,19 @@ def esprit_estimate(
     speed_sound: float,
 ) -> np.ndarray:
     """
-    ESPRIT estimate. Signature matches your logic but avoids globals by taking pitch/speed_sound.
+    ESPRIT estimate (returns degrees).
+    No globals: pitch/speed_sound passed in.
     """
+    R = np.asarray(R)
+    if R.ndim != 2 or R.shape[0] != R.shape[1]:
+        return np.zeros((max(1, int(n_sources)),), dtype=np.float32)
+
+    M = int(R.shape[0])
+    if M < 2:
+        return np.zeros((max(1, int(n_sources)),), dtype=np.float32)
+
+    n_sources = int(np.clip(n_sources, 1, M - 1))
+
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
     Es = eigvecs[:, :n_sources]
@@ -68,10 +103,11 @@ def esprit_estimate(
     eigs_phi, _ = eig(phi)
     psi = np.angle(eigs_phi)
 
-    if pitch == 0:
-        return np.zeros(n_sources)
+    if float(pitch) == 0.0:
+        return np.zeros((n_sources,), dtype=np.float32)
 
     val = -(psi * float(speed_sound)) / (2 * np.pi * float(f_signal) * float(pitch))
     val = np.clip(np.real(val), -1.0, 1.0)
+
     theta = np.arcsin(val)
-    return np.degrees(theta)
+    return np.degrees(theta).astype(np.float32)

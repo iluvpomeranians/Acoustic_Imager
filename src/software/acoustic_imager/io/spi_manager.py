@@ -14,173 +14,180 @@ Responsibilities:
 from __future__ import annotations
 
 import time
+import threading
 import struct
 import zlib
-import threading
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
 import numpy as np
 
-# spidev optional
+from .. import config
+
+# Optional spidev
 try:
     import spidev  # type: ignore
     SPIDEV_AVAILABLE = True
 except Exception:
-    spidev = None
+    spidev = None  # type: ignore
     SPIDEV_AVAILABLE = False
 
 
-# ----------------------------
-# Lightweight FFT frame holder
-# ----------------------------
-@dataclass
-class SpiFFTFrame:
-    channel_count: int
-    sampling_rate: int
-    fft_size: int
-    frame_id: int
-    fft_data: np.ndarray  # shape: (N_MICS, N_BINS), dtype=complex64
+# ===============================================================
+# SPI framing helpers (same as monolith, moved here)
+# ===============================================================
+def crc_validate_frame(buf: bytes) -> bool:
+    if len(buf) != config.FRAME_BYTES:
+        return False
+    try:
+        (magic, ver, hdr_len, seq, mic, fft_size, fs, bins, _res, pay_len) = struct.unpack_from(
+            config.HEADER_FMT, buf, 0
+        )
+    except struct.error:
+        return False
+
+    if magic != config.MAGIC_START or ver != config.VERSION or hdr_len != config.HEADER_LEN:
+        return False
+    if mic != config.N_MICS or fft_size != config.SAMPLES_PER_CHANNEL or fs != config.SAMPLE_RATE_HZ or bins != config.N_BINS:
+        return False
+    if pay_len != config.PAYLOAD_LEN:
+        return False
+
+    crc_rx, magic_end = struct.unpack_from(config.TRAILER_FMT, buf, config.HEADER_LEN + config.PAYLOAD_LEN)
+    if magic_end != config.MAGIC_END:
+        return False
+
+    header = buf[: config.HEADER_LEN]
+    payload = buf[config.HEADER_LEN : config.HEADER_LEN + config.PAYLOAD_LEN]
+    crc = zlib.crc32(header)
+    crc = zlib.crc32(payload, crc) & 0xFFFFFFFF
+    return crc == crc_rx
 
 
-@dataclass
-class SpiConfig:
-    n_mics: int
-    samples_per_channel: int
-    sample_rate_hz: int
-    n_bins: int
-    f_axis: np.ndarray
+def framing_validate_frame(buf: bytes) -> Tuple[bool, str]:
+    if len(buf) != config.FRAME_BYTES:
+        return False, "len"
+    try:
+        (magic,) = struct.unpack_from("<I", buf, 0)
+    except struct.error:
+        return False, "hdr_unpack0"
+    if magic != config.MAGIC_START:
+        return False, "magic_start"
 
-    x_coords: np.ndarray
-    y_coords: np.ndarray
-    speed_sound: float
+    try:
+        (magic, ver, hdr_len, seq, mic, fft_size, fs, bins, _res, pay_len) = struct.unpack_from(
+            config.HEADER_FMT, buf, 0
+        )
+    except struct.error:
+        return False, "hdr_unpack"
 
-    # SPI HW config
-    bus: int
-    dev: int
-    mode: int
-    bits: int
-    max_speed_hz: int
-    xfer_chunk: int
+    if ver != config.VERSION or hdr_len != config.HEADER_LEN:
+        return False, "hdr_fields"
+    if mic != config.N_MICS or fft_size != config.SAMPLES_PER_CHANNEL or fs != config.SAMPLE_RATE_HZ or bins != config.N_BINS:
+        return False, "cfg_mismatch"
+    if pay_len != config.PAYLOAD_LEN:
+        return False, "pay_len"
 
-    # Frame format
-    magic_start: int
-    magic_end: int
-    version: int
-    header_fmt: str
-    trailer_fmt: str
+    try:
+        (_, magic_end) = struct.unpack_from(config.TRAILER_FMT, buf, config.HEADER_LEN + config.PAYLOAD_LEN)
+    except struct.error:
+        return False, "trl_unpack"
+    if magic_end != config.MAGIC_END:
+        return False, "magic_end"
 
-    crc_every_n: int
-
-    # Loopback "virtual sources"
-    sim_bins: list
-    sim_ampls: list
-    sim_angles: list
-    sim_drift_deg_per_sec: list
-    spread_bins: int = 3
-    sigma_bins: float = 1.2
+    return True, "ok"
 
 
-class SpiManager:
+def make_payload_mag_phase(t_sec: float) -> bytes:
     """
-    Combines:
-      - SpiFFTSource (blocking read_frame)
-      - background latest-data thread (non-blocking main loop access)
-      - stats mirroring: ok frames, bad parse, bad crc, last_err, sclk_hz_rep
+    Loopback payload with stable virtual sources (+ bin spreading), same as monolith.
+    Returns bytes of float32 array shaped (N_MICS, N_BINS, 2): [MAG, PHASE].
     """
+    mp = np.zeros((config.N_MICS, config.N_BINS, 2), dtype=np.float32)
 
-    def __init__(self, cfg: SpiConfig):
-        self.cfg = cfg
-        self.source = SpiFFTSource(cfg)
+    noise_mag = 0.006
+    noise_phase = 0.015
+    mp[:, :, 0] = noise_mag * (1.0 + 0.25 * np.random.randn(config.N_MICS, config.N_BINS)).astype(np.float32)
+    mp[:, :, 1] = noise_phase * np.random.randn(config.N_MICS, config.N_BINS).astype(np.float32)
 
-        self._lock = threading.Lock()
-        self._latest_fft: Optional[np.ndarray] = None
-        self._latest_ok: bool = False
-        self._latest_frame_id: int = 0
+    spread_bins = 3
+    sigma_bins = 1.2
 
-        self._last_err: str = ""
-        self._frames_ok: int = 0
-        self._bad_parse: int = 0
-        self._bad_crc: int = 0
-        self._sclk_hz_rep: int = 0
+    for i, b0 in enumerate(config.SPI_SIM_BINS):
+        if b0 < 0 or b0 >= config.N_BINS:
+            continue
+        if i >= len(config.SPI_SIM_AMPLS) or i >= len(config.SPI_SIM_ANGLES) or i >= len(config.SPI_SIM_DRIFT_DEG_PER_SEC):
+            continue
 
-        self._stop = False
-        self._thread: Optional[threading.Thread] = None
+        f0 = float(config.f_axis[b0])
+        ang = config.SPI_SIM_ANGLES[i] + config.SPI_SIM_DRIFT_DEG_PER_SEC[i] * float(t_sec)
+        ang = ((ang + 90.0) % 180.0) - 90.0
+        theta = np.deg2rad(ang)
 
-    # ----------------------------
-    # Thread control
-    # ----------------------------
-    def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop = False
-        self._thread = threading.Thread(target=self._worker, daemon=True)
-        self._thread.start()
+        a0 = np.exp(
+            -1j * 2 * np.pi * f0 / config.SPEED_SOUND
+            * -(config.x_coords * np.cos(theta) + config.y_coords * np.sin(theta))
+        ).astype(np.complex64)
 
-    def stop(self) -> None:
-        self._stop = True
-        time.sleep(0.02)
-        self._thread = None
-        self.source.close()
-        with self._lock:
-            self._latest_fft = None
-            self._latest_ok = False
+        for dbin in range(-spread_bins, spread_bins + 1):
+            b = b0 + dbin
+            if b < 0 or b >= config.N_BINS:
+                continue
 
-    # ----------------------------
-    # Non-blocking access
-    # ----------------------------
-    def get_latest(self) -> Tuple[bool, Optional[np.ndarray]]:
-        with self._lock:
-            return self._latest_ok, self._latest_fft
+            w = float(np.exp(-0.5 * (dbin / sigma_bins) ** 2))
+            amp = float(config.SPI_SIM_AMPLS[i]) * w
 
-    def get_stats(self) -> Tuple[int, int, int, int, str]:
-        """
-        Returns: (frames_ok, bad_parse, bad_crc, sclk_hz_rep, last_err)
-        """
-        with self._lock:
-            return self._frames_ok, self._bad_parse, self._bad_crc, self._sclk_hz_rep, self._last_err
+            ph0 = 0.15 * dbin
+            X = amp * a0 * np.exp(1j * ph0)
 
-    # ----------------------------
-    # Worker loop
-    # ----------------------------
-    def _worker(self) -> None:
-        with self._lock:
-            self._latest_ok = False
-            self._latest_fft = None
-            self._latest_frame_id = 0
-            self._last_err = ""
+            mp[:, b, 0] += np.abs(X).astype(np.float32)
+            mp[:, b, 1] += np.angle(X).astype(np.float32)
 
-        while not self._stop:
-            try:
-                fr = self.source.read_frame()
+    return mp.tobytes(order="C")
 
-                with self._lock:
-                    # mirror stats
-                    self._last_err = self.source.last_err
-                    self._frames_ok = self.source.frames_ok
-                    self._bad_parse = self.source.bad_parse
-                    self._bad_crc = self.source.bad_crc
-                    self._sclk_hz_rep = self.source.sclk_hz_rep
 
-                    if fr is not None and fr.fft_data is not None:
-                        self._latest_fft = fr.fft_data
-                        self._latest_frame_id = fr.frame_id
-                        self._latest_ok = True
+def make_frame(seq: int, t_sec: float) -> bytes:
+    payload = make_payload_mag_phase(t_sec)
+    header = struct.pack(
+        config.HEADER_FMT,
+        config.MAGIC_START,
+        config.VERSION,
+        config.HEADER_LEN,
+        int(seq),
+        config.N_MICS,
+        config.SAMPLES_PER_CHANNEL,
+        config.SAMPLE_RATE_HZ,
+        config.N_BINS,
+        0,
+        len(payload),
+    )
+    crc = zlib.crc32(header)
+    crc = zlib.crc32(payload, crc) & 0xFFFFFFFF
+    trailer = struct.pack(config.TRAILER_FMT, crc, config.MAGIC_END)
+    return header + payload + trailer
 
-            except Exception as e:
-                with self._lock:
-                    self._last_err = f"spi_thread_exc:{e}"
-                    self._bad_parse = self.source.bad_parse
-                time.sleep(0.002)
+
+def spi_xfer_bytes(spi_dev, tx: bytes) -> bytes:
+    rx = bytearray(len(tx))
+    mv = memoryview(tx)
+    offset = 0
+    while offset < len(tx):
+        end = min(offset + config.SPI_XFER_CHUNK, len(tx))
+        chunk = mv[offset:end]
+        r = spi_dev.xfer3(chunk)
+        rx[offset:end] = bytes(r)
+        offset = end
+    return bytes(rx)
 
 
 # ===============================================================
-# SPI source + framing helpers (from monolithic version)
+# SPI Source (open/read/close) - same behavior as monolith
 # ===============================================================
-
 class SpiFFTSource:
-    def __init__(self, cfg: SpiConfig):
-        self.cfg = cfg
+    def __init__(self, bus: int = config.SPI_BUS, dev: int = config.SPI_DEV, max_speed_hz: int = config.SPI_MAX_SPEED_HZ):
+        self.bus = int(bus)
+        self.dev = int(dev)
+        self.max_speed_hz = int(max_speed_hz)
         self.spi = None
 
         self.frames_ok = 0
@@ -190,21 +197,16 @@ class SpiFFTSource:
         self.seq_seen = 0
         self.sclk_hz_rep = 0
 
-        self.header_len = struct.calcsize(cfg.header_fmt)
-        self.trailer_len = struct.calcsize(cfg.trailer_fmt)
-        self.payload_len = cfg.n_mics * cfg.n_bins * 2 * 4
-        self.frame_bytes = self.header_len + self.payload_len + self.trailer_len
-
     def open(self) -> bool:
         if not SPIDEV_AVAILABLE:
             self.last_err = "spidev not installed"
             return False
         try:
-            self.spi = spidev.SpiDev()
-            self.spi.open(self.cfg.bus, self.cfg.dev)
-            self.spi.mode = self.cfg.mode
-            self.spi.bits_per_word = self.cfg.bits
-            self.spi.max_speed_hz = int(self.cfg.max_speed_hz)
+            self.spi = spidev.SpiDev()  # type: ignore
+            self.spi.open(self.bus, self.dev)
+            self.spi.mode = config.SPI_MODE
+            self.spi.bits_per_word = config.SPI_BITS
+            self.spi.max_speed_hz = int(self.max_speed_hz)
             self.sclk_hz_rep = int(self.spi.max_speed_hz)
             self.last_err = ""
             return True
@@ -221,7 +223,10 @@ class SpiFFTSource:
                 pass
         self.spi = None
 
-    def read_frame(self) -> Optional[SpiFFTFrame]:
+    def read_fft_data(self) -> Optional[np.ndarray]:
+        """
+        Returns fft_data as complex64 array shaped (N_MICS, N_BINS), or None on failure.
+        """
         if self.spi is None:
             if not self.open():
                 return None
@@ -230,41 +235,32 @@ class SpiFFTSource:
             self.seq_seen += 1
             t_sec = time.time()
 
-            tx = make_frame(self.cfg, self.seq_seen, t_sec)
-            rx = spi_xfer_bytes(self.cfg, self.spi, tx)
+            tx = make_frame(self.seq_seen, t_sec)
+            rx = spi_xfer_bytes(self.spi, tx)
 
-            # quick debug info
-            nz = int(np.count_nonzero(np.frombuffer(rx, dtype=np.uint8, count=min(256, len(rx)))))
+            nz = int(np.count_nonzero(np.frombuffer(rx, dtype=np.uint8, count=256)))
             self.last_err = f"rx_nonzero256={nz}"
 
-            ok, why = framing_validate_frame(self.cfg, rx)
+            ok, why = framing_validate_frame(rx)
             if not ok:
                 self.bad_parse += 1
                 self.last_err = f"parse:{why} nz256={nz}"
                 return None
 
-            if self.cfg.crc_every_n and ((self.frames_ok % self.cfg.crc_every_n) == 0):
-                if not crc_validate_frame(self.cfg, rx):
+            if config.CRC_EVERY_N and ((self.frames_ok % config.CRC_EVERY_N) == 0):
+                if not crc_validate_frame(rx):
                     self.bad_crc += 1
                     self.last_err = "crc"
                     return None
 
-            payload = rx[self.header_len:self.header_len + self.payload_len]
-            mp = np.frombuffer(payload, dtype=np.float32).reshape(self.cfg.n_mics, self.cfg.n_bins, 2)
+            payload = rx[config.HEADER_LEN : config.HEADER_LEN + config.PAYLOAD_LEN]
+            mp = np.frombuffer(payload, dtype=np.float32).reshape(config.N_MICS, config.N_BINS, 2)
             mag = mp[:, :, 0]
             phase = mp[:, :, 1]
             fft_data = (mag * (np.cos(phase) + 1j * np.sin(phase))).astype(np.complex64)
 
-            out = SpiFFTFrame(
-                channel_count=self.cfg.n_mics,
-                sampling_rate=self.cfg.sample_rate_hz,
-                fft_size=self.cfg.samples_per_channel,
-                frame_id=self.seq_seen,
-                fft_data=fft_data,
-            )
-
             self.frames_ok += 1
-            return out
+            return fft_data
 
         except Exception as e:
             self.bad_parse += 1
@@ -272,164 +268,92 @@ class SpiFFTSource:
             return None
 
 
-def crc_validate_frame(cfg: SpiConfig, buf: bytes) -> bool:
-    header_len = struct.calcsize(cfg.header_fmt)
-    trailer_len = struct.calcsize(cfg.trailer_fmt)
-    payload_len = cfg.n_mics * cfg.n_bins * 2 * 4
-    frame_bytes = header_len + payload_len + trailer_len
-
-    if len(buf) != frame_bytes:
-        return False
-
-    try:
-        fields = struct.unpack_from(cfg.header_fmt, buf, 0)
-    except struct.error:
-        return False
-
-    magic = fields[0]
-    ver = fields[1]
-    hdr_len = fields[2]
-    mic = fields[4]
-    fft_size = fields[5]
-    fs = fields[6]
-    bins = fields[7]
-    pay_len = fields[9]
-
-    if magic != cfg.magic_start or ver != cfg.version or hdr_len != header_len:
-        return False
-    if mic != cfg.n_mics or fft_size != cfg.samples_per_channel or fs != cfg.sample_rate_hz or bins != cfg.n_bins:
-        return False
-    if pay_len != payload_len:
-        return False
-
-    crc_rx, magic_end = struct.unpack_from(cfg.trailer_fmt, buf, header_len + payload_len)
-    if magic_end != cfg.magic_end:
-        return False
-
-    header = buf[:header_len]
-    payload = buf[header_len:header_len + payload_len]
-    crc = zlib.crc32(header)
-    crc = zlib.crc32(payload, crc) & 0xFFFFFFFF
-    return crc == crc_rx
+# ===============================================================
+# Threaded SPI Manager (mailbox like monolith _LatestSpiData)
+# ===============================================================
+@dataclass
+class LatestSpiData:
+    lock: threading.Lock
+    fft_data: Optional[np.ndarray] = None
+    ok: bool = False
+    frame_id: int = 0
+    last_err: str = ""
+    frames_ok: int = 0
+    bad_parse: int = 0
+    bad_crc: int = 0
+    sclk_hz_rep: int = 0
 
 
-def framing_validate_frame(cfg: SpiConfig, buf: bytes) -> Tuple[bool, str]:
-    header_len = struct.calcsize(cfg.header_fmt)
-    trailer_len = struct.calcsize(cfg.trailer_fmt)
-    payload_len = cfg.n_mics * cfg.n_bins * 2 * 4
-    frame_bytes = header_len + payload_len + trailer_len
+class SpiManager:
+    """
+    Starts a worker that continuously reads SPI and stores ONLY the latest fft_data.
+    Main/UI can call get_latest() without blocking.
+    """
 
-    if len(buf) != frame_bytes:
-        return False, "len"
+    def __init__(self, source: Optional[SpiFFTSource] = None) -> None:
+        self.source = source if source is not None else SpiFFTSource()
 
-    try:
-        (magic,) = struct.unpack_from("<I", buf, 0)
-    except struct.error:
-        return False, "hdr_unpack0"
+        self._latest = LatestSpiData(lock=threading.Lock())
+        self._stop = False
+        self._thread: Optional[threading.Thread] = None
 
-    if magic != cfg.magic_start:
-        return False, "magic_start"
+    def start(self) -> None:
+        if self._thread is not None and self._thread.is_alive():
+            return
 
-    try:
-        fields = struct.unpack_from(cfg.header_fmt, buf, 0)
-    except struct.error:
-        return False, "hdr_unpack"
+        self._stop = False
+        with self._latest.lock:
+            self._latest.ok = False
+            self._latest.fft_data = None
+            self._latest.frame_id = 0
+            self._latest.last_err = ""
 
-    ver = fields[1]
-    hdr_len = fields[2]
-    mic = fields[4]
-    fft_size = fields[5]
-    fs = fields[6]
-    bins = fields[7]
-    pay_len = fields[9]
+        self._thread = threading.Thread(target=self._worker, daemon=True)
+        self._thread.start()
 
-    if ver != cfg.version or hdr_len != header_len:
-        return False, "hdr_fields"
-    if mic != cfg.n_mics or fft_size != cfg.samples_per_channel or fs != cfg.sample_rate_hz or bins != cfg.n_bins:
-        return False, "cfg_mismatch"
-    if pay_len != payload_len:
-        return False, "pay_len"
+    def stop(self) -> None:
+        self._stop = True
+        time.sleep(0.01)
+        self._thread = None
+        self.source.close()
 
-    try:
-        (_, magic_end) = struct.unpack_from(cfg.trailer_fmt, buf, header_len + payload_len)
-    except struct.error:
-        return False, "trl_unpack"
+    def get_latest(self) -> Tuple[Optional[np.ndarray], str]:
+        """
+        Returns (fft_data, last_err).
+        """
+        with self._latest.lock:
+            return self._latest.fft_data, self._latest.last_err
 
-    if magic_end != cfg.magic_end:
-        return False, "magic_end"
+    def copy_stats_to(self, target) -> None:
+        """
+        Convenience: mirror stats into another object (e.g., your UI wants spi_source.frames_ok, etc).
+        """
+        with self._latest.lock:
+            target.frames_ok = self._latest.frames_ok
+            target.bad_parse = self._latest.bad_parse
+            target.bad_crc = self._latest.bad_crc
+            target.sclk_hz_rep = self._latest.sclk_hz_rep
+            target.last_err = self._latest.last_err
 
-    return True, "ok"
+    def _worker(self) -> None:
+        while not self._stop:
+            try:
+                fft = self.source.read_fft_data()
 
+                with self._latest.lock:
+                    self._latest.last_err = self.source.last_err
+                    self._latest.frames_ok = self.source.frames_ok
+                    self._latest.bad_parse = self.source.bad_parse
+                    self._latest.bad_crc = self.source.bad_crc
+                    self._latest.sclk_hz_rep = self.source.sclk_hz_rep
 
-def make_payload_mag_phase(cfg: SpiConfig, seq: int, t_sec: float) -> bytes:
-    mp = np.zeros((cfg.n_mics, cfg.n_bins, 2), dtype=np.float32)
+                    if fft is not None:
+                        self._latest.fft_data = fft
+                        self._latest.frame_id += 1
+                        self._latest.ok = True
 
-    # base noise (matches monolithic "feel")
-    noise_mag = 0.006
-    noise_phase = 0.015
-    mp[:, :, 0] = noise_mag * (1.0 + 0.25 * np.random.randn(cfg.n_mics, cfg.n_bins)).astype(np.float32)
-    mp[:, :, 1] = noise_phase * np.random.randn(cfg.n_mics, cfg.n_bins).astype(np.float32)
-
-    spread_bins = int(cfg.spread_bins)
-    sigma_bins = float(cfg.sigma_bins)
-
-    for i, b0 in enumerate(cfg.sim_bins):
-        if b0 < 0 or b0 >= cfg.n_bins:
-            continue
-        if i >= len(cfg.sim_ampls) or i >= len(cfg.sim_angles) or i >= len(cfg.sim_drift_deg_per_sec):
-            continue
-
-        f0 = float(cfg.f_axis[b0])
-        ang = cfg.sim_angles[i] + cfg.sim_drift_deg_per_sec[i] * t_sec
-        ang = ((ang + 90.0) % 180.0) - 90.0
-        theta = np.deg2rad(ang)
-
-        a0 = np.exp(
-            -1j * 2 * np.pi * f0 / cfg.speed_sound *
-            -(cfg.x_coords * np.cos(theta) + cfg.y_coords * np.sin(theta))
-        ).astype(np.complex64)
-
-        for dbin in range(-spread_bins, spread_bins + 1):
-            b = b0 + dbin
-            if b < 0 or b >= cfg.n_bins:
-                continue
-
-            w = float(np.exp(-0.5 * (dbin / sigma_bins) ** 2))
-            amp = float(cfg.sim_ampls[i]) * w
-            ph0 = 0.15 * dbin
-            X = amp * a0 * np.exp(1j * ph0)
-
-            mp[:, b, 0] += np.abs(X).astype(np.float32)
-            mp[:, b, 1] += np.angle(X).astype(np.float32)
-
-    return mp.tobytes(order="C")
-
-
-def make_frame(cfg: SpiConfig, seq: int, t_sec: float) -> bytes:
-    header_len = struct.calcsize(cfg.header_fmt)
-    payload = make_payload_mag_phase(cfg, seq, t_sec)
-    header = struct.pack(
-        cfg.header_fmt,
-        cfg.magic_start, cfg.version, header_len, seq,
-        cfg.n_mics, cfg.samples_per_channel, cfg.sample_rate_hz,
-        cfg.n_bins, 0, len(payload),
-    )
-    crc = zlib.crc32(header)
-    crc = zlib.crc32(payload, crc) & 0xFFFFFFFF
-    trailer = struct.pack(cfg.trailer_fmt, crc, cfg.magic_end)
-    return header + payload + trailer
-
-
-def spi_xfer_bytes(cfg: SpiConfig, spi, tx: bytes) -> bytes:
-    rx = bytearray(len(tx))
-    mv = memoryview(tx)
-    offset = 0
-
-    while offset < len(tx):
-        end = min(offset + int(cfg.xfer_chunk), len(tx))
-        chunk = mv[offset:end]
-        r = spi.xfer3(chunk)
-        rx[offset:end] = bytes(r)
-        offset = end
-
-    return bytes(rx)
+            except Exception as e:
+                with self._latest.lock:
+                    self._latest.last_err = f"spi_thread_exc:{e}"
+                    self._latest.bad_parse = self.source.bad_parse
+                time.sleep(0.002)
