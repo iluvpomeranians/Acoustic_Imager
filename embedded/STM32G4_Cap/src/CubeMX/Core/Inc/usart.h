@@ -7,11 +7,7 @@
   ******************************************************************************
   * @attention
   *
-<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
-=======
-  * Copyright (c) 2025 STMicroelectronics.
->>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file

@@ -7,11 +7,7 @@
   ******************************************************************************
   * @attention
   *
-<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
-=======
-  * Copyright (c) 2025 STMicroelectronics.
->>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -76,7 +72,6 @@ void HAL_MspInit(void)
 
   /* System interrupt init*/
 
-<<<<<<< HEAD
   /** Configure the internal voltage reference buffer high impedance mode
   */
   HAL_SYSCFG_VREFBUF_HighImpedanceConfig(SYSCFG_VREFBUF_HIGH_IMPEDANCE_ENABLE);
@@ -85,8 +80,6 @@ void HAL_MspInit(void)
   */
   HAL_SYSCFG_DisableVREFBUF();
 
-=======
->>>>>>> main
   /** Disable the internal Pull-Up in Dead Battery pins of UCPD peripheral
   */
   HAL_PWREx_DisableUCPDDeadBattery();

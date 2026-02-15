@@ -6,11 +6,7 @@
   ******************************************************************************
   * @attention
   *
-<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
-=======
-  * Copyright (c) 2025 STMicroelectronics.
->>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -59,7 +55,6 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-<<<<<<< HEAD
 extern PCD_HandleTypeDef hpcd_USB_FS;
 extern DMA_HandleTypeDef hdma_adc1;
 extern DMA_HandleTypeDef hdma_adc2;
@@ -71,10 +66,6 @@ extern ADC_HandleTypeDef hadc3;
 extern ADC_HandleTypeDef hadc4;
 extern SPI_HandleTypeDef hspi4;
 extern TIM_HandleTypeDef htim6;
-=======
-extern DMA_HandleTypeDef hdma_adc1;
-extern ADC_HandleTypeDef hadc1;
->>>>>>> main
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -232,7 +223,6 @@ void DMA1_Channel1_IRQHandler(void)
 }
 
 /**
-<<<<<<< HEAD
   * @brief This function handles DMA1 channel2 global interrupt.
   */
 void DMA1_Channel2_IRQHandler(void)
@@ -275,8 +265,6 @@ void DMA1_Channel4_IRQHandler(void)
 }
 
 /**
-=======
->>>>>>> main
   * @brief This function handles ADC1 and ADC2 global interrupt.
   */
 void ADC1_2_IRQHandler(void)
@@ -285,18 +273,14 @@ void ADC1_2_IRQHandler(void)
 
   /* USER CODE END ADC1_2_IRQn 0 */
   HAL_ADC_IRQHandler(&hadc1);
-<<<<<<< HEAD
   HAL_ADC_IRQHandler(&hadc2);
   HAL_ADC_IRQHandler(&hadc3);
   HAL_ADC_IRQHandler(&hadc4);
-=======
->>>>>>> main
   /* USER CODE BEGIN ADC1_2_IRQn 1 */
 
   /* USER CODE END ADC1_2_IRQn 1 */
 }
 
-<<<<<<< HEAD
 /**
   * @brief This function handles USB low priority interrupt remap.
   */
@@ -339,8 +323,6 @@ void SPI4_IRQHandler(void)
   /* USER CODE END SPI4_IRQn 1 */
 }
 
-=======
->>>>>>> main
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */

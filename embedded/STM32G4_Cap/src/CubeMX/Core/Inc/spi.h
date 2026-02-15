@@ -7,11 +7,7 @@
   ******************************************************************************
   * @attention
   *
-<<<<<<< HEAD:embedded/STM32G4_Cap/src/CubeMX/Core/Inc/spi.h
   * Copyright (c) 2026 STMicroelectronics.
-=======
-  * Copyright (c) 2025 STMicroelectronics.
->>>>>>> main:embedded/STM32G4_Cap/include/spi.h
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -36,21 +32,13 @@ extern "C" {
 
 /* USER CODE END Includes */
 
-<<<<<<< HEAD:embedded/STM32G4_Cap/src/CubeMX/Core/Inc/spi.h
 extern SPI_HandleTypeDef hspi4;
-=======
-extern SPI_HandleTypeDef hspi1;
->>>>>>> main:embedded/STM32G4_Cap/include/spi.h
 
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
-<<<<<<< HEAD:embedded/STM32G4_Cap/src/CubeMX/Core/Inc/spi.h
 void MX_SPI4_Init(void);
-=======
-void MX_SPI1_Init(void);
->>>>>>> main:embedded/STM32G4_Cap/include/spi.h
 
 /* USER CODE BEGIN Prototypes */
 

@@ -6,11 +6,7 @@
   ******************************************************************************
   * @attention
   *
-<<<<<<< HEAD
   * Copyright (c) 2026 STMicroelectronics.
-=======
-  * Copyright (c) 2025 STMicroelectronics.
->>>>>>> main
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -24,18 +20,12 @@
 #include "main.h"
 #include "adc.h"
 #include "dma.h"
-<<<<<<< HEAD
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
 #include "arm_math.h"
-=======
-#include "tim.h"
-#include "usart.h"
-#include "gpio.h"
->>>>>>> main
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -49,12 +39,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-<<<<<<< HEAD
 #define N_SAMPLES 2048
 #define SPI_PACKET_HEADER 0xAA
 #define SPI_PACKET_SIZE (1 + 1 + 4 + 512*4 + 2)
-=======
->>>>>>> main
 
 /* USER CODE END PD */
 
@@ -66,7 +53,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-<<<<<<< HEAD
 // Each ADC gets dedicated DMA circular buffer (2048 samples total)
 // Half-buffer = 1024 samples (at 48kHz = 21.3ms)
 static uint16_t adc1_buf[2048];
@@ -92,8 +78,6 @@ volatile uint8_t ready_half[4] = {0};  // One per ADC
 // Interrupt counters (for debug / watch)
 volatile uint32_t irq_events = 0;            // total ADC IRQ events
 volatile uint32_t irq_count_adc[4] = {0};    // per-ADC IRQ counters
-=======
->>>>>>> main
 
 /* USER CODE END PV */
 
@@ -105,7 +89,6 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-<<<<<<< HEAD
 uint32_t value = 0;
 float voltage;
 const float adc_scalar = 3.3f / 4095.0f;
@@ -219,15 +202,6 @@ void transmit_spi_packet(uint8_t *packet_buffer, uint32_t packet_size)
 
 /* USER CODE END 0 */
 
-=======
-
-/* USER CODE END 0 */
-
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
->>>>>>> main
 int main(void)
 {
 
@@ -255,7 +229,6 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_ADC1_Init();
-<<<<<<< HEAD
   MX_ADC2_Init();
   MX_ADC3_Init();
   MX_ADC4_Init();
@@ -281,11 +254,6 @@ int main(void)
   HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, 2048);
   HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2048);
   HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2048);
-=======
-  MX_TIM2_Init();
-  MX_USART2_UART_Init();
-  /* USER CODE BEGIN 2 */
->>>>>>> main
 
   /* USER CODE END 2 */
 
@@ -296,7 +264,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-<<<<<<< HEAD
 
     // FFT Processing Pipeline
     // When any ADC half-buffer completes, process that acoustic window
@@ -368,8 +335,6 @@ int main(void)
 
     HAL_Delay(1);
   
-=======
->>>>>>> main
   }
   /* USER CODE END 3 */
 }
@@ -385,11 +350,7 @@ void SystemClock_Config(void)
 
   /** Configure the main internal regulator output voltage
   */
-<<<<<<< HEAD
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
-=======
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
->>>>>>> main
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -399,17 +360,10 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-<<<<<<< HEAD
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
   RCC_OscInitStruct.PLL.PLLN = 12;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
-=======
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV4;
-  RCC_OscInitStruct.PLL.PLLN = 85;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
->>>>>>> main
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -425,11 +379,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-<<<<<<< HEAD
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
-=======
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
->>>>>>> main
   {
     Error_Handler();
   }
