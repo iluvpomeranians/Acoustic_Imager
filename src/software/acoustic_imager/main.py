@@ -252,8 +252,12 @@ def main() -> None:
     print("=" * 70)
 
     # ---- Setup output directory ----
-    state.OUTPUT_DIR = Path(__file__).parent / "heatmap_captures"
+    # Use data folder at repository root
+    repo_root = Path(__file__).resolve().parents[3]  # Go up to Capstone_490_Software/
+    state.OUTPUT_DIR = repo_root / "data" / "heatmap_captures"
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print(f"Output directory: {state.OUTPUT_DIR}")
+    print()
 
     # ---- Initialize data sources ----
     global sim_source, spi_hw, spi_loopback, active_spi

@@ -296,6 +296,9 @@ def draw_menu(frame: np.ndarray) -> None:
 def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:
     """
     Draw recording timestamp below the menu when recording is active.
+    Position changes based on menu state:
+    - Menu closed: timestamp below MENU button
+    - Menu open: timestamp below SHOT/REC/PAUSE buttons
     Shows elapsed time in MM:SS format, with red dot indicator.
     """
     if video_recorder is None or not video_recorder.is_recording:
@@ -309,16 +312,21 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
     
-    # Position below the last menu button row (SHOT/REC/PAUSE)
+    # Position based on menu state
     menu_x = menu_buttons["menu"].x
     menu_w = menu_buttons["menu"].w
     
-    # Find the bottom of the tools row
-    tools_bottom = menu_buttons["rec"].y + menu_buttons["rec"].h + 10
+    if button_state.menu_open:
+        # Menu is open: position below SHOT/REC/PAUSE buttons
+        tools_bottom = menu_buttons["rec"].y + menu_buttons["rec"].h + 10
+        timestamp_y = tools_bottom
+    else:
+        # Menu is closed: position below MENU button
+        menu_bottom = menu_buttons["menu"].y + menu_buttons["menu"].h + 10
+        timestamp_y = menu_bottom
     
     # Timestamp box dimensions
     timestamp_h = 35
-    timestamp_y = tools_bottom
     
     # Draw semi-transparent background
     overlay = frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w].copy()
@@ -433,11 +441,13 @@ def handle_menu_click(
         if button_state.is_recording:
             if video_recorder.start_recording():
                 button_state.is_paused = False
+                menu_buttons["rec"].text = "STOP"  # Change text to STOP
             else:
                 button_state.is_recording = False
         else:
             video_recorder.stop_recording()
             button_state.is_paused = False
+            menu_buttons["rec"].text = "REC"  # Change text back to REC
         return video_recorder
 
     # PAUSE
