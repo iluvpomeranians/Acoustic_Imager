@@ -13,7 +13,7 @@ ACOUSTIC_USER="acousticlord"
 ACOUSTIC_GROUP="acousticlord"
 PROJECT_DIR="/home/acousticlord/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing_v2.py"
+APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing_14FPS_v4.py"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
@@ -22,22 +22,26 @@ RUN_WRAPPER="/usr/local/bin/acoustic-ui-run"
 
 ENABLE_DEV=0
 SHOW_STATUS=0
+CLEAN_REINSTALL=0
 
 # ----------------------------
 # Parse flags
 # ----------------------------
 for arg in "$@"; do
     case "$arg" in
-        -dev)
-            ENABLE_DEV=1
-            ;;
-        -status)
-            SHOW_STATUS=1
-            ;;
-        *)
-            echo "Unknown option: $arg"
-            exit 1
-            ;;
+    -dev)
+        ENABLE_DEV=1
+        ;;
+    -status)
+        SHOW_STATUS=1
+        ;;
+    --clean)
+        CLEAN_REINSTALL=1
+        ;;
+    *)
+        echo "Unknown option: $arg"
+        exit 1
+        ;;
     esac
 done
 
@@ -80,9 +84,31 @@ fi
 # just toggle DEV mode
 # ----------------------------
 if [[ -f "/etc/systemd/system/$SERVICE_NAME" ]]; then
-    echo "Service already installed."
-    handle_dev_mode
-    exit 0
+    if [[ "$CLEAN_REINSTALL" -eq 1 ]]; then
+        echo "Clean reinstall requested (--clean)."
+
+        echo "Stopping service (if running)..."
+        sudo systemctl disable --now "$SERVICE_NAME" 2>/dev/null || true
+
+        echo "Killing old tmux session (if any)..."
+        /usr/bin/tmux kill-session -t "$TMUX_SESSION" 2>/dev/null || true
+
+        echo "Removing old unit + wrapper..."
+        sudo rm -f "/etc/systemd/system/$SERVICE_NAME"
+        sudo rm -f "$RUN_WRAPPER"
+
+        echo "Clearing old log..."
+        sudo rm -f /tmp/acoustic_ui.log
+
+        echo "Reloading systemd..."
+        sudo systemctl daemon-reload
+
+        echo "Old service + session fully removed."
+    else
+        echo "Service already installed."
+        handle_dev_mode
+        exit 0
+    fi
 fi
 
 # ----------------------------
@@ -126,7 +152,7 @@ if /usr/bin/tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
   echo "[acoustic-ui] Session already running."
 else
   exec /usr/bin/tmux new-session -d -s "$TMUX_SESSION" \
-  "$PYTHON_BIN -u $APP_ENTRY 2>&1 | tee -a \$LOGFILE"
+  "$PYTHON_BIN -u $APP_ENTRY 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
 fi
 EOF
 
@@ -154,6 +180,8 @@ ExecStart=$RUN_WRAPPER
 ExecStop=/usr/bin/tmux kill-session -t $TMUX_SESSION
 Restart=on-failure
 RestartSec=1
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=graphical.target

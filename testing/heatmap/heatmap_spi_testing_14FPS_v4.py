@@ -64,6 +64,8 @@ try:
     from heatmap_pipeline_test import (  # type: ignore
         create_background_frame,
     )
+    sys.path.append(str(Path(__file__).resolve().parents[2] / "utilities"))
+    from stage_profiler import StageProfiler
 except ImportError as e:
     print(f"ERROR: Failed to import required modules: {e}")
     print(f"CWD: {Path.cwd()}")
@@ -144,8 +146,11 @@ SPI_DEV = 0
 SPI_MODE = 0
 SPI_BITS = 8
 
-SPI_MAX_SPEED_HZ = 60_000_000
-SPI_XFER_CHUNK = 2048
+SPI_MAX_SPEED_HZ = 80_000_000
+SPI_XFER_CHUNK = 8192
+
+# For debugging if FPS is too slow, we can pre-generate a static frame and reuse it.
+STATIC_TX_FRAME = None
 
 # --- LOOPBACK SPI "virtual sources" ---
 SPI_SIM_BINS   = [35, 80, 160, 220]
@@ -153,7 +158,7 @@ SPI_SIM_AMPLS  = [6.0, 3.0, 5.0, 4.0]          # boosted
 SPI_SIM_ANGLES = [-25.0, 35.0, -5.0, 60.0]
 SPI_SIM_DRIFT_DEG_PER_SEC = [1.2, -0.6, 0.4, -0.3]
 
-CRC_EVERY_N = 1
+CRC_EVERY_N = 30
 
 # ===============================================================
 # 3. Geometry setup (Fermat spiral)
@@ -180,24 +185,43 @@ def music_spectrum(R: np.ndarray,
                    angles: np.ndarray,
                    f_signal: float,
                    n_sources: int) -> np.ndarray:
+    """
+    Vectorized MUSIC spectrum over all angles (no Python loop).
+    Same output semantics: float32, normalized to max=1.
+    """
+    # Eigendecomposition
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
     eigvecs = eigvecs[:, idx]
-    En = eigvecs[:, n_sources:]
 
-    spectrum = []
-    for ang in angles:
-        theta = np.deg2rad(ang)
-        a = np.exp(
-            -1j * 2 * np.pi * f_signal / SPEED_SOUND *
-            -(x_coords * np.cos(theta) + y_coords * np.sin(theta))
-        )
-        a = a[:, np.newaxis]
-        P = 1.0 / np.real(a.conj().T @ En @ En.conj().T @ a)
-        spectrum.append(P[0, 0])
+    # Noise subspace
+    En = eigvecs[:, n_sources:]              # (M, M-nsrc)
+    Pn = En @ En.conj().T                    # (M, M) noise projector
 
-    spec = np.array(spectrum, dtype=np.float32)
-    spec /= (np.max(spec) + 1e-12)
+    # Precompute geometry projection for all angles:
+    # phase = j*k*(x cos + y sin) with k = 2πf/c
+    theta = np.deg2rad(angles).astype(np.float32)          # (A,)
+    cth = np.cos(theta).astype(np.float32)                 # (A,)
+    sth = np.sin(theta).astype(np.float32)                 # (A,)
+
+    proj = (x_coords[:, None] * cth[None, :] +
+            y_coords[:, None] * sth[None, :]).astype(np.float32)  # (M, A)
+
+    k = (2.0 * np.pi * float(f_signal) / SPEED_SOUND)
+    A = np.exp(1j * k * proj).astype(np.complex64)         # (M, A)
+
+    # MUSIC pseudo-spectrum:
+    # P(θ) = 1 / Re(a^H Pn a)
+    # Do it in a vectorized way for all angles:
+    PA = Pn @ A                                            # (M, A)
+    denom = np.einsum("ma,ma->a", A.conj(), PA).real        # (A,)
+    denom = np.maximum(denom, 1e-12)
+
+    spec = (1.0 / denom).astype(np.float32)
+
+    # Normalize
+    m = float(spec.max()) if spec.size else 1.0
+    spec /= (m + 1e-12)
     return spec
 
 
@@ -225,52 +249,78 @@ def spectra_to_heatmap_absolute(spec_matrix: np.ndarray,
                                 out_height: int,
                                 db_min: float = REL_DB_MIN,
                                 db_max: float = REL_DB_MAX) -> np.ndarray:
+    """
+    Faster heatmap builder:
+      - Finds peak angle per source
+      - Creates Gaussian blobs only in a small ROI (not full-frame meshgrid)
+      - Accumulates in float32 heatmap, returns uint8 0..255
+    """
     Nsrc, Nang = spec_matrix.shape
-    power_rel = np.maximum(power_rel.astype(np.float32), 1e-12)
+    if Nsrc == 0 or Nang == 0:
+        return np.zeros((out_height, out_width), dtype=np.uint8)
 
+    power_rel = np.maximum(power_rel.astype(np.float32), 1e-12)
     power_db = 10.0 * np.log10(power_rel)  # <= 0
     power_norm = (power_db - db_min) / (db_max - db_min + 1e-12)
     power_norm = np.clip(power_norm, 0.0, 1.0)
 
-    peak_indices = []
-    sharpness = []
+    # Peak index + a simple "sharpness" estimate (still cheap)
+    peak_idx = np.argmax(spec_matrix, axis=1).astype(np.int32)  # (Nsrc,)
+
+    sharp = np.empty(Nsrc, dtype=np.float32)
+    for i in range(Nsrc):
+        idx = int(peak_idx[i])
+        p = float(spec_matrix[i, idx])
+        left = float(spec_matrix[i, idx - 1]) if idx > 0 else p
+        right = float(spec_matrix[i, idx + 1]) if idx < (Nang - 1) else p
+        sharp[i] = max(p - 0.5 * (left + right), 1e-12)
+
+    sharp /= (sharp.max() + 1e-12)
+
+    h, w = int(out_height), int(out_width)
+    heat = np.zeros((h, w), dtype=np.float32)
+
+    # map peak angle index -> x pixel (precompute)
+    # note: clamp to [0, w-1]
+    cx_all = (peak_idx.astype(np.float32) * (w - 1) / max(1, (Nang - 1))).astype(np.int32)
+    cx_all = np.clip(cx_all, 0, w - 1)
+    cy = h // 2
+
+    base_radius = 60.0
 
     for i in range(Nsrc):
-        row = spec_matrix[i]
-        idx = int(np.argmax(row))
-        peak_indices.append(idx)
-
-        p = float(row[idx])
-        left = float(row[idx - 1]) if idx > 0 else p
-        right = float(row[idx + 1]) if idx < Nang - 1 else p
-        sh = max(p - 0.5 * (left + right), 1e-12)
-        sharpness.append(sh)
-
-    sharpness = np.array(sharpness, dtype=np.float32)
-    sharpness /= (sharpness.max() + 1e-12)
-
-    h, w = out_height, out_width
-    heatmap = np.zeros((h, w), dtype=np.float32)
-    yy, xx = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
-
-    def ang_to_px(idx: int) -> int:
-        return int(idx / Nang * w)
-
-    base_radius = 60
-
-    for i in range(Nsrc):
-        cx = ang_to_px(peak_indices[i])
-        cy = h // 2
-
-        blob_radius = base_radius * (0.7 + 0.3 * float(sharpness[i]))
-        sigma = blob_radius / 1.8
-
         amp = float(power_norm[i])
-        blob = amp * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma * sigma))
-        heatmap += blob
+        if amp <= 0.0:
+            continue
 
-    heatmap = np.clip(heatmap, 0.0, 1.0)
-    return (heatmap * 255).astype(np.uint8)
+        cx = int(cx_all[i])
+
+        blob_radius = base_radius * (0.7 + 0.3 * float(sharp[i]))
+        sigma = blob_radius / 1.8
+        sigma2 = float(2.0 * sigma * sigma + 1e-12)
+
+        # ROI bounds (3*sigma is plenty)
+        r = int(max(6, min(200, round(3.0 * sigma))))
+        x0 = max(0, cx - r)
+        x1 = min(w, cx + r + 1)
+        y0 = max(0, cy - r)
+        y1 = min(h, cy + r + 1)
+
+        # build small grids
+        xs = (np.arange(x0, x1, dtype=np.float32) - cx)
+        ys = (np.arange(y0, y1, dtype=np.float32) - cy)
+
+        # separable gaussian: exp(-(x^2+y^2)/2s^2) = exp(-x^2/2s^2)*exp(-y^2/2s^2)
+        gx = np.exp(-(xs * xs) / sigma2)  # (Wx,)
+        gy = np.exp(-(ys * ys) / sigma2)  # (Hy,)
+
+        blob = amp * (gy[:, None] * gx[None, :]).astype(np.float32)
+        heat[y0:y1, x0:x1] += blob
+
+    # Normalize / clamp
+    heat = np.clip(heat, 0.0, 1.0)
+    return (heat * 255.0).astype(np.uint8)
+
 
 # ===============================================================
 # 6. Frequency bar + dB colorbar
@@ -322,6 +372,22 @@ def draw_frequency_bar(frame: np.ndarray,
 
     y_min = np.clip(freq_to_y(f_min, h), 0, h - 1)
     y_max = np.clip(freq_to_y(f_max, h), 0, h - 1)
+
+        # --- label the draggable band edges (kHz) ---
+    # Put text a bit to the right of the green line
+    label_x = 8
+
+    fmin_khz = f_min / 1000.0
+    fmax_khz = f_max / 1000.0
+
+    # keep text on-screen (avoid negative y / overflow)
+    y_min_txt = int(np.clip(y_min - 6, 12, h - 6))
+    y_max_txt = int(np.clip(y_max - 6, 12, h - 6))
+
+    cv2.putText(bar, f"{fmin_khz:5.1f} kHz", (label_x, y_min_txt),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
+    cv2.putText(bar, f"{fmax_khz:5.1f} kHz", (label_x, y_max_txt),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
 
     cv2.line(bar, (0, y_min), (bar_w - 1, y_min), (0, 255, 0), 1)
     cv2.line(bar, (0, y_max), (bar_w - 1, y_max), (0, 255, 0), 1)
@@ -490,21 +556,15 @@ video_recorder: Optional[VideoRecorder] = None
 FPS_MODE_TO_TARGET = {"30": 30, "60": 60}
 
 def _rounded_rect(img, x, y, w, h, r, color, thickness=-1):
-    r = int(max(0, min(r, min(w, h)//2)))
-    if thickness < 0:
-        cv2.rectangle(img, (x+r, y), (x+w-r, y+h), color, -1)
-        cv2.rectangle(img, (x, y+r), (x+w, y+h-r), color, -1)
-        cv2.circle(img, (x+r, y+r), r, color, -1, cv2.LINE_AA)
-        cv2.circle(img, (x+w-r, y+r), r, color, -1, cv2.LINE_AA)
-        cv2.circle(img, (x+r, y+h-r), r, color, -1, cv2.LINE_AA)
-        cv2.circle(img, (x+w-r, y+h-r), r, color, -1, cv2.LINE_AA)
-    else:
-        cv2.rectangle(img, (x+r, y), (x+w-r, y+h), color, thickness)
-        cv2.rectangle(img, (x, y+r), (x+w, y+h-r), color, thickness)
-        cv2.circle(img, (x+r, y+r), r, color, thickness, cv2.LINE_AA)
-        cv2.circle(img, (x+w-r, y+r), r, color, thickness, cv2.LINE_AA)
-        cv2.circle(img, (x+r, y+h-r), r, color, thickness, cv2.LINE_AA)
-        cv2.circle(img, (x+w-r, y+h-r), r, color, thickness, cv2.LINE_AA)
+    cv2.rectangle(
+        img,
+        (x, y),
+        (x + w, y + h),
+        color,
+        thickness,
+        lineType=cv2.LINE_AA
+    )
+
 
 class Button:
     def __init__(self, x, y, w, h, text):
@@ -775,7 +835,7 @@ def spi_xfer_bytes(spi, tx: bytes) -> bytes:
     while offset < len(tx):
         end = min(offset + SPI_XFER_CHUNK, len(tx))
         chunk = mv[offset:end]
-        r = spi.xfer2(list(chunk))
+        r = spi.xfer3(chunk)
         rx[offset:end] = bytes(r)
         offset = end
 
@@ -871,6 +931,7 @@ class SpiFFTSource:
         try:
             self.seq_seen += 1
             t_sec = time.time()
+
             tx = make_frame(self.seq_seen, t_sec)
             rx = spi_xfer_bytes(self.spi, tx)
 
@@ -1065,6 +1126,11 @@ def mouse_move(event, x, y, flags, param):
 def main():
     global OUTPUT_DIR, CURRENT_FRAME, video_recorder, CAMERA_AVAILABLE
 
+    # ---- PROFILER (DEBUG) ----
+    prof = StageProfiler(keep=120)
+    PRINT_EVERY = 60  # frames
+    # --------------------------
+
     print("Acoustic Imager - SIM + SPI LOOPBACK Bandpass Demo")
     print("=" * 70)
     print(f"FPS default: 60 (segmented: 30/60/MAX)")
@@ -1177,12 +1243,15 @@ def main():
 
     try:
         while True:
+            prof.start_frame()
+
             # --- FPS estimator (EMA) ---
             now_t = time.perf_counter()
             dt = now_t - last_t
             last_t = now_t
             inst_fps = (1.0 / dt) if dt > 1e-6 else 0.0
             fps_ema = (0.92 * fps_ema + 0.08 * inst_fps) if fps_ema > 0 else inst_fps
+            prof.mark("fps_est")
 
             # --- Throttle based on segmented FPS mode ---
             if button_state.fps_mode in ("30", "60"):
@@ -1198,10 +1267,12 @@ def main():
             else:
                 # MAX = unthrottled
                 next_tick = time.perf_counter()
+            prof.mark("throttle")
 
             f_min = F_MIN_HZ
             f_max = F_MAX_HZ
 
+            # --- Read source ---
             if button_state.source_mode == "SIM":
                 fft_frame = sim_source.read_frame()
                 source_label = "SIM"
@@ -1210,7 +1281,9 @@ def main():
                 fft_frame = spi_source.read_frame()
                 source_label = "SPI"
                 source_err = spi_source.last_err
+            prof.mark("read_source")
 
+            # --- fft_data extract/fallback ---
             if fft_frame is None or fft_frame.fft_data is None:
                 if source_label == "SPI" and last_spi_fft_data is not None:
                     fft_data = last_spi_fft_data
@@ -1220,8 +1293,9 @@ def main():
                 fft_data = fft_frame.fft_data
                 if source_label == "SPI":
                     last_spi_fft_data = fft_data
+            prof.mark("fft_extract")
 
-            # Heatmap build
+            # --- Heatmap build ---
             if source_label == "SIM":
                 selected_indices = [i for i, f in enumerate(SIM_SOURCE_FREQS) if f_min <= f <= f_max]
                 if not selected_indices:
@@ -1266,10 +1340,10 @@ def main():
                     # brighter SPI: normalize within selected bins each frame
                     power_rel = power / (power.max() + 1e-12)
                     power_rel = np.power(power_rel, 0.6)
-
                     heatmap_left = spectra_to_heatmap_absolute(spec_matrix, power_rel, left_width, HEIGHT)
+            prof.mark("beamform+heatmap")
 
-            # Background
+            # --- Background ---
             if use_camera and camera_type is not None and button_state.camera_enabled:
                 try:
                     if camera_type == "picamera2" and picam2 is not None:
@@ -1290,8 +1364,9 @@ def main():
                     background = background_full.copy()
             else:
                 background = background_full.copy()
+            prof.mark("background")
 
-            # Blend heatmap left
+            # --- Blend heatmap left ---
             left_bg = background[:, :left_width, :]
             colored = cv2.applyColorMap(heatmap_left, cv2.COLORMAP_MAGMA)
 
@@ -1302,12 +1377,14 @@ def main():
             left_out = (colored * mask3 * ALPHA + left_bg * (1 - mask3 * ALPHA)).astype(np.uint8)
             background[:, :left_width, :] = left_out
             output_frame = background
+            prof.mark("blend")
 
-            # Bars
+            # --- Bars ---
             draw_frequency_bar(output_frame, fft_data, f_axis, f_min, f_max)
             draw_db_colorbar(output_frame, REL_DB_MIN, REL_DB_MAX)
+            prof.mark("bars")
 
-            # Text
+            # --- Text/UI ---
             elapsed = time.time() - start_time
             text_x = DB_BAR_WIDTH + 12
             cv2.putText(output_frame, f"Frame: {frame_count}", (text_x, 30),
@@ -1330,32 +1407,49 @@ def main():
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
                 cv2.putText(output_frame, f"ok: {spi_source.frames_ok}", (text_x, y0 + 1*dy),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-
-                # badParse + badCRC on one line
                 cv2.putText(output_frame, f"badParse: {spi_source.bad_parse}   badCRC: {spi_source.bad_crc}",
                             (text_x, y0 + 2*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-
                 cv2.putText(output_frame, f"FPS: {fps_ema:5.1f}", (text_x, y0 + 3*dy),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-
                 cv2.putText(output_frame, f"Throughput: {mbps_bytes:.2f} MB/s  ({mbps_bits:.1f} Mb/s)",
                             (text_x, y0 + 4*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-
                 if source_err:
                     cv2.putText(output_frame, f"lastErr: {source_err[:60]}", (text_x, y0 + 5*dy),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
 
             draw_buttons(output_frame)
             draw_menu(output_frame)
+            prof.mark("ui")
 
             CURRENT_FRAME = output_frame.copy()
+            prof.mark("copy_frame")
 
             if button_state.is_recording and video_recorder:
                 video_recorder.write_frame(output_frame)
+            prof.mark("record")
 
             cv2.imshow(WINDOW_NAME, output_frame)
+            prof.mark("imshow")
 
             key = cv2.waitKey(1) & 0xFF
+            prof.mark("waitKey")
+
+            prof.end_frame()
+
+            if (frame_count % PRINT_EVERY) == 0 and frame_count > 0:
+                print(
+                    "ms avg | "
+                    f"read={prof.ms('read_source'):.2f} "
+                    f"heat={prof.ms('beamform+heatmap'):.2f} "
+                    f"bg={prof.ms('background'):.2f} "
+                    f"blend={prof.ms('blend'):.2f} "
+                    f"bars={prof.ms('bars'):.2f} "
+                    f"ui={prof.ms('ui'):.2f} "
+                    f"imshow={prof.ms('imshow'):.2f} "
+                    f"waitKey={prof.ms('waitKey'):.2f} "
+                    f"total={prof.ms('frame_total'):.2f}"
+                )
+
             if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                 break
             if key == ord("q") or key == 27:
@@ -1382,6 +1476,7 @@ def main():
             except Exception:
                 pass
         cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     main()
