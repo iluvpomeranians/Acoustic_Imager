@@ -13,7 +13,7 @@ ACOUSTIC_USER="acousticlord"
 ACOUSTIC_GROUP="acousticlord"
 PROJECT_DIR="/home/acousticlord/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing_30FPS_v7.py"
+APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing_35FPS_v8.py"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
