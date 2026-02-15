@@ -1,6 +1,6 @@
-# sources/types.py
+# custom_types.py
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 import numpy as np
 
@@ -17,4 +17,4 @@ class LatestFrame:
     fft_data: Optional[np.ndarray] = None  # (N_MICS, N_BINS) complex64
     frame_id: int = 0
     ok: bool = False
-    stats: SourceStats = SourceStats()
+    stats: SourceStats = field(default_factory=SourceStats)

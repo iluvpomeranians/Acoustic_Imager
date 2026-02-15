@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Any
 
 import numpy as np
 
-from sources.types import LatestFrame, SourceStats
+from acoustic_imager.custom_types import LatestFrame, SourceStats
 
 
 # ---------------------------
@@ -31,7 +31,7 @@ def _get_cfg():
     If your project uses different names, adjust this function only.
     """
     try:
-        import config  # type: ignore
+        from acoustic_imager import config  # type: ignore
     except Exception as e:
         raise ImportError(f"spi_protocol could not import config.py: {e}")
 

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from sources.types import LatestFrame
-from io.spi_manager import SPIManager
+from acoustic_imager.custom_types import LatestFrame
+from acoustic_imager.io.spi_manager import SPIManager
 
 
 class SPISource:

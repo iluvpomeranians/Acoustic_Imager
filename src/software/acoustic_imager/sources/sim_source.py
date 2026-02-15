@@ -6,8 +6,8 @@ from typing import List
 
 import numpy as np
 
-import config
-from sources.types import LatestFrame, SourceStats
+from acoustic_imager import config
+from acoustic_imager.custom_types import LatestFrame, SourceStats
 
 
 def _cfg(name: str):

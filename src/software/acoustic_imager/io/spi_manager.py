@@ -22,7 +22,7 @@ from typing import Optional
 
 import numpy as np
 
-from sources.types import LatestFrame, SourceStats
+from acoustic_imager.custom_types import LatestFrame, SourceStats
 
 try:
     import spidev  # type: ignore
@@ -33,7 +33,7 @@ except Exception:
 
 # Import config as a module of constants.
 # Expected keys are listed in _cfg() below.
-import config
+from acoustic_imager import config
 
 
 def _cfg(name: str):
