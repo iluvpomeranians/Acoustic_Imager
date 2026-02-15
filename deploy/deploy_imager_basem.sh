@@ -13,7 +13,7 @@ ACOUSTIC_USER="basempi"
 ACOUSTIC_GROUP="basempi"
 PROJECT_DIR="/home/basempi/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/basempi/Capstone_490_Software/src/software/acoustic_imager.main"
+APP_ENTRY="/home/basempi/Capstone_490_Software/src/software/acoustic_imager/main.py"
 
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
@@ -144,7 +144,7 @@ if [[ -f "\$DEV_MODE_FILE" ]]; then
   exit 0
 fi
 
-# IMPORTANT: run from package root so imports work
+# Run from the package-root so imports work
 cd "$PROJECT_DIR/src/software"
 
 if /usr/bin/tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
