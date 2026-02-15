@@ -154,7 +154,7 @@ class Button:
 
 
 def init_buttons(left_width: int, camera_available: bool) -> None:
-    global buttons
+    buttons.clear()
 
     n = 3
     margin = 10
@@ -171,8 +171,6 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
     total = n * w + (n - 1) * margin
     x0 = left_pad + (avail - total) // 2
 
-    buttons = {}
-
     cam_text = "Camera: N/A" if not camera_available else (
         "Camera: ON" if button_state.camera_enabled else "Camera: OFF"
     )
@@ -188,8 +186,7 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
 
 
 def init_menu_buttons(left_width: int) -> None:
-    global menu_buttons
-    menu_buttons = {}
+    menu_buttons.clear()
 
     menu_x = 590
     menu_y = 10

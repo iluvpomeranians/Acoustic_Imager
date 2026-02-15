@@ -27,7 +27,7 @@ class ButtonState:
 
     # MENU states
     menu_open: bool = False
-    fps_mode: str = "60"       # "30" | "60" | "MAX"
+    fps_mode: str = "MAX"       # "30" | "60" | "MAX"
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
 
