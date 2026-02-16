@@ -7,9 +7,10 @@
         -> Added CMSIS DSP to build. Probably not worth to switch to fixed point.
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
 - [ ] Address that ADCs are configured properly for channel scanning in CubeMX
-- [ ] Clean up branches
-- [ ] Fix adc_ready
-- [ ] 
+- [x] Clean up branches
+- [x] Fix adc_ready
+- [x] Add buffer de-interleaving
+- [x] Bench debug that all the ADCs are firing at the correct rate
  
 
 ## Processing steps:
@@ -20,4 +21,6 @@
     4. Packaging
     5. Transmit SPI
 
-5. 
+## Unit Tests
+- [ ] Test the USART2 and USB
+- [ ] Test that ADC buffers are filling after adc_ready_mask change

@@ -40,6 +40,15 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define N_SAMPLES 2048
+#define FRAME_SIZE 1024
+#define N_CH_PER_ADC 4
+
+// TODO: Consider discarding Nyquist bin (bin 512) since it represents the 
+// Nyquist frequency and may not be useful for our application. If we do that,
+// we can reduce SPI_PACKET_SIZE accordingly and save some bandwidth. For now, we'll keep it simple and include all bins.
+#define N_BINS ((FRAME_SIZE >> 1) + 1) // For real FFT: N_BINS = (N/2)+1 = 513 
+
+#define SPI_BUFFER_SIZE 4
 #define SPI_PACKET_HEADER 0xAA
 #define SPI_PACKET_SIZE (1 + 1 + 4 + 512*4 + 2)
 
@@ -55,16 +64,16 @@
 /* USER CODE BEGIN PV */
 // Each ADC gets dedicated DMA circular buffer (2048 samples total)
 // Half-buffer = 1024 samples (at 48kHz = 21.3ms)
-static uint16_t adc1_buf[2048];
-static uint16_t adc2_buf[2048];
-static uint16_t adc3_buf[2048];
-static uint16_t adc4_buf[2048];
+static uint16_t adc1_buf[2 * FRAME_SIZE];
+static uint16_t adc2_buf[2 * FRAME_SIZE];
+static uint16_t adc3_buf[2 * FRAME_SIZE];
+static uint16_t adc4_buf[2 * FRAME_SIZE];
 
 // FFT Output: Frequency domain results (1024-point FFT → 512 bins per ADC)
-static float fft_out_adc1[512];
-static float fft_out_adc2[512];
-static float fft_out_adc3[512];
-static float fft_out_adc4[512];
+static float fft_out_adc1[N_BINS];
+static float fft_out_adc2[N_BINS];
+static float fft_out_adc3[N_BINS];
+static float fft_out_adc4[N_BINS];
 
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
@@ -93,11 +102,7 @@ uint32_t value = 0;
 float voltage;
 const float adc_scalar = 3.3f / 4095.0f;
 
-float abi_probe(float a, float b) {
-    return a + b;
-}
-
-static float fft_input_buf[1024];
+static float fft_input_buf[FRAME_SIZE];
 static float fft_temp_buf[2048];
 static arm_rfft_fast_instance_f32 fft_instance;
 
@@ -108,14 +113,16 @@ typedef struct {
     uint8_t header;
     uint8_t adc_id;
     uint32_t frame_counter;
-    float fft_data[512];
+    float fft_data[512]; // TODO: Correct MACRO use
     uint16_t checksum;
 } __attribute__((packed)) SPI_Packet_t;
 
-void process_adc_to_float(uint16_t *adc_raw, float *output, uint32_t length)
-{
+// Process raw ADC data to float voltage values for a specific channel 
+// (de-interleaves)
+void process_adc_to_float(uint16_t *adc_raw, float *output, uint8_t ch, 
+                          uint32_t length) {
     for (uint32_t i = 0; i < length; i++) {
-        output[i] = (float)adc_raw[i] * adc_scalar;
+        output[i] = (float)adc_raw[i * N_CH_PER_ADC + ch] * adc_scalar;
     }
 }
 
@@ -139,6 +146,8 @@ void apply_fft(float *input, float *magnitude_output, uint32_t fft_size)
 {
     arm_rfft_fast_f32(&fft_instance, input, fft_temp_buf, 0);
     
+    // TODO: We likely don't need to calculate magnitude, I think the 
+    // beamforming algorithm can work directly with complex FFT output.
     uint32_t bin_count = fft_size / 2;
     for (uint32_t k = 0; k < bin_count; k++) {
         float real = fft_temp_buf[2*k];
@@ -163,11 +172,18 @@ void normalize_magnitude(float *mag, uint32_t length)
 
 void process_adc_pipeline(uint16_t *adc_raw, uint32_t adc_id, float *fft_output)
 {
-    process_adc_to_float(adc_raw, fft_input_buf, 1024);
-    float dc_offset = calculate_dc_offset(fft_input_buf, 1024);
-    remove_dc_bias(fft_input_buf, 1024, dc_offset);
-    apply_fft(fft_input_buf, fft_output, 1024);
-    normalize_magnitude(fft_output, 512);
+  // When a half-buffer is ready, 4 channels of interleaved data are available.
+  // Rather than de-interleaving all 4 channels into separate buffers, we can 
+  // process each channel is a scratch buffer.
+  for (uint8_t ch = 0; ch < N_CH_PER_ADC; ch++) {
+  
+    process_adc_to_float(adc_raw, fft_input_buf, ch, FRAME_SIZE);
+    float dc_offset = calculate_dc_offset(fft_input_buf, FRAME_SIZE);
+    remove_dc_bias(fft_input_buf, FRAME_SIZE, dc_offset);
+    apply_fft(fft_input_buf, fft_output, FRAME_SIZE);
+
+    // normalize_magnitude(fft_output, 512);
+  }
 }
 
 uint16_t calculate_checksum(uint8_t *data, uint32_t length)
@@ -186,7 +202,7 @@ void package_adc_for_spi(uint8_t adc_id, float *fft_output, uint8_t *packet_buff
     pkt->header = SPI_PACKET_HEADER;
     pkt->adc_id = adc_id;
     pkt->frame_counter = spi_frame_counter++;
-    
+    // TODO: is memcpy faster than a loop here? `
     for (uint32_t i = 0; i < 512; i++) {
         pkt->fft_data[i] = fft_output[i];
     }
@@ -238,6 +254,8 @@ int main(void)
   MX_ADC4_Init();
   MX_SPI4_Init();
   MX_TIM6_Init();
+
+  // TODO: TEST
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
@@ -248,16 +266,16 @@ int main(void)
   HAL_ADCEx_Calibration_Start(&hadc3, ADC_SINGLE_ENDED);
   HAL_ADCEx_Calibration_Start(&hadc4, ADC_SINGLE_ENDED);
 
-  arm_rfft_fast_init_f32(&fft_instance, 1024);
+  arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
 
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
 
   // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, 2048);
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, 2048);
-  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2048);
-  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2048);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, 2 * FRAME_SIZE);
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, 2 * FRAME_SIZE);
+  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2 * FRAME_SIZE);
+  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2 * FRAME_SIZE);
 
   /* USER CODE END 2 */
 
@@ -269,15 +287,21 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+    // Clear the global mask immediately to avoid missing new events
+    __disable_irq();
+    uint32_t local_mask = adc_ready_mask;
+    adc_ready_mask = 0;
+    __enable_irq();
+
     // FFT Processing Pipeline
     // When any ADC half-buffer completes, process that acoustic window
-    if (adc_ready_mask && !fft_in_progress) {
+    if (local_mask && !fft_in_progress) {
       fft_in_progress = 1;
       
       // Check each ADC for ready half-buffers
       for (int adc = 0; adc < 4; adc++) {
-        uint8_t half_flag = (adc_ready_mask >> adc) & 1;       // Half-complete
-        uint8_t full_flag = (adc_ready_mask >> (adc + 4)) & 1; // Full-complete
+        uint8_t half_flag = (local_mask >> adc) & 1;       // Half-complete
+        uint8_t full_flag = (local_mask >> (adc + 4)) & 1; // Full-complete
         
         if (half_flag || full_flag) {
           uint16_t *buf_ptr = NULL;
@@ -307,6 +331,8 @@ int main(void)
           }
           
           if (buf_ptr && fft_out_ptr) {
+            // TODO: Instead of processing to an output buffer, we could
+            // set the SPI payload buffer as the output of the ADC processing
             process_adc_pipeline(&buf_ptr[half_offset], adc, fft_out_ptr);
             package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer);
             transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
@@ -315,7 +341,6 @@ int main(void)
       }
       
       // Clear ready flags after processing
-      adc_ready_mask = 0;
       fft_in_progress = 0;
     }
 
@@ -330,7 +355,7 @@ int main(void)
                           (unsigned long)irq_count_adc[1],
                           (unsigned long)irq_count_adc[2],
                           (unsigned long)irq_count_adc[3],
-                          (unsigned long)adc_ready_mask);
+                          (unsigned long)local_mask);
       if (_len > 0) {
         extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h */
         HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
