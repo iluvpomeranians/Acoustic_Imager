@@ -103,6 +103,7 @@ void SystemClock_Config(void);
 // HAL_SYSCFG_VREFBUF_HighImpedanceConfig(SYSCFG_VREFBUF_HIGH_IMPEDANCE_DISABLE);
 // HAL_SYSCFG_EnableVREFBUF();
 // IMPORTANT FOR ADC VALUES, DO NOT CHANGE
+//C:\Users\Fabz\Desktop\aroundfuckin\Capstone_490_Software\src\firmware\STM32G4_Cap\src\CubeMX\Core\Src\stm32g4xx_hal_msp.c
 
 
 uint32_t value = 0;
