@@ -62,6 +62,8 @@ extern DMA_HandleTypeDef hdma_adc3;
 extern DMA_HandleTypeDef hdma_adc4;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
+extern ADC_HandleTypeDef hadc3;
+extern ADC_HandleTypeDef hadc4;
 extern SPI_HandleTypeDef hspi4;
 extern TIM_HandleTypeDef htim6;
 /* USER CODE BEGIN EV */
@@ -292,6 +294,20 @@ void USB_LP_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles ADC3 global interrupt.
+  */
+void ADC3_IRQHandler(void)
+{
+  /* USER CODE BEGIN ADC3_IRQn 0 */
+
+  /* USER CODE END ADC3_IRQn 0 */
+  HAL_ADC_IRQHandler(&hadc3);
+  /* USER CODE BEGIN ADC3_IRQn 1 */
+
+  /* USER CODE END ADC3_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM6 global interrupt, DAC1 and DAC3 channel underrun error interrupts.
   */
 void TIM6_DAC_IRQHandler(void)
@@ -303,6 +319,20 @@ void TIM6_DAC_IRQHandler(void)
   /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
 
   /* USER CODE END TIM6_DAC_IRQn 1 */
+}
+
+/**
+  * @brief This function handles ADC4 global interrupt.
+  */
+void ADC4_IRQHandler(void)
+{
+  /* USER CODE BEGIN ADC4_IRQn 0 */
+
+  /* USER CODE END ADC4_IRQn 0 */
+  HAL_ADC_IRQHandler(&hadc4);
+  /* USER CODE BEGIN ADC4_IRQn 1 */
+
+  /* USER CODE END ADC4_IRQn 1 */
 }
 
 /**
