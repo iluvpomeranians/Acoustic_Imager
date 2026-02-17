@@ -1,7 +1,8 @@
 
 # Firmware TODO
 
-- [ ] Check one ADC with 3 diff resistor combinations (increasing resistance) and check -> CHECKED, MUST FIX GAIN, EITHER 0 OR 3.3V
+- [ ] Fix the per-channel sampling cycles, make sure all ADCs continuous mode disabled
+- [ ]Check one ADC with 3 diff resistor combinations (increasing resistance) and check -> CHECKED, MUST FIX GAIN, EITHER 0 OR 3.3V
 - [ ] Test counter in the main loop for the interrupts
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
 - [ ] Address that ADCs are configured properly for channel scanning in CubeMX
