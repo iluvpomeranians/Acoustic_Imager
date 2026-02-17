@@ -26,7 +26,6 @@
 #include "usb_device.h"
 #include "gpio.h"
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
@@ -305,8 +304,6 @@ int main(void)
   MX_ADC4_Init();
   MX_SPI4_Init();
   MX_TIM6_Init();
-
-
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
@@ -343,10 +340,10 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
     // Clear the global mask immediately to avoid missing new events
-    //__disable_irq();
+    __disable_irq();
     uint32_t local_mask = adc_ready_mask;
     adc_ready_mask = 0;
-    //__enable_irq();
+    __enable_irq();
 
     // FFT Processing Pipeline
     // When any ADC half-buffer completes, process that acoustic window
