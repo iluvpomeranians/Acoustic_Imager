@@ -25,12 +25,11 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
-#include "arm_math.h"
-#include "protocol/spi_protocol.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "arm_math.h"
+#include "protocol/spi_protocol.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -259,7 +258,19 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  for(int i = 0; i < N_SAMPLES; i++)
+  {
+    adc1_buf[i] = 1234;
+  }
 
+  int flag = 10000;
+  int temp_buffer[N_SAMPLES];
+  if(flag >= 0)
+  {
+
+    memcpy(adc1_buf, temp_buffer, sizeof(temp_buffer));
+    flag --;
+  }
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -287,17 +298,15 @@ int main(void)
   MX_ADC4_Init();
   MX_SPI4_Init();
   MX_TIM6_Init();
-
-  // TODO: TEST
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
   
   // Calibrate all ADCs before use
-  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc3, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc4, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc1, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc2, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc3,(uint32_t) ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc4, (uint32_t)ADC_SINGLE_ENDED);
 
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
 
@@ -305,10 +314,10 @@ int main(void)
   HAL_TIM_Base_Start(&htim6);
 
   // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, 2 * FRAME_SIZE);
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, 2 * FRAME_SIZE);
-  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2 * FRAME_SIZE);
-  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2 * FRAME_SIZE);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, (uint32_t)(2 * FRAME_SIZE));
 
   /* USER CODE END 2 */
 
@@ -321,10 +330,10 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
     // Clear the global mask immediately to avoid missing new events
-    __disable_irq();
+    //__disable_irq();
     uint32_t local_mask = adc_ready_mask;
     adc_ready_mask = 0;
-    __enable_irq();
+    //__enable_irq();
 
     // FFT Processing Pipeline
     // When any ADC half-buffer completes, process that acoustic window
@@ -382,7 +391,7 @@ int main(void)
     }
 
     /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
-    static uint32_t _print_counter = 0;
+   /* static uint32_t _print_counter = 0;
     if (++_print_counter >= 1000) {
       _print_counter = 0;
       char _buf[128];
@@ -394,14 +403,15 @@ int main(void)
                           (unsigned long)irq_count_adc[3],
                           (unsigned long)local_mask);
       if (_len > 0) {
-        extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h */
+        extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h 
         HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
       }
-    }
+    }*/
 
     HAL_Delay(1);
   
   }
+  
   /* USER CODE END 3 */
 }
 
