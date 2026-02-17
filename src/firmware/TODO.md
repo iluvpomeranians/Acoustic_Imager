@@ -46,4 +46,29 @@ This folder contains firmware and integration code for the STM32 microcontroller
   Connect and configure LCD display, battery monitor, and other peripherals.  
 
 - **EF-04-03: System Testing**  
-  Measure CPU/GPU utilization during idle, acquisition, and DSP processing.  
+  Measure CPU/GPU utilization during idle, acquisition, and DSP processing.
+
+## STM32 Validation
+### ADC Timing + Synchronization
+- Are all ADCs triggered when you think they are?
+- Is sampling rate correct?
+- Are the 4 ADCs aligned frame-to-frame?
+
+### DMA correctness
+- Half/full callbacks fire at the expected rate
+- Buffer layout matches your assumptions (interleaving order!)
+
+### De-interleaving correctness
+- Channel ch is really the mic you think it is
+
+### FFT correctness
+- Bin frequencies match expected
+- Magnitudes / phases behave as expected
+
+### SPI framing correctness
+- Packet sizes, header, counter, checksum
+- No drops, no misalignment, no endian surprises
+
+### Others
+- [ ] Test the USART2 and USB
+- [ ] Test that ADC buffers are filling after adc_ready_mask change 

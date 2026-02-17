@@ -26,6 +26,7 @@
 #include "usb_device.h"
 #include "gpio.h"
 #include "arm_math.h"
+#include "protocol/spi_protocol.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -43,14 +44,13 @@
 #define FRAME_SIZE 1024
 #define N_CH_PER_ADC 4
 
-// TODO: Consider discarding Nyquist bin (bin 512) since it represents the 
-// Nyquist frequency and may not be useful for our application. If we do that,
-// we can reduce SPI_PACKET_SIZE accordingly and save some bandwidth. For now, we'll keep it simple and include all bins.
-#define N_BINS ((FRAME_SIZE >> 1) + 1) // For real FFT: N_BINS = (N/2)+1 = 513 
+#define VALIDATION_MODE 0
 
-#define SPI_BUFFER_SIZE 4
-#define SPI_PACKET_HEADER 0xAA
-#define SPI_PACKET_SIZE (1 + 1 + 4 + 512*4 + 2)
+// TODO: Consider discarding Nyquist bin (bin 512)
+#define N_BINS ((FRAME_SIZE >> 1) + 1) // For real FFT: N_BINS = (N/2)+1 = 513 
+#define FFT_PAYLOAD_BYTES (N_BINS * sizeof(float)) // 513 bins × 4 bytes/float = 2052 bytes
+
+
 
 /* USER CODE END PD */
 
@@ -188,27 +188,60 @@ void process_adc_pipeline(uint16_t *adc_raw, uint32_t adc_id, float *fft_output)
 
 uint16_t calculate_checksum(uint8_t *data, uint32_t length)
 {
-    uint16_t sum = 0;
-    for (uint32_t i = 0; i < length; i++) {
-        sum += data[i];
-    }
-    return sum;
+  uint16_t sum = 0;
+  for (uint32_t i = 0; i < length; i++) {
+      sum += data[i];
+  }
+  return sum;
 }
 
-void package_adc_for_spi(uint8_t adc_id, float *fft_output, uint8_t *packet_buffer)
-{
-    SPI_Packet_t *pkt = (SPI_Packet_t *)packet_buffer;
-    
-    pkt->header = SPI_PACKET_HEADER;
-    pkt->adc_id = adc_id;
-    pkt->frame_counter = spi_frame_counter++;
-    // TODO: is memcpy faster than a loop here? `
-    for (uint32_t i = 0; i < 512; i++) {
-        pkt->fft_data[i] = fft_output[i];
-    }
-    
-    uint32_t checksum_len = SPI_PACKET_SIZE - sizeof(uint16_t);
-    pkt->checksum = calculate_checksum(packet_buffer, checksum_len);
+void package_adc_for_spi(uint8_t adc_id,
+                         const float *fft_output,
+                         uint8_t *packet_buffer,
+                         uint16_t mic_count,
+                         uint16_t fft_size,
+                         uint32_t sample_rate,
+                         uint16_t bin_count) {
+
+  SPI_FrameHeader_t *hdr = (SPI_FrameHeader_t *)(void *)packet_buffer;
+  
+  hdr->magic         = SPI_MAGIC;
+  hdr->version       = (uint16_t)SPI_VERSION;
+  hdr->header_len    = (uint16_t)sizeof(SPI_FrameHeader_t);
+  hdr->frame_counter = spi_frame_counter++;
+
+  hdr->mic_count     = mic_count;     // e.g. 16 (or 4 if per-ADC packet)
+  hdr->fft_size      = fft_size;      // e.g. 1024
+  hdr->sample_rate   = sample_rate;   // e.g. 48000
+  hdr->bin_count     = bin_count;     // e.g. 513 for 1024-point RFFT (or 512 if you choose)
+  hdr->reserved      = (uint16_t)((uint16_t)adc_id); // Option A: stash adc_id here (low 8 bits)
+  // Alternatively: use reserved as flags and don't store adc_id here.
+
+  // pkt->header = SPI_PACKET_HEADER;
+  // pkt->adc_id = adc_id;
+  // pkt->frame_counter = spi_frame_counter++;
+  // TODO: is memcpy faster than a loop here?
+
+  hdr->payload_len   = (uint32_t)FFT_PAYLOAD_BYTES;
+
+  // 2) Copy payload immediately after header
+  uint8_t *payload_ptr = packet_buffer + sizeof(SPI_FrameHeader_t);
+  memcpy(payload_ptr, fft_output, FFT_PAYLOAD_BYTES);
+
+  // 3) Optional checksum placed after payload (2 bytes)
+  // Layout: [header][payload][checksum]
+  uint8_t *checksum_ptr = payload_ptr + FFT_PAYLOAD_BYTES;
+  uint32_t checksum_len = (uint32_t)(sizeof(SPI_FrameHeader_t) + FFT_PAYLOAD_BYTES);
+
+  uint16_t checksum = calculate_checksum(packet_buffer, checksum_len);
+  memcpy(checksum_ptr, &checksum, sizeof(checksum));
+
+  // for (uint32_t i = 0; i < 512; i++) {
+  //     pkt->fft_data[i] = fft_output[i];
+  // }
+  
+  // uint32_t checksum_len = SPI_PACKET_SIZE - sizeof(uint16_t);
+  // pkt->checksum = calculate_checksum(packet_buffer, checksum_len);
 }
 
 void transmit_spi_packet(uint8_t *packet_buffer, uint32_t packet_size)
@@ -334,7 +367,11 @@ int main(void)
             // TODO: Instead of processing to an output buffer, we could
             // set the SPI payload buffer as the output of the ADC processing
             process_adc_pipeline(&buf_ptr[half_offset], adc, fft_out_ptr);
-            package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer);
+
+            // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
+            // currently dummy values
+            package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer, N_CH_PER_ADC,
+                                FRAME_SIZE, 48000, N_BINS);
             transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
           }
         }
