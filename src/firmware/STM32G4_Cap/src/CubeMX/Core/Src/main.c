@@ -25,12 +25,13 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
-#include "arm_math.h"
-#include "protocol/spi_protocol.h"
+
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "arm_math.h"
+#include "protocol/spi_protocol.h"
+#include "usb/usb_debug.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -249,6 +250,11 @@ void transmit_spi_packet(uint8_t *packet_buffer, uint32_t packet_size)
     HAL_SPI_Transmit(&hspi4, packet_buffer, packet_size, HAL_MAX_DELAY);
 }
 
+void usb_cdc_smoke_test() {
+    const char *test_str = "Hello from USB CDC!\r\n";
+    usb_printf("%s", test_str);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -275,7 +281,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  // TODO: TEST the UART and USB init
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -288,7 +294,7 @@ int main(void)
   MX_SPI4_Init();
   MX_TIM6_Init();
 
-  // TODO: TEST
+
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
@@ -301,6 +307,10 @@ int main(void)
 
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
 
+  // Test USB CDC
+  HAL_Delay(1000);
+  usb_cdc_smoke_test();
+  
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
 
@@ -310,6 +320,7 @@ int main(void)
   HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2 * FRAME_SIZE);
   HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2 * FRAME_SIZE);
 
+  
   /* USER CODE END 2 */
 
   /* Infinite loop */

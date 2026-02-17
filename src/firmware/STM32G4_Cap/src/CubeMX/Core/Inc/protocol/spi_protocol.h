@@ -1,4 +1,3 @@
-
 #ifndef __SPI_PROTOCOL_H__
 #define __SPI_PROTOCOL_H__
 
@@ -32,6 +31,8 @@ typedef struct __attribute__((packed)) {
     uint16_t reserved;     // Flags / future use
     uint32_t payload_len;  // Bytes following header (FFT payload size)
 } SPI_FrameHeader_t;
+
+/* Function prototypes ------------------------------------------------------*/
 
 #ifdef __cplusplus
 static_assert(sizeof(SPI_FrameHeader_t) == SPI_FRAMEHEADER_SIZE_BYTES,

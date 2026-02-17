@@ -52,7 +52,11 @@ This folder contains firmware and integration code for the STM32 microcontroller
 ### ADC Timing + Synchronization
 - Are all ADCs triggered when you think they are?
 - Is sampling rate correct?
+-> We need to design a test where we can calculate the rate that the timer is firing and cross-reference with our settings to ensure that what we are observing matches what we expected
 - Are the 4 ADCs aligned frame-to-frame?
+
+#### Tests
+- Only enable one ADC?
 
 ### DMA correctness
 - Half/full callbacks fire at the expected rate
