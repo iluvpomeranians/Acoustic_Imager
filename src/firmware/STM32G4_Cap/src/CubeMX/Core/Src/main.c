@@ -25,11 +25,18 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "arm_math.h"
+<<<<<<< Updated upstream
 #include "protocol/spi_protocol.h"
+=======
+>>>>>>> Stashed changes
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -262,6 +269,7 @@ int main(void)
   {
     adc1_buf[i] = 1234;
   }
+<<<<<<< Updated upstream
 
   int flag = 10000;
   int temp_buffer[N_SAMPLES];
@@ -271,6 +279,8 @@ int main(void)
     memcpy(adc1_buf, temp_buffer, sizeof(temp_buffer));
     flag --;
   }
+=======
+>>>>>>> Stashed changes
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
