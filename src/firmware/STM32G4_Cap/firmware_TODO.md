@@ -7,6 +7,7 @@
 - [ ] Address that ADCs are configured properly for channel scanning in CubeMX
 - [ ] Bench debug that all the ADCs are firing at the correct rate
 - [ ] Discuss labeling FFT frames (with counters?)
+- [ ] Set up DSP library so it doesn't get removed after CubeMX code generation
 - [x] Evaluate using CMSIS for FFTs and fixed point representation
         -> Added CMSIS DSP to build. Probably not worth to switch to fixed point.
 - [x] Add buffer de-interleaving

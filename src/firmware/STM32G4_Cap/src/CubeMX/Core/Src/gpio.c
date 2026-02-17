@@ -48,10 +48,10 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GAIN_CNTL_GPIO_Port, GAIN_CNTL_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GAIN_CNTL_GPIO_Port, GAIN_CNTL_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(AUTO_GAIN_CNTL_GPIO_Port, AUTO_GAIN_CNTL_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(AUTO_GAIN_CNTL_GPIO_Port, AUTO_GAIN_CNTL_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, MCU_STATUS_Pin|RPI_STATUS_Pin, GPIO_PIN_RESET);

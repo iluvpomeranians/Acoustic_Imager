@@ -25,12 +25,12 @@
 #include "usart.h"
 #include "usb_device.h"
 #include "gpio.h"
-#include "arm_math.h"
-#include "protocol/spi_protocol.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "arm_math.h"
+#include "protocol/spi_protocol.h"
+#include "usb/usb_debug.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -249,6 +249,11 @@ void transmit_spi_packet(uint8_t *packet_buffer, uint32_t packet_size)
     HAL_SPI_Transmit(&hspi4, packet_buffer, packet_size, HAL_MAX_DELAY);
 }
 
+void usb_cdc_smoke_test() {
+    const char *test_str = "Hello from USB CDC!\r\n";
+    usb_printf("%s", test_str);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -259,7 +264,19 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+  for(int i = 0; i < N_SAMPLES; i++)
+  {
+    adc1_buf[i] = 1234;
+  }
 
+  int flag = 10000;
+  int temp_buffer[N_SAMPLES];
+  if(flag >= 0)
+  {
+
+    memcpy(adc1_buf, temp_buffer, sizeof(temp_buffer));
+    flag --;
+  }
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -275,7 +292,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  // TODO: TEST the UART and USB init
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -287,28 +304,30 @@ int main(void)
   MX_ADC4_Init();
   MX_SPI4_Init();
   MX_TIM6_Init();
-
-  // TODO: TEST
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
   
   // Calibrate all ADCs before use
-  HAL_ADCEx_Calibration_Start(&hadc1, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc3, ADC_SINGLE_ENDED);
-  HAL_ADCEx_Calibration_Start(&hadc4, ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc1, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc2, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc3,(uint32_t) ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc4, (uint32_t)ADC_SINGLE_ENDED);
 
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
 
+  // Test USB CDC
+  HAL_Delay(1000);
+  usb_cdc_smoke_test();
+  
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
 
   // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, 2 * FRAME_SIZE);
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, 2 * FRAME_SIZE);
-  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, 2 * FRAME_SIZE);
-  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, 2 * FRAME_SIZE);
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, (uint32_t)(2 * FRAME_SIZE));
 
   /* USER CODE END 2 */
 
@@ -382,7 +401,7 @@ int main(void)
     }
 
     /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
-    static uint32_t _print_counter = 0;
+   /* static uint32_t _print_counter = 0;
     if (++_print_counter >= 1000) {
       _print_counter = 0;
       char _buf[128];
@@ -394,14 +413,15 @@ int main(void)
                           (unsigned long)irq_count_adc[3],
                           (unsigned long)local_mask);
       if (_len > 0) {
-        extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h */
+        extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h 
         HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
       }
-    }
+    }*/
 
     HAL_Delay(1);
   
   }
+  
   /* USER CODE END 3 */
 }
 
