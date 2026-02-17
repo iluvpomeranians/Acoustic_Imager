@@ -98,6 +98,13 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+// HAL_SYSCFG_VREFBUF_HighImpedanceConfig(SYSCFG_VREFBUF_HIGH_IMPEDANCE_DISABLE);
+// HAL_SYSCFG_EnableVREFBUF();
+// IMPORTANT FOR ADC VALUES, DO NOT CHANGE
+
+
 uint32_t value = 0;
 float voltage;
 const float adc_scalar = 3.3f / 4095.0f;
