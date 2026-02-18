@@ -1,4 +1,4 @@
-#include "usb/usb_debug.h"
+#include "usb_debug.h"
 #include "usbd_cdc_if.h"
 
 #include <stdarg.h>

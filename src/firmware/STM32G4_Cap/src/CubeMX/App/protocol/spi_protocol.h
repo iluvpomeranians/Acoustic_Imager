@@ -5,10 +5,14 @@
 extern "C" {
 #endif
 
-/* Includes -----------------------------------------------------------------*/
+/* =========================================================================
+ * INCLUDES
+ * ========================================================================= */
 #include <stdint.h>
 
-/* Defines ------------------------------------------------------------------*/
+/* =========================================================================
+ * DEFINES
+ * ========================================================================= */
 #define SPI_MAGIC 0xAABBCCDDu
 #define SPI_VERSION 1u
 
@@ -18,7 +22,9 @@ extern "C" {
 
 #define SPI_FRAMEHEADER_SIZE_BYTES  (28u)
 
-/* typedefs -----------------------------------------------------------------*/
+/* =========================================================================
+ * TYPE DEFINITIONS
+ * ========================================================================= */
 typedef struct __attribute__((packed)) {
     uint32_t magic;        // Frame magic (e.g., 0xAABBCCDD)
     uint16_t version;      // Protocol version
@@ -32,7 +38,9 @@ typedef struct __attribute__((packed)) {
     uint32_t payload_len;  // Bytes following header (FFT payload size)
 } SPI_FrameHeader_t;
 
-/* Function prototypes ------------------------------------------------------*/
+/* =========================================================================
+ * FUNCTION PROTOTYPES
+ * ========================================================================= */
 
 #ifdef __cplusplus
 static_assert(sizeof(SPI_FrameHeader_t) == SPI_FRAMEHEADER_SIZE_BYTES,

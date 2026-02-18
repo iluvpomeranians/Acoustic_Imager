@@ -1,0 +1,231 @@
+/**
+ * @file app_main.c
+ * @brief Main application entry point for STM32G4 Acoustic Imager project
+ * @details This file contains the main application logic and initialization
+ */
+
+/* =========================================================================
+ * INCLUDES
+ * ========================================================================= */
+#include "main.h"
+#include "adc.h"
+#include "dma.h"
+#include "spi.h"
+#include "tim.h"
+#include "usart.h"
+#include "usb_device.h"
+#include "gpio.h"
+
+#include "arm_math.h"
+
+#include "app_main.h"
+#include "protocol/spi_protocol.h"
+#include "transport/spi_stream.h"
+#include "usb/usb_debug.h"
+#include "dsp/dsp_pipeline.h"
+
+/* =========================================================================
+ * DEFINES & CONSTANTS
+ * ========================================================================= */
+
+
+/* =========================================================================
+ * STATIC VARIABLES
+ * ========================================================================= */
+// Each ADC gets dedicated DMA circular buffer (2048 samples total)
+// Half-buffer = 1024 samples (at 48kHz = 21.3ms)
+static uint16_t adc1_buf[2 * FRAME_SIZE];
+static uint16_t adc2_buf[2 * FRAME_SIZE];
+static uint16_t adc3_buf[2 * FRAME_SIZE];
+static uint16_t adc4_buf[2 * FRAME_SIZE];
+
+// FFT Output: Frequency domain results (1024-point FFT → 512 bins per ADC)
+static float fft_out_adc1[N_BINS];
+static float fft_out_adc2[N_BINS];
+static float fft_out_adc3[N_BINS];
+static float fft_out_adc4[N_BINS];
+
+static arm_rfft_fast_instance_f32 fft_instance;
+
+static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
+
+// Ping-pong processing flags
+// Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
+volatile uint32_t adc_ready_mask = 0;
+volatile uint8_t fft_in_progress = 0;  // Prevent overlapping FFT calculations
+
+// Track which half of buffer is ready for FFT
+// ready_half: 0=first half (0-1023), 1=second half (1024-2047)
+volatile uint8_t ready_half[4] = {0};  // One per ADC
+
+// Interrupt counters (for debug / watch)
+volatile uint32_t irq_events = 0;            // total ADC IRQ events
+volatile uint32_t irq_count_adc[4] = {0};    // per-ADC IRQ counters
+
+static uint32_t _print_counter = 0;
+/* =========================================================================
+ * FORWARD DECLARATIONS
+ * ========================================================================= */
+
+/* static void module_init(void); */
+/* static void module_process(void); */
+
+/* =========================================================================
+ * PUBLIC FUNCTIONS
+ * ========================================================================= */
+
+uint32_t value = 0;
+float voltage;
+
+typedef struct {
+    uint8_t header;
+    uint8_t adc_id;
+    uint32_t frame_counter;
+    float fft_data[512]; // TODO: Correct MACRO use
+    uint16_t checksum;
+} __attribute__((packed)) SPI_Packet_t;
+
+void usb_cdc_smoke_test() {
+  const char *test_str = "Hello from USB CDC!\r\n";
+  usb_printf("%s", test_str);
+}
+
+void app_init(void) {
+  // Initialize FFT instance (precompute twiddle factors, etc.)
+  arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
+}
+
+void app_start(void) {
+// Any additional startup logic can go here
+    // Set GAIN_CNTL to HIGH
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_9, GPIO_PIN_SET);
+
+  // Calibrate all ADCs before use
+  HAL_ADCEx_Calibration_Start(&hadc1, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc2, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc3, (uint32_t)ADC_SINGLE_ENDED);
+  HAL_ADCEx_Calibration_Start(&hadc4, (uint32_t)ADC_SINGLE_ENDED);
+
+  // Test USB CDC
+  HAL_Delay(1000);
+  usb_cdc_smoke_test();
+  
+  // Start Timer6 (triggers all ADCs synchronously)
+  HAL_TIM_Base_Start(&htim6);
+
+  // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, (uint32_t)(2 * FRAME_SIZE));
+}
+
+void app_loop(void) {
+  // Main application loop - check for ADC data ready and process
+
+  // Clear the global mask immediately to avoid missing new events
+  __disable_irq();
+  uint32_t local_mask = adc_ready_mask;
+  adc_ready_mask = 0;
+  __enable_irq();
+
+  // FFT Processing Pipeline
+  // When any ADC half-buffer completes, process that acoustic window
+  if (local_mask && !fft_in_progress) {
+    fft_in_progress = 1;
+    
+    // Check each ADC for ready half-buffers
+    for (int adc = 0; adc < 4; adc++) {
+      uint8_t half_flag = (local_mask >> adc) & 1;       // Half-complete
+      uint8_t full_flag = (local_mask >> (adc + 4)) & 1; // Full-complete
+      
+      if (half_flag || full_flag) {
+        uint16_t *buf_ptr = NULL;
+        float *fft_out_ptr = NULL;
+        uint32_t half_offset = 0;
+        
+        if (half_flag) {
+          half_offset = 0;
+          ready_half[adc] = 0;
+        } else {
+          half_offset = 1024;
+          ready_half[adc] = 1;
+        }
+        
+        if (adc == 0) {
+          buf_ptr = adc1_buf;
+          fft_out_ptr = fft_out_adc1;
+        } else if (adc == 1) {
+          buf_ptr = adc2_buf;
+          fft_out_ptr = fft_out_adc2;
+        } else if (adc == 2) {
+          buf_ptr = adc3_buf;
+          fft_out_ptr = fft_out_adc3;
+        } else if (adc == 3) {
+          buf_ptr = adc4_buf;
+          fft_out_ptr = fft_out_adc4;
+        }
+        
+        if (buf_ptr && fft_out_ptr) {
+          // Process the ready half-buffer for this ADC
+          uint16_t *active_half = buf_ptr + half_offset;
+
+          // TODO: Instead of processing to an output buffer, we could
+          // set the SPI payload buffer as the output of the ADC processing
+
+          // TODO: The implementation is process_adc_pipeline() is currently
+          // inccorect; we either need a 4-channel output buffer or we need to
+          // send each channel's FFT output sequentially over SPI in this
+          // function.
+          process_adc_pipeline(&fft_instance, active_half, adc, fft_out_ptr);
+
+          // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
+          // currently dummy values
+          package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer, N_CH_PER_ADC,
+                              FRAME_SIZE, 48000, N_BINS);
+          transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
+        }
+      }
+    }
+    
+    // Clear ready flags after processing
+    fft_in_progress = 0;
+  }
+
+  /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
+  
+  if (++_print_counter >= 1000) {
+    _print_counter = 0;
+    usb_cdc_smoke_test();
+  }
+  //   char _buf[128];
+  //   int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
+  //                       (unsigned long)irq_events,
+  //                       (unsigned long)irq_count_adc[0],
+  //                       (unsigned long)irq_count_adc[1],
+  //                       (unsigned long)irq_count_adc[2],
+  //                       (unsigned long)irq_count_adc[3],
+  //                       (unsigned long)local_mask);
+  //   if (_len > 0) {
+  //     extern UART_HandleTypeDef huart2; declared in usart.c / usart.h 
+  //     HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
+  //   }
+  // }
+
+  // HAL_Delay(1);  
+
+}
+/**
+ * @brief Public function description
+ * @param[in] param1 Description of input parameter
+ * @return Description of return value
+ */
+
+/* ============================================================================
+ * STATIC FUNCTIONS
+ * ============================================================================ */
+
+/**
+ * @brief Static helper function description
+ * @return void
+ */
