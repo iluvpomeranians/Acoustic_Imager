@@ -351,6 +351,8 @@ def main() -> None:
                 spi_loopback.stop()
                 spi_hw.stop()
 
+                last_spi_fft_data = None
+
                 # start whichever is selected
                 if mode == "SPI_LOOPBACK":
                     spi_loopback.start()
