@@ -29,6 +29,8 @@ import numpy as np
 
 from .video_recorder import VideoRecorder
 
+from ..config import SOURCE_MODES, SOURCE_DEFAULT
+
 # -------------------------------------------------------------
 # Import config/state
 # (Fallbacks included)
@@ -71,30 +73,11 @@ def save_screenshot(frame: np.ndarray, output_dir: Path) -> Optional[str]:
 # ===============================================================
 # 8. UI Buttons + MENU dropdown
 # ===============================================================
-class ButtonState:
-    def __init__(self):
-        self.is_recording = False
-        self.is_paused = False
-        self.camera_enabled = USE_CAMERA
-        self.source_mode = "SIM"  # SIM or SPI
-
-        # MENU states
-        self.menu_open = False
-        self.fps_mode = "60"   # "30" | "60" | "MAX"
-        self.gain_mode = "LOW"  # placeholder toggle
-        self.debug_enabled = True
-
-
-# If state.py didn't provide button_state, create it here
-if button_state is None:
-    button_state = ButtonState()
-
-
-# Global UI registries (matches original)
+# Global UI registries
 buttons: Dict[str, "Button"] = {}
 menu_buttons: Dict[str, "Button"] = {}
 
-# FPS mapping (matches original)
+# FPS mapping
 FPS_MODE_TO_TARGET = {"30": 30, "60": 60}
 
 
@@ -303,19 +286,19 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     """
     if video_recorder is None or not video_recorder.is_recording:
         return
-    
+
     if "menu" not in menu_buttons:
         return
-    
+
     # Get elapsed time
     elapsed = video_recorder.get_elapsed_time()
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
-    
+
     # Position based on menu state
     menu_x = menu_buttons["menu"].x
     menu_w = menu_buttons["menu"].w
-    
+
     if button_state.menu_open:
         # Menu is open: position below SHOT/REC/PAUSE buttons
         tools_bottom = menu_buttons["rec"].y + menu_buttons["rec"].h + 10
@@ -324,32 +307,32 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         # Menu is closed: position below MENU button
         menu_bottom = menu_buttons["menu"].y + menu_buttons["menu"].h + 10
         timestamp_y = menu_bottom
-    
+
     # Timestamp box dimensions
     timestamp_h = 35
-    
+
     # Draw semi-transparent background
     overlay = frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w].copy()
     bg_color = (30, 30, 30) if not video_recorder.is_paused else (40, 40, 60)
     cv2.rectangle(overlay, (0, 0), (menu_w, timestamp_h), bg_color, -1)
     cv2.addWeighted(overlay, 0.7, frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w], 0.3, 0,
                     frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w])
-    
+
     # Draw border
     border_color = (200, 200, 200) if not video_recorder.is_paused else (100, 100, 200)
     cv2.rectangle(frame, (menu_x, timestamp_y), (menu_x + menu_w, timestamp_y + timestamp_h),
                   border_color, 1, cv2.LINE_AA)
-    
+
     # Draw recording indicator (red dot or paused icon)
     indicator_x = menu_x + 10
     indicator_y = timestamp_y + timestamp_h // 2
-    
+
     if video_recorder.is_paused:
         # Draw pause icon (two vertical bars)
         bar_w = 3
         bar_h = 10
         bar_gap = 4
-        cv2.rectangle(frame, 
+        cv2.rectangle(frame,
                      (indicator_x, indicator_y - bar_h//2),
                      (indicator_x + bar_w, indicator_y + bar_h//2),
                      (100, 150, 255), -1, cv2.LINE_AA)
@@ -364,19 +347,19 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         if pulse:
             cv2.circle(frame, (indicator_x + 5, indicator_y), 6, (0, 0, 255), -1, cv2.LINE_AA)
             cv2.circle(frame, (indicator_x + 5, indicator_y), 6, (255, 255, 255), 1, cv2.LINE_AA)
-    
+
     # Draw timestamp text
     timestamp_text = f"{minutes:02d}:{seconds:02d}"
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.55
     font_thick = 1
     text_color = (255, 255, 255) if not video_recorder.is_paused else (150, 150, 255)
-    
+
     # Center the text
     (text_w, text_h), _ = cv2.getTextSize(timestamp_text, font, font_scale, font_thick)
     text_x = menu_x + (menu_w - text_w) // 2 + 10  # Offset for indicator
     text_y = timestamp_y + (timestamp_h + text_h) // 2
-    
+
     cv2.putText(frame, timestamp_text, (text_x, text_y),
                 font, font_scale, text_color, font_thick, cv2.LINE_AA)
 
@@ -476,8 +459,6 @@ def handle_button_click(
     video_recorder: Optional[VideoRecorder],
     width: int,
     height: int,
-    on_source_to_spi=None,
-    on_source_to_sim=None,
 ) -> Optional[VideoRecorder]:
     """
     Handles button clicks:
@@ -505,16 +486,17 @@ def handle_button_click(
         return video_recorder
 
     if "source" in buttons and buttons["source"].contains(x, y):
-        button_state.source_mode = "SPI" if button_state.source_mode == "SIM" else "SIM"
-        buttons["source"].text = f"Source: {button_state.source_mode}"
+        modes = list(SOURCE_MODES)  # ("SIM", "SPI_LOOPBACK", "SPI_HW")
+        cur = button_state.source_mode
+        try:
+            i = modes.index(cur)
+        except ValueError:
+            i = modes.index(SOURCE_DEFAULT)
 
-        if button_state.source_mode == "SPI":
-            if callable(on_source_to_spi):
-                on_source_to_spi()
-        else:
-            if callable(on_source_to_sim):
-                on_source_to_sim()
+        button_state.source_mode = modes[(i + 1) % len(modes)]
+        buttons["source"].text = f"Source: {button_state.source_mode}"
         return video_recorder
+
 
     if "debug" in buttons and buttons["debug"].contains(x, y):
         button_state.debug_enabled = not button_state.debug_enabled

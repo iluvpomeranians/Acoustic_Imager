@@ -42,6 +42,7 @@ from acoustic_imager.custom_types import LatestFrame
 from acoustic_imager.sources.sim_source import SimSource
 from acoustic_imager.sources.spi_source import SPISource
 from acoustic_imager.sources.spi_loopback_source import SPILoopbackSource
+from acoustic_imager.io.spi_manager import SPIManager
 
 
 # DSP modules
@@ -159,8 +160,6 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     video_recorder=video_recorder,
                     width=config.WIDTH,
                     height=config.HEIGHT,
-                    on_source_to_spi=lambda: active_spi.start(),
-                    on_source_to_sim=lambda: active_spi.stop(),
                 )
                 return
 
@@ -237,6 +236,7 @@ def main() -> None:
     """Main application loop."""
     global video_recorder
 
+    prev_mode = button_state.source_mode
 
     # ---- Profiler (for performance monitoring) ----
     prof = StageProfiler(keep=120)
@@ -260,14 +260,23 @@ def main() -> None:
     print()
 
     # ---- Initialize data sources ----
-    global sim_source, spi_hw, spi_loopback, active_spi
-    sim_source = SimSource()
+    global sim_source, spi_hw, spi_loopback
 
-    spi_hw = SPISource()
+    sim_source = SimSource()
+    spi_hw = SPISource(SPIManager(use_frame_ready=True))
     spi_loopback = SPILoopbackSource()
 
-    active_spi = spi_loopback if config.USE_SPI_LOOPBACK else spi_hw
+    # Force initial mode from config if UI didn't set it yet
+    if button_state.source_mode not in config.SOURCE_MODES:
+        button_state.source_mode = config.SOURCE_DEFAULT
 
+    prev_mode = button_state.source_mode
+
+    # Start the selected SPI provider (if any)
+    if button_state.source_mode == "SPI_LOOPBACK":
+        spi_loopback.start()
+    elif button_state.source_mode == "SPI_HW":
+        spi_hw.start()
 
     # ---- Initialize camera ----
     camera_mgr = CameraManager()
@@ -336,29 +345,47 @@ def main() -> None:
                 next_tick = time.perf_counter()
             prof.mark("throttle")
 
+            mode = button_state.source_mode
+            if mode != prev_mode:
+                # stop both (safe)
+                spi_loopback.stop()
+                spi_hw.stop()
+
+                # start whichever is selected
+                if mode == "SPI_LOOPBACK":
+                    spi_loopback.start()
+                elif mode == "SPI_HW":
+                    spi_hw.start()
+
+                prev_mode = mode
+
             # ---- Get current bandpass range ----
             f_min = state.F_MIN_HZ
             f_max = state.F_MAX_HZ
 
             # ---- Read FFT data from source ----
-            if button_state.source_mode == "SIM":
+            mode = button_state.source_mode
+
+            if mode == "SIM":
                 latest_frame = sim_source.read_frame()
                 source_label = "SIM"
-                source_stats = latest_frame.stats
-                fft_data = latest_frame.fft_data if latest_frame.ok else None
-            else:
-                latest_frame = active_spi.get_latest()
-                source_label = "SPI"
-                source_stats = latest_frame.stats
-                fft_data = latest_frame.fft_data if latest_frame.ok else None
+            elif mode == "SPI_LOOPBACK":
+                latest_frame = spi_loopback.get_latest()
+                source_label = "SPI_LOOPBACK"
+            else:  # "SPI_HW"
+                latest_frame = spi_hw.get_latest()
+                source_label = "SPI_HW"
+
+            source_stats = latest_frame.stats
+            fft_data = latest_frame.fft_data if latest_frame.ok else None
 
             # Fallback to last known data if current read failed
             if fft_data is None:
-                if source_label == "SPI" and last_spi_fft_data is not None:
+                if source_label.startswith("SPI") and last_spi_fft_data is not None:
                     fft_data = last_spi_fft_data
                 else:
                     fft_data = np.zeros((config.N_MICS, config.N_BINS), dtype=np.complex64)
-            elif source_label == "SPI":
+            elif source_label.startswith("SPI"):
                 last_spi_fft_data = fft_data
 
             prof.mark("read_source")
@@ -483,7 +510,7 @@ def main() -> None:
                 cv2.putText(output_frame, f"Source: {source_label}", (text_x, 90),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
-                if source_label == "SPI":
+                if source_label.startswith("SPI"):
                     mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
                     y0 = 120
                     dy = 22
@@ -563,7 +590,9 @@ def main() -> None:
         if video_recorder:
             video_recorder.cleanup()
 
-        active_spi.stop()
+        spi_loopback.stop()
+        spi_hw.stop()
+
         camera_mgr.close()
 
         cv2.destroyAllWindows()

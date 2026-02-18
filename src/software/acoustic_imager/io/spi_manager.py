@@ -23,18 +23,16 @@ from typing import Optional
 import numpy as np
 
 from acoustic_imager.custom_types import LatestFrame, SourceStats
+from acoustic_imager.spi.frame_ready import FrameReady, FrameReadyGPIO
 
 try:
-    import spidev  # type: ignore
+    import spidev
     SPIDEV_AVAILABLE = True
 except Exception:
     spidev = None
     SPIDEV_AVAILABLE = False
 
-# Import config as a module of constants.
-# Expected keys are listed in _cfg() below.
 from acoustic_imager import config
-
 
 def _cfg(name: str):
     if not hasattr(config, name):
@@ -56,7 +54,11 @@ class SPIManager:
       - get_latest() -> LatestFrame (safe copy)
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        frame_ready: Optional[FrameReady] = None,
+        use_frame_ready: bool = True,
+    ) -> None:
         self._lock = threading.Lock()
         self._latest = LatestFrame()
 
@@ -94,20 +96,42 @@ class SPIManager:
         # how often to CRC check (0 = never)
         self.CRC_EVERY_N = int(getattr(config, "CRC_EVERY_N", 30))
 
+        # --- frame-ready (GPIO IRQ) ---
+        self.use_frame_ready = bool(use_frame_ready)
+        self._frame_ready: Optional[FrameReady] = frame_ready
+
     # ------------------------------
     # Public API
     # ------------------------------
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
+
+        # Create FrameReadyGPIO only when enabled (SPI_HW)
+        if self.use_frame_ready and self._frame_ready is None:
+            bcm_pin = int(getattr(config, "FRAME_READY_BCM_PIN", 25))   # GPIO25 (BCM) == physical pin 22
+            pull = getattr(config, "FRAME_READY_PULL", "down")          # "up" or "down"
+            self._frame_ready = FrameReadyGPIO(bcm_pin=bcm_pin, pull=pull)
+
         self._stop = False
         self._thread = threading.Thread(target=self._worker, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
         self._stop = True
-        time.sleep(0.01)
+        if self._thread is not None:
+            self._thread.join(timeout=0.5)
+        self._thread = None
+
         self._close_spi()
+
+        if self._frame_ready is not None:
+            try:
+                self._frame_ready.close()
+            except Exception:
+                pass
+            self._frame_ready = None
+
 
     def get_latest(self) -> LatestFrame:
         # Return a safe copy: copy fft array ref (ok), and copy stats values
@@ -176,11 +200,16 @@ class SPIManager:
     def _read_one(self) -> Optional[LatestFrame]:
         self._seq_seen += 1
 
+        # Wait for STM32 "frame ready" pulse/level
+        if self.use_frame_ready and self._frame_ready is not None:
+            timeout_s = float(getattr(config, "FRAME_READY_TIMEOUT_S", 0.25))
+            self._frame_ready.clear()          # drop stale state
+            got = self._frame_ready.wait(timeout=timeout_s)
+            if not got:
+                return None
+
         try:
-            # IMPORTANT:
-            # This assumes your STM32 returns bytes in same transfer (full duplex).
-            # If your STM32 is real, you likely send dummy bytes and read real bytes.
-            # Here we just send zeros of FRAME_BYTES and read back FRAME_BYTES.
+
             tx = bytes(self.FRAME_BYTES)
             rx = self._spi_xfer_bytes(tx)
 

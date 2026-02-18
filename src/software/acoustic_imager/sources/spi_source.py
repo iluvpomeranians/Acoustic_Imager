@@ -14,7 +14,7 @@ class SPISource:
     """
 
     def __init__(self, spi_manager: Optional[SPIManager] = None) -> None:
-        self.spi_manager = spi_manager or SPIManager()
+        self.spi_manager = spi_manager or SPIManager(use_frame_ready=False)
 
     def start(self) -> None:
         self.spi_manager.start()

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple, Any
 
-from .config import USE_CAMERA, F_MIN_HZ_DEFAULT, F_MAX_HZ_DEFAULT
+from .config import USE_CAMERA, F_MIN_HZ_DEFAULT, F_MAX_HZ_DEFAULT, SOURCE_DEFAULT
 
 
 # ===============================================================
@@ -23,7 +23,7 @@ class ButtonState:
     is_recording: bool = False
     is_paused: bool = False
     camera_enabled: bool = USE_CAMERA
-    source_mode: str = "SIM"   # "SIM" or "SPI"
+    source_mode: str = SOURCE_DEFAULT  # "SIM" | "SPI_LOOPBACK" | "SPI_HW"
 
     # MENU states
     menu_open: bool = False
