@@ -305,6 +305,9 @@ int main(void)
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
   
+  // Set GAIN_CNTL to HIGH
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_9, GPIO_PIN_SET);
+
   // Calibrate all ADCs before use
   HAL_ADCEx_Calibration_Start(&hadc1, (uint32_t)ADC_SINGLE_ENDED);
   HAL_ADCEx_Calibration_Start(&hadc2, (uint32_t)ADC_SINGLE_ENDED);

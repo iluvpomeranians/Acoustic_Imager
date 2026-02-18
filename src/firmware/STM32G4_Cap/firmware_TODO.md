@@ -3,9 +3,10 @@
 
 - [x] Find the CubeMX settings to make sure VRef Buf is enabled when code generated -> Run change by Rob to make sure it is conceptually correct
 - [ ] Do some averaging on the data (some stats like peak-to-peak, to see what we get)
-- [ ] Fix the per-channel sampling cycles, make sure all ADCs continuous mode disabled
-- [ ] Check with a higher timer freq that the ADCs are alive with continuous conversion mode disabled
-- [ ] Check one ADC with 3 diff resistor combinations (increasing resistance) and check -> CHECKED, MUST FIX GAIN, EITHER 0 OR 3.3V
+- [ ] Play with Gain Compensation setting in ADCs in CubeMX to see what it does. Research what we actually require for the beamforming to work
+- [x] Fix the per-channel sampling cycles, make sure all ADCs continuous mode disabled
+- [x] Check with a higher timer freq that the ADCs are alive with continuous conversion mode disabled
+- [x] Check one ADC with 3 diff resistor combinations (increasing resistance) and check -> CHECKED, MUST FIX GAIN, EITHER 0 OR 3.3V
 - [ ] Test counter in the main loop for the interrupts
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
 - [ ] Address that ADCs are configured properly for channel scanning in CubeMX
@@ -17,6 +18,12 @@
 - [x] Add buffer de-interleaving
 - [x] Fix adc_ready
 - [x] Clean up branches
+
+## Today:
+1. Finish SPI implementation
+2. repo clean up restructure
+3. Validation modes
+4. Documentation (state diagram, timing diagram)
 
 ## Processing steps:
     1. DC removal (subtract constant)
