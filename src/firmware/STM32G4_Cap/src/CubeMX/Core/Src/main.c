@@ -88,6 +88,7 @@ volatile uint8_t ready_half[4] = {0};  // One per ADC
 volatile uint32_t irq_events = 0;            // total ADC IRQ events
 volatile uint32_t irq_count_adc[4] = {0};    // per-ADC IRQ counters
 
+static uint32_t _print_counter = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -397,24 +398,26 @@ int main(void)
     }
 
     /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
-   /* static uint32_t _print_counter = 0;
+   
     if (++_print_counter >= 1000) {
       _print_counter = 0;
-      char _buf[128];
-      int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
-                          (unsigned long)irq_events,
-                          (unsigned long)irq_count_adc[0],
-                          (unsigned long)irq_count_adc[1],
-                          (unsigned long)irq_count_adc[2],
-                          (unsigned long)irq_count_adc[3],
-                          (unsigned long)local_mask);
-      if (_len > 0) {
-        extern UART_HandleTypeDef huart2; /* declared in usart.c / usart.h 
-        HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
-      }
-    }*/
+      usb_cdc_smoke_test();
+    }
+    //   char _buf[128];
+    //   int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
+    //                       (unsigned long)irq_events,
+    //                       (unsigned long)irq_count_adc[0],
+    //                       (unsigned long)irq_count_adc[1],
+    //                       (unsigned long)irq_count_adc[2],
+    //                       (unsigned long)irq_count_adc[3],
+    //                       (unsigned long)local_mask);
+    //   if (_len > 0) {
+    //     extern UART_HandleTypeDef huart2; declared in usart.c / usart.h 
+    //     HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
+    //   }
+    // }
 
-    HAL_Delay(1);
+    // HAL_Delay(1);
   
   }
   
