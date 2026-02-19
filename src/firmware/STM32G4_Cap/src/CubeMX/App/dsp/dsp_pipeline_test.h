@@ -23,6 +23,7 @@ extern "C" {
 static void rfft_packed_to_mag(const float *packed, float *mag, uint32_t N);
 void dsp_unit_test_sine_fft(void);
 
+
 #ifdef __cplusplus
 }
 #endif

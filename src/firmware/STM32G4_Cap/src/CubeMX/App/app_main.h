@@ -46,6 +46,7 @@ void app_loop(void);
 
 // Unit test loops
 void test_spi_stream_loop(void);
+void test_dsp_pipeline_loop(void);
 
 #ifdef __cplusplus
 }
