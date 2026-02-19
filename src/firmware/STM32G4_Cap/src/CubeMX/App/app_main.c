@@ -24,6 +24,8 @@
 #include "transport/spi_stream.h"
 #include "transport/spi_stream_test.h"
 
+#include "dsp/dsp_pipeline_test.h"
+
 #include "usb/usb_debug.h"
 #include "dsp/dsp_pipeline.h"
 
@@ -251,7 +253,12 @@ void test_spi_stream_loop(void) {
   spi_stream_unit_test_nulls();
   spi_stream_unit_test_small_cap();
   spi_stream_unit_test_frame_counter();
-  
+  spi_loopback_unit_test();
+}
+
+void test_dsp_pipeline_loop(void) {
+  HAL_Delay(1000);
+  dsp_unit_test_sine_fft();
 }
 
 /* ============================================================================

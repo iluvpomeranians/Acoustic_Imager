@@ -1,5 +1,5 @@
-#ifndef SPI_STREAM_TEST_H
-#define SPI_STREAM_TEST_H
+#ifndef DSP_PIPELINE_TEST_H
+#define DSP_PIPELINE_TEST_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -8,7 +8,7 @@ extern "C" {
 /* =========================================================================
  * INCLUDES
  * ========================================================================= */
-
+#include <stdint.h>
 /* =========================================================================
  * DEFINES
  * ========================================================================= */
@@ -20,14 +20,12 @@ extern "C" {
 /* =========================================================================
  * FUNCTION PROTOTYPES
  * ========================================================================= */
-void spi_stream_unit_test_build_packet(void);
-void spi_stream_unit_test_nulls(void);
-void spi_stream_unit_test_small_cap(void);
-void spi_stream_unit_test_frame_counter(void);
-void spi_loopback_unit_test(void);
+static void rfft_packed_to_mag(const float *packed, float *mag, uint32_t N);
+void dsp_unit_test_sine_fft(void);
+
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* SPI_STREAM_TEST_H */
+#endif /* DSP_PIPELINE_TEST_H */
