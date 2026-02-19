@@ -40,8 +40,9 @@
 /* USER CODE BEGIN PD */
 #define RELEASE 0
 #define TEST_SPI_STREAM 1
+#define TEST_DSP_PIPELINE 2
 
-#define MODE RELEASE
+#define MODE TEST_DSP_PIPELINE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -129,6 +130,8 @@ int main(void)
     app_loop();
 #elif MODE == TEST_SPI_STREAM
     test_spi_stream_loop();
+#elif MODE == TEST_DSP_PIPELINE
+    test_dsp_pipeline_loop();
 #endif
   }
   
