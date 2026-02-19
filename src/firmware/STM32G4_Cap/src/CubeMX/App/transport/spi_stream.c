@@ -41,50 +41,51 @@ void spi_stream_init(spi_stream_t *s)
 }
 
 size_t spi_stream_build_fft_packet(
-    spi_stream_t *s,
-    uint8_t *dst,
-    size_t dst_cap,
-    uint8_t adc_id,
-    const float *fft_bins,
-    uint16_t mic_count,
-    uint16_t fft_size,
-    uint32_t sample_rate,
-    uint16_t bin_count)
-{
-    if (!s || !dst || !fft_bins) return 0;
+  spi_stream_t *s,
+  uint8_t *dst,
+  size_t dst_cap,
+  uint8_t adc_id,
+  const float *fft_bins,
+  uint16_t mic_count,
+  uint16_t fft_size,
+  uint32_t sample_rate,
+  uint16_t bin_count) {
+  if (!s || !dst || !fft_bins) return 0;
 
-    const size_t header_len  = sizeof(SPI_FrameHeader_t);
-    const size_t payload_len = (size_t)bin_count * sizeof(float);
-    const size_t checksum_len = sizeof(uint16_t);
+  const size_t header_len  = sizeof(SPI_FrameHeader_t);
+  const size_t payload_len = 2 * (size_t)bin_count * sizeof(float);
+  const size_t checksum_len = sizeof(uint16_t);
 
-    const size_t total_len = header_len + payload_len + checksum_len;
-    if (dst_cap < total_len) return 0;
+  const size_t total_len = header_len + payload_len + checksum_len;
+  if (dst_cap < total_len) return 0;
 
-    SPI_FrameHeader_t *hdr = (SPI_FrameHeader_t *)(void *)dst;
+  SPI_FrameHeader_t hdr;
 
-    hdr->magic         = SPI_MAGIC;
-    hdr->version       = (uint16_t)SPI_VERSION;
-    hdr->header_len    = (uint16_t)header_len;
-    hdr->frame_counter = s->frame_counter++;
+  hdr.magic         = SPI_MAGIC;
+  hdr.version       = (uint16_t)SPI_VERSION;
+  hdr.header_len    = (uint16_t)header_len;
+  hdr.frame_counter = s->frame_counter++;
 
-    hdr->mic_count     = mic_count;
-    hdr->fft_size      = fft_size;
-    hdr->sample_rate   = sample_rate;
-    hdr->bin_count     = bin_count;
+  hdr.mic_count     = mic_count;
+  hdr.fft_size      = fft_size;
+  hdr.sample_rate   = sample_rate;
+  hdr.bin_count     = bin_count;
 
-    // Use reserved to store adc_id (your current behavior)
-    hdr->reserved      = (uint16_t)adc_id;
+  // Use reserved to store adc_id (your current behavior)
+  hdr.reserved      = (uint16_t)adc_id;
 
-    hdr->payload_len   = (uint32_t)payload_len;
+  hdr.payload_len   = (uint32_t)payload_len;
 
-    uint8_t *payload_ptr = dst + header_len;
-    memcpy(payload_ptr, fft_bins, payload_len);
+  memcpy(dst, &hdr, sizeof(hdr));
+  
+  uint8_t *payload_ptr = dst + header_len;
+  memcpy(payload_ptr, fft_bins, payload_len);
 
-    // checksum over [header + payload], stored after payload
-    const uint16_t cs = checksum16_sum_bytes(dst, header_len + payload_len);
-    memcpy(payload_ptr + payload_len, &cs, sizeof(cs));
+  // checksum over [header + payload], stored after payload
+  const uint16_t cs = checksum16_sum_bytes(dst, header_len + payload_len);
+  memcpy(payload_ptr + payload_len, &cs, sizeof(cs));
 
-    return total_len;
+  return total_len;
 }
 
 void spi_stream_tx_blocking(const uint8_t *buf, size_t len)

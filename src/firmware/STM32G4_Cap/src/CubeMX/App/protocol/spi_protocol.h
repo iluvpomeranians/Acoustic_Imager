@@ -9,6 +9,7 @@ extern "C" {
  * INCLUDES
  * ========================================================================= */
 #include <stdint.h>
+#include "app_main.h"
 
 /* =========================================================================
  * DEFINES
@@ -17,8 +18,14 @@ extern "C" {
 #define SPI_VERSION 1u
 
 #define SPI_BUFFER_SIZE 4
+
+#define SPI_CHECKSUM_SIZE_BYTES   (sizeof(uint16_t))
+#define SPI_FLOAT_SIZE_BYTES      (sizeof(float))
+
+#define SPI_PACKET_SIZE (sizeof(SPI_FrameHeader_t) + \
+                        2 * N_BINS * sizeof(float) + SPI_CHECKSUM_SIZE_BYTES)
+
 #define SPI_PACKET_HEADER 0xAA
-#define SPI_PACKET_SIZE (1 + 1 + 4 + 512*4 + 2)
 
 #define SPI_FRAMEHEADER_SIZE_BYTES  (28u)
 

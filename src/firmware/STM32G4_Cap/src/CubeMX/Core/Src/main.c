@@ -38,7 +38,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define RELEASE 0
+#define TEST_SPI_STREAM 1
 
+#define MODE RELEASE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -120,8 +123,13 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    app_loop();
+
     /* USER CODE BEGIN 3 */
+#if MODE == RELEASE
+    app_loop();
+#elif MODE == TEST_SPI_STREAM
+    test_spi_stream_loop();
+#endif
   }
   
   /* USER CODE END 3 */

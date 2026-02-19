@@ -15,9 +15,11 @@ extern "C" {
  * ========================================================================= */
 #define APP_VERSION "1.0.0"
 
+#define SAMPLE_RATE 1000
 #define N_SAMPLES 2048
-#define FRAME_SIZE 1024
+#define FRAME_SIZE 512
 #define N_CH_PER_ADC 4
+#define N_MICS 16
 
 #define VALIDATION_MODE 0
 
@@ -41,6 +43,9 @@ void app_init(void);
 void app_start(void);
 void app_loop(void);
 // void app_handle_error(uint32_t error_code);
+
+// Unit test loops
+void test_spi_stream_loop(void);
 
 #ifdef __cplusplus
 }

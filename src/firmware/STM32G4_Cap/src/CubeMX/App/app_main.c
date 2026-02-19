@@ -19,35 +19,39 @@
 #include "arm_math.h"
 
 #include "app_main.h"
+
 #include "protocol/spi_protocol.h"
 #include "transport/spi_stream.h"
+#include "transport/spi_stream_test.h"
+
 #include "usb/usb_debug.h"
 #include "dsp/dsp_pipeline.h"
 
 /* =========================================================================
  * DEFINES & CONSTANTS
  * ========================================================================= */
-
+#define ADC_DMA_BUF_SIZE (2 * N_CH_PER_ADC * FRAME_SIZE) // 4096 samples per half-buffer
 
 /* =========================================================================
  * STATIC VARIABLES
  * ========================================================================= */
-// Each ADC gets dedicated DMA circular buffer (2048 samples total)
-// Half-buffer = 1024 samples (at 48kHz = 21.3ms)
-static uint16_t adc1_buf[2 * FRAME_SIZE];
-static uint16_t adc2_buf[2 * FRAME_SIZE];
-static uint16_t adc3_buf[2 * FRAME_SIZE];
-static uint16_t adc4_buf[2 * FRAME_SIZE];
+// Each ADC gets dedicated DMA circular buffer (2 * 4 * 1024 = 8192 samples total)
+// Half-buffer = 4096 samples (at 48kHz = 85.2ms)
+static uint16_t adc1_buf[ADC_DMA_BUF_SIZE];
+static uint16_t adc2_buf[ADC_DMA_BUF_SIZE];
+static uint16_t adc3_buf[ADC_DMA_BUF_SIZE];
+static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
 // FFT Output: Frequency domain results (1024-point FFT → 512 bins per ADC)
-static float fft_out_adc1[N_BINS];
-static float fft_out_adc2[N_BINS];
-static float fft_out_adc3[N_BINS];
-static float fft_out_adc4[N_BINS];
+static float fft_out_adc1[2 * N_BINS];
+static float fft_out_adc2[2 * N_BINS];
+static float fft_out_adc3[2 * N_BINS];
+static float fft_out_adc4[2 * N_BINS];
 
 static arm_rfft_fast_instance_f32 fft_instance;
 
 static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
+static spi_stream_t spi_stream_ctx;
 
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
@@ -77,6 +81,7 @@ static uint32_t _print_counter = 0;
 uint32_t value = 0;
 float voltage;
 
+// TODO: Deprecated
 typedef struct {
     uint8_t header;
     uint8_t adc_id;
@@ -93,6 +98,7 @@ void usb_cdc_smoke_test() {
 void app_init(void) {
   // Initialize FFT instance (precompute twiddle factors, etc.)
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
+  spi_stream_init(&spi_stream_ctx);
 }
 
 void app_start(void) {
@@ -109,17 +115,21 @@ void app_start(void) {
   // Test USB CDC
   HAL_Delay(1000);
   usb_cdc_smoke_test();
-  
+
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
 
   // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
-  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, (uint32_t)(2 * FRAME_SIZE));
-  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(2 * FRAME_SIZE));
-  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, (uint32_t)(2 * FRAME_SIZE));
-  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, (uint32_t)(2 * FRAME_SIZE));
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
+  HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
+  HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
 }
 
+/**
+ * @brief Main application loop
+ * @return void
+ */
 void app_loop(void) {
   // Main application loop - check for ADC data ready and process
 
@@ -135,7 +145,7 @@ void app_loop(void) {
     fft_in_progress = 1;
     
     // Check each ADC for ready half-buffers
-    for (int adc = 0; adc < 4; adc++) {
+    for (uint8_t adc = 0; adc < 4; adc++) {
       uint8_t half_flag = (local_mask >> adc) & 1;       // Half-complete
       uint8_t full_flag = (local_mask >> (adc + 4)) & 1; // Full-complete
       
@@ -148,7 +158,7 @@ void app_loop(void) {
           half_offset = 0;
           ready_half[adc] = 0;
         } else {
-          half_offset = 1024;
+          half_offset = ADC_DMA_BUF_SIZE / 2; 
           ready_half[adc] = 1;
         }
         
@@ -174,16 +184,28 @@ void app_loop(void) {
           // set the SPI payload buffer as the output of the ADC processing
 
           // TODO: The implementation is process_adc_pipeline() is currently
-          // inccorect; we either need a 4-channel output buffer or we need to
+          // incorrect; we either need a 4-channel output buffer or we need to
           // send each channel's FFT output sequentially over SPI in this
           // function.
           process_adc_pipeline(&fft_instance, active_half, adc, fft_out_ptr);
 
           // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
           // currently dummy values
-          package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer, N_CH_PER_ADC,
-                              FRAME_SIZE, 48000, N_BINS);
-          transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
+          spi_stream_build_fft_packet(&spi_stream_ctx, 
+                                      spi_tx_buffer, 
+                                      SPI_PACKET_SIZE,
+                                      adc,
+                                      fft_out_ptr,
+                                      N_MICS,
+                                      FRAME_SIZE,
+                                      SAMPLE_RATE,
+                                      N_BINS);
+          // package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer, N_CH_PER_ADC,
+          //                     FRAME_SIZE, 48000, N_BINS);
+
+          spi_stream_tx_blocking(spi_tx_buffer, SPI_PACKET_SIZE);
+          // transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
+        
         }
       }
     }
@@ -194,9 +216,10 @@ void app_loop(void) {
 
   /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
   
-  if (++_print_counter >= 1000) {
+  if (++_print_counter >= 10000) {
     _print_counter = 0;
-    usb_cdc_smoke_test();
+    spi_stream_unit_test_build_packet();
+    // usb_cdc_smoke_test();
   }
   //   char _buf[128];
   //   int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
@@ -215,11 +238,15 @@ void app_loop(void) {
   // HAL_Delay(1);  
 
 }
-/**
- * @brief Public function description
- * @param[in] param1 Description of input parameter
- * @return Description of return value
- */
+
+void test_spi_stream_loop(void) {
+  HAL_Delay(1000);
+  spi_stream_unit_test_build_packet();
+  spi_stream_unit_test_nulls();
+  spi_stream_unit_test_small_cap();
+  spi_stream_unit_test_frame_counter();
+  
+}
 
 /* ============================================================================
  * STATIC FUNCTIONS
