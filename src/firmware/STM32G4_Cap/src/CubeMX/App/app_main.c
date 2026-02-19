@@ -247,6 +247,7 @@ void test_spi_stream_loop(void) {
   spi_stream_unit_test_nulls();
   spi_stream_unit_test_small_cap();
   spi_stream_unit_test_frame_counter();
+  spi_loopback_unit_test();
 }
 
 void test_dsp_pipeline_loop(void) {

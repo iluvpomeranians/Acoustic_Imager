@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "spi.h"
 #include "spi_stream_test.h"
 #include "spi_stream.h"
 #include "usb/usb_debug.h"
@@ -28,7 +29,8 @@
 /* =========================================================================
  * FORWARD DECLARATIONS
  * ========================================================================= */
-
+static int buffers_equal(const uint8_t *a, const uint8_t *b, size_t n, 
+                         size_t *first_bad);
 /* static void module_init(void); */
 /* static void module_process(void); */
 
@@ -262,13 +264,121 @@ void spi_stream_unit_test_frame_counter(void)
                   i, (unsigned)n, (unsigned long)hdr.frame_counter);
   }
 }
+
+void spi_loopback_unit_test(void)
+{
+    usb_printf("\r\n=== SPI4 LOOPBACK UNIT TEST (MOSI->MISO) ===\r\n");
+
+    // ---------------------------------------------------------------------
+    // 1) Build a small packet into tx[]
+    // ---------------------------------------------------------------------
+    const uint8_t  adc_id      = 1;
+    const uint16_t mic_count   = 4;
+    const uint16_t fft_size    = 1024;
+    const uint32_t sample_rate = 48000;
+    const uint16_t bin_count   = 8; // keep small to start
+
+    float fft_bins[2 * bin_count];
+    for (uint16_t k = 0; k < bin_count; k++) {
+        fft_bins[2u*k + 0u] = (float)k + 0.25f;
+        fft_bins[2u*k + 1u] = -(float)k - 0.75f;
+    }
+
+    spi_stream_t stream;
+    spi_stream_init(&stream);
+
+    // Align buffers (DMA/HAL generally doesn't require for blocking, but it's nice)
+    union { uint32_t align; uint8_t b[256]; } tx_u, rx_u;
+    memset(tx_u.b, 0x00, sizeof(tx_u.b));
+    memset(rx_u.b, 0xCC, sizeof(rx_u.b));
+
+    const size_t tx_len = spi_stream_build_fft_packet(
+        &stream,
+        tx_u.b,
+        sizeof(tx_u.b),
+        adc_id,
+        fft_bins,
+        mic_count,
+        fft_size,
+        sample_rate,
+        bin_count);
+
+    if (tx_len == 0) {
+        usb_printf("FAIL: spi_stream_build_fft_packet returned 0\r\n");
+        return;
+    }
+
+    usb_printf("Built packet len=%u\r\n", (unsigned)tx_len);
+    usb_printf("TX (first 64 bytes):\r\n");
+    dump_hex(tx_u.b, (tx_len < 64) ? tx_len : 64);
+
+    // ---------------------------------------------------------------------
+    // 2) SPI transmit+receive
+    // ---------------------------------------------------------------------
+    HAL_StatusTypeDef st = HAL_SPI_TransmitReceive(
+        &hspi4,
+        tx_u.b,
+        rx_u.b,
+        (uint16_t)tx_len,
+        HAL_MAX_DELAY);
+
+    if (st != HAL_OK) {
+        usb_printf("FAIL: HAL_SPI_TransmitReceive returned %d\r\n", (int)st);
+        return;
+    }
+
+    usb_printf("RX (first 64 bytes):\r\n");
+    dump_hex(rx_u.b, (tx_len < 64) ? tx_len : 64);
+
+    // ---------------------------------------------------------------------
+    // 3) Compare
+    // ---------------------------------------------------------------------
+    size_t first_bad = 0;
+    int ok = buffers_equal(tx_u.b, rx_u.b, tx_len, &first_bad);
+
+    if (!ok) {
+        usb_printf("FAIL: TX != RX at byte index %u\r\n", (unsigned)first_bad);
+        usb_printf("TX around mismatch:\r\n");
+        size_t start = (first_bad > 16) ? (first_bad - 16) : 0;
+        size_t end   = (first_bad + 16 < tx_len) ? (first_bad + 16) : tx_len;
+        dump_hex(&tx_u.b[start], end - start);
+
+        usb_printf("RX around mismatch:\r\n");
+        dump_hex(&rx_u.b[start], end - start);
+        return;
+    }
+
+    usb_printf("PASS: TX == RX (%u bytes)\r\n", (unsigned)tx_len);
+
+    // ---------------------------------------------------------------------
+    // 4) Optional: parse header from RX and sanity check
+    // ---------------------------------------------------------------------
+    SPI_FrameHeader_t hdr;
+    memcpy(&hdr, rx_u.b, sizeof(hdr));
+    usb_printf("RX header magic=0x%08lX, frame_counter=%lu, payload_len=%lu\r\n",
+               (unsigned long)hdr.magic,
+               (unsigned long)hdr.frame_counter,
+               (unsigned long)hdr.payload_len);
+
+    usb_printf("=== END LOOPBACK TEST ===\r\n");
+}
+
 /* ============================================================================
  * STATIC FUNCTIONS
  * ============================================================================ */
 
 /**
- * @brief Static helper function description
- * @return void
+ * @brief Checks TX and RX buffers for equality
+ * @return 1 if equal, 0 if not.
  */
-
+static int buffers_equal(const uint8_t *a, const uint8_t *b, size_t n, size_t *first_bad)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (a[i] != b[i]) {
+            if (first_bad) *first_bad = i;
+            return 0;
+        }
+    }
+    return 1;
+}
 
