@@ -263,8 +263,16 @@ def main() -> None:
     global sim_source, spi_hw, spi_loopback
 
     sim_source = SimSource()
-    spi_hw = SPISource(SPIManager(use_frame_ready=True))
+
     spi_loopback = SPILoopbackSource()
+
+    #TODO: DEMO ONLY USB
+    from acoustic_imager.sources.usb_source import USBSource
+    spi_hw = USBSource(port="/dev/ttyACM0", baud=115200)
+
+    #TODO: FOR REAL SPI, USE THIS INSTEAD OF USBSource
+    #spi_hw = SPISource(SPIManager(use_frame_ready=True))
+
 
     # Force initial mode from config if UI didn't set it yet
     if button_state.source_mode not in config.SOURCE_MODES:
