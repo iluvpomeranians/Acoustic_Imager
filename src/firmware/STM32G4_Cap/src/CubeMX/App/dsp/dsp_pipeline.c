@@ -1,7 +1,7 @@
 /**
- * @file template.c
- * @brief Brief description of module functionality
- * @details Detailed description of what this module does and its responsibilities
+ * @file dsp_pipeline.c
+ * @brief Contains DSP functions for ADC audio signals including FFT processing
+ * @details This module is responsible for processing raw ADC data into the frequency domain using FFT, as well as any necessary pre-processing steps like DC offset removal and normalization.
  */
 
 /* =========================================================================
@@ -58,39 +58,51 @@ float calculate_dc_offset(float *data, uint32_t length)
 
 void remove_dc_bias(float *data, uint32_t length, float dc_offset)
 {
-    for (uint32_t i = 0; i < length; i++) {
-        data[i] -= dc_offset;
-    }
+  for (uint32_t i = 0; i < length; i++) {
+      data[i] -= dc_offset;
+  }
 }
 
 void apply_fft(arm_rfft_fast_instance_f32 *fft_instance, 
                float *input, 
                float *magnitude_output, 
                uint32_t fft_size) {
-    arm_rfft_fast_f32(fft_instance, input, fft_temp_buf, 0);
-    
-    // TODO: We likely don't need to calculate magnitude, I think the 
-    // beamforming algorithm can work directly with complex FFT output.
-    uint32_t bin_count = fft_size / 2;
-    for (uint32_t k = 0; k < bin_count; k++) {
-        float real = fft_temp_buf[2*k];
-        float imag = fft_temp_buf[2*k + 1];
-        magnitude_output[k] = sqrtf(real*real + imag*imag);
-    }
+  arm_rfft_fast_f32(fft_instance, input, fft_temp_buf, 0);    
+}
+
+// TODO: We likely don't need to calculate magnitude, I think the 
+// beamforming algorithm can work directly with complex FFT output.
+void calculate_magnitude(float *fft_output, float *magnitude, uint32_t fft_size)
+{
+  // For real FFT output of size N, the bins are arranged as:
+  // [Re(0), Re(N/2), Re(1), Im(1), Re(2), Im(2), ..., Re(N/2-1), Im(N/2-1)]
+
+  const uint32_t half = fft_size >> 1; // N/2
+  const uint32_t bins = half + 1; // Number of bins for real FFT
+
+  // Bin 0 and N/2 are purely real.
+  magnitude[0]    = fabsf(fft_output[0]);  // DC bin
+  magnitude[half] = fabsf(fft_output[1]);  // Nyquist bin
+
+  for (uint32_t i = 1; i < half; i++) {
+    float re = fft_output[2 * i];
+    float im = fft_output[2 * i + 1];
+    magnitude[i] = sqrtf(re * re + im * im);
+  } 
 }
 
 void normalize_magnitude(float *mag, uint32_t length)
 {
-    float max = 0.0f;
-    for (uint32_t i = 0; i < length; i++) {
-        if (mag[i] > max) max = mag[i];
-    }
-    
-    if (max > 0.0f) {
-        for (uint32_t i = 0; i < length; i++) {
-            mag[i] /= max;
-        }
-    }
+  float max = 0.0f;
+  for (uint32_t i = 0; i < length; i++) {
+      if (mag[i] > max) max = mag[i];
+  }
+  
+  if (max > 0.0f) {
+      for (uint32_t i = 0; i < length; i++) {
+          mag[i] /= max;
+      }
+  }
 }
 
 void process_adc_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
