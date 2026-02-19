@@ -103,8 +103,11 @@ void app_init(void) {
 }
 
 void app_start(void) {
-// Any additional startup logic can go here
-    // Set GAIN_CNTL to HIGH
+
+  // Any additional startup logic can go here
+  HAL_Delay(1000);  // Wait for peripherals to stabilize
+
+  // Set GAIN_CNTL to HIGH
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_9, GPIO_PIN_SET);
 
   // Calibrate all ADCs before use
