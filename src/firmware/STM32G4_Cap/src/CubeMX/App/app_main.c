@@ -53,6 +53,8 @@ static arm_rfft_fast_instance_f32 fft_instance;
 static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
 static spi_stream_t spi_stream_ctx;
 
+static uint32_t _print_counter = 0;
+
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
 volatile uint32_t adc_ready_mask = 0;
@@ -131,7 +133,7 @@ void app_start(void) {
  */
 void app_loop(void) {
   // Main application loop - check for ADC data ready and process
-
+  
   // Clear the global mask immediately to avoid missing new events
   __disable_irq();
   uint32_t local_mask = adc_ready_mask;
@@ -173,32 +175,20 @@ void app_loop(void) {
           half_offset = ADC_DMA_BUF_SIZE / 2; 
           ready_half[adc] = 1;
         }
-        
-        uint32_t half_offset = half_flag ? 0 : FRAME_SIZE;
       
         if (!have_offset) {
             have_offset = 1;
             half_offset_for_print = half_offset;
         }
 
-          
-
-        uint16_t *buf_ptr = NULL;
-        float *fft_out_ptr = NULL;
-
         if (adc == 0) { buf_ptr = adc1_buf; fft_out_ptr = fft_out_adc1; }
         else if (adc == 1) { buf_ptr = adc2_buf; fft_out_ptr = fft_out_adc2; }
         else if (adc == 2) { buf_ptr = adc3_buf; fft_out_ptr = fft_out_adc3; }
         else { buf_ptr = adc4_buf; fft_out_ptr = fft_out_adc4; }
         
-        
         if (buf_ptr && fft_out_ptr) {
           // Process the ready half-buffer for this ADC
           uint16_t *active_half = buf_ptr + half_offset;
-          
-          // TODO
-
-
 
           // TODO: The implementation is process_adc_pipeline() is currently
           // incorrect; we either need a 4-channel output buffer or we need to
@@ -223,46 +213,34 @@ void app_loop(void) {
           spi_stream_tx_blocking(spi_tx_buffer, SPI_PACKET_SIZE);
           // transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
         }
+
         if (have_offset) {
         usb_dbg_push_adc_window_4adc(&adc1_buf[half_offset_for_print],
                                      &adc2_buf[half_offset_for_print],
                                      &adc3_buf[half_offset_for_print],
                                      &adc4_buf[half_offset_for_print],
-                                     FRAME_SIZE,
-                                     3.3f / 4095.0f);
+                                     FRAME_SIZE);
         }
-
-    
+      }
     }
-
     fft_in_progress = 0;
-}
-
-
-  /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
+  }
   
   if (++_print_counter >= 10000) {
     _print_counter = 0;
     spi_stream_unit_test_build_packet();
     // usb_cdc_smoke_test();
   }
-  //   char _buf[128];
-  //   int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
-  //                       (unsigned long)irq_events,
-  //                       (unsigned long)irq_count_adc[0],
-  //                       (unsigned long)irq_count_adc[1],
-  //                       (unsigned long)irq_count_adc[2],
-  //                       (unsigned long)irq_count_adc[3],
-  //                       (unsigned long)local_mask);
-  //   if (_len > 0) {
-  //     extern UART_HandleTypeDef huart2; declared in usart.c / usart.h 
-  //     HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
-  //   }
-  // }
-
   HAL_Delay(1);  
-
 }
+
+
+  /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
+  
+  
+ 
+
+
 
 void test_spi_stream_loop(void) {
   HAL_Delay(1000);
