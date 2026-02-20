@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Tuple
 
 import cv2
 import numpy as np
@@ -201,6 +201,10 @@ def init_menu_buttons(left_width: int) -> None:
     menu_buttons["shot"] = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
     menu_buttons["rec"] = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
     menu_buttons["pause"] = Button(menu_x + 2 * (tool_w + tool_gap), tools_y, tool_w, item_h, "PAUSE")
+    
+    # Gallery button (full width, below tools)
+    gallery_y = tools_y + (item_h + gap)
+    menu_buttons["gallery"] = Button(menu_x, gallery_y, menu_w, item_h, "GALLERY")
 
 
 def update_button_states(mx: int, my: int) -> None:
@@ -210,7 +214,7 @@ def update_button_states(mx: int, my: int) -> None:
     if "menu" in menu_buttons:
         menu_buttons["menu"].is_hovered = menu_buttons["menu"].contains(mx, my)
 
-    keys = ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause")
+    keys = ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause", "gallery")
 
     if button_state.menu_open:
         for k in keys:
@@ -240,7 +244,7 @@ def draw_menu(frame: np.ndarray) -> None:
     x = menu_buttons["menu"].x
     y = menu_buttons["menu"].y + menu_buttons["menu"].h + 6
     w = menu_buttons["menu"].w
-    h = 3 * 40 + 2 * 8 + 20
+    h = 4 * 40 + 3 * 8 + 20
 
     # original ROI overlay behavior
     x0, y0 = x - 2, y - 2
@@ -265,6 +269,8 @@ def draw_menu(frame: np.ndarray) -> None:
     # Tool button actives reflect current state
     menu_buttons["rec"].is_active = button_state.is_recording
     menu_buttons["pause"].is_active = button_state.is_paused
+    
+    menu_buttons["gallery"].is_active = button_state.gallery_open
 
     menu_buttons["fps30"].draw(frame)
     menu_buttons["fps60"].draw(frame)
@@ -274,6 +280,7 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["shot"].draw(frame)
     menu_buttons["rec"].draw(frame)
     menu_buttons["pause"].draw(frame)
+    menu_buttons["gallery"].draw(frame)
 
 
 def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:
@@ -365,8 +372,211 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
 
 
 # ===============================================================
+# Gallery view functions
+# ===============================================================
+def get_gallery_items(output_dir: Path) -> List[Tuple[Path, str, datetime]]:
+    """
+    Get all screenshots and videos from the output directory.
+    Returns list of tuples: (filepath, type, modification_time)
+    Sorted by modification time (newest first).
+    """
+    items = []
+    
+    if not output_dir.exists():
+        return items
+    
+    # Get all screenshots (PNG files)
+    for img_file in output_dir.glob("screenshot_*.png"):
+        mtime = datetime.fromtimestamp(img_file.stat().st_mtime)
+        items.append((img_file, "image", mtime))
+    
+    # Get all recordings (MP4 files)
+    for vid_file in output_dir.glob("recording_*.mp4"):
+        mtime = datetime.fromtimestamp(vid_file.stat().st_mtime)
+        items.append((vid_file, "video", mtime))
+    
+    # Sort by modification time (newest first)
+    items.sort(key=lambda x: x[2], reverse=True)
+    
+    return items
+
+
+def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
+    """
+    Draw the gallery view showing all saved screenshots and videos.
+    Displays items in a grid layout with thumbnails.
+    """
+    if output_dir is None:
+        return
+    
+    # Dark semi-transparent background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (15, 15, 15), -1)
+    cv2.addWeighted(overlay, 0.92, frame, 0.08, 0, frame)
+    
+    # Header
+    header_h = 80
+    cv2.rectangle(frame, (0, 0), (frame.shape[1], header_h), (25, 25, 25), -1)
+    cv2.line(frame, (0, header_h), (frame.shape[1], header_h), (80, 80, 80), 2)
+    
+    # Title
+    title = "GALLERY"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    title_scale = 1.2
+    title_thick = 2
+    (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
+    title_x = (frame.shape[1] - title_w) // 2
+    title_y = (header_h + title_h) // 2 + 5
+    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
+    
+    # Back button
+    back_btn_x = 20
+    back_btn_y = 20
+    back_btn_w = 100
+    back_btn_h = 40
+    
+    # Store back button for click detection
+    if "gallery_back" not in menu_buttons:
+        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "< BACK")
+    else:
+        menu_buttons["gallery_back"].x = back_btn_x
+        menu_buttons["gallery_back"].y = back_btn_y
+        menu_buttons["gallery_back"].w = back_btn_w
+        menu_buttons["gallery_back"].h = back_btn_h
+    
+    menu_buttons["gallery_back"].draw(frame)
+    
+    # Get all gallery items
+    items = get_gallery_items(output_dir)
+    
+    if not items:
+        # No items message
+        msg = "No captures yet. Use SHOT or REC to create content."
+        msg_scale = 0.7
+        msg_thick = 1
+        (msg_w, msg_h), _ = cv2.getTextSize(msg, font, msg_scale, msg_thick)
+        msg_x = (frame.shape[1] - msg_w) // 2
+        msg_y = frame.shape[0] // 2
+        cv2.putText(frame, msg, (msg_x, msg_y), font, msg_scale, (150, 150, 150), msg_thick, cv2.LINE_AA)
+        return
+    
+    # Grid layout parameters
+    margin = 20
+    grid_start_y = header_h + margin
+    grid_start_x = margin
+    
+    thumb_w = 280
+    thumb_h = 180
+    gap = 15
+    
+    cols = (frame.shape[1] - 2 * margin + gap) // (thumb_w + gap)
+    cols = max(1, cols)
+    
+    # Draw grid of thumbnails
+    for idx, (filepath, item_type, mtime) in enumerate(items):
+        row = idx // cols
+        col = idx % cols
+        
+        x = grid_start_x + col * (thumb_w + gap)
+        y = grid_start_y + row * (thumb_h + gap + 50)  # Extra space for label
+        
+        # Skip if off-screen (for future scrolling implementation)
+        if y > frame.shape[0]:
+            break
+        
+        # Draw thumbnail background
+        cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), (40, 40, 40), -1)
+        cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), (100, 100, 100), 2, cv2.LINE_AA)
+        
+        # Load and draw thumbnail
+        try:
+            if item_type == "image":
+                img = cv2.imread(str(filepath))
+                if img is not None:
+                    # Resize to fit thumbnail
+                    img_resized = cv2.resize(img, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
+                    frame[y+2:y+thumb_h-2, x+2:x+thumb_w-2] = img_resized
+            elif item_type == "video":
+                # For videos, show first frame as thumbnail
+                cap = cv2.VideoCapture(str(filepath))
+                ret, vid_frame = cap.read()
+                cap.release()
+                
+                if ret and vid_frame is not None:
+                    vid_resized = cv2.resize(vid_frame, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
+                    frame[y+2:y+thumb_h-2, x+2:x+thumb_w-2] = vid_resized
+                    
+                    # Draw play icon overlay for videos
+                    center_x = x + thumb_w // 2
+                    center_y = y + thumb_h // 2
+                    play_size = 30
+                    
+                    # Semi-transparent circle
+                    overlay_roi = frame[center_y-play_size:center_y+play_size, 
+                                       center_x-play_size:center_x+play_size].copy()
+                    cv2.circle(overlay_roi, (play_size, play_size), play_size, (0, 0, 0), -1)
+                    cv2.addWeighted(overlay_roi, 0.6, 
+                                  frame[center_y-play_size:center_y+play_size, 
+                                       center_x-play_size:center_x+play_size], 0.4, 0,
+                                  frame[center_y-play_size:center_y+play_size, 
+                                       center_x-play_size:center_x+play_size])
+                    
+                    # White play triangle
+                    pts = np.array([
+                        [center_x - 10, center_y - 15],
+                        [center_x - 10, center_y + 15],
+                        [center_x + 15, center_y]
+                    ], np.int32)
+                    cv2.fillPoly(frame, [pts], (255, 255, 255), cv2.LINE_AA)
+        except Exception as e:
+            # Draw error placeholder
+            cv2.putText(frame, "Error", (x + 10, y + thumb_h // 2), 
+                       font, 0.5, (100, 100, 100), 1, cv2.LINE_AA)
+        
+        # Draw label below thumbnail
+        label_y = y + thumb_h + 20
+        filename = filepath.name
+        
+        # Truncate filename if too long
+        if len(filename) > 30:
+            filename = filename[:27] + "..."
+        
+        # File type indicator
+        type_icon = "[IMG]" if item_type == "image" else "[VID]"
+        type_color = (100, 200, 100) if item_type == "image" else (100, 150, 255)
+        
+        cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
+        
+        # Filename
+        cv2.putText(frame, filename, (x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+    
+    # Footer with count
+    footer_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos)"
+    footer_y = frame.shape[0] - 15
+    cv2.putText(frame, footer_text, (margin, footer_y), font, 0.5, (150, 150, 150), 1, cv2.LINE_AA)
+
+
+# ===============================================================
 # Click handlers
 # ===============================================================
+def handle_gallery_click(x: int, y: int) -> bool:
+    """
+    Handle clicks in gallery view.
+    Returns True if click was handled in gallery, False otherwise.
+    """
+    if not button_state.gallery_open:
+        return False
+    
+    # Check back button
+    if "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(x, y):
+        button_state.gallery_open = False
+        button_state.gallery_scroll_offset = 0
+        button_state.gallery_selected_item = None
+        return True
+    
+    return True  # Consume all clicks when gallery is open
+
+
 def handle_menu_click(
     x: int,
     y: int,
@@ -445,6 +655,12 @@ def handle_menu_click(
         else:
             video_recorder.resume_recording()
             menu_buttons["pause"].text = "PAUSE"
+        return video_recorder
+    
+    # GALLERY
+    if "gallery" in menu_buttons and menu_buttons["gallery"].contains(x, y):
+        button_state.gallery_open = True
+        button_state.menu_open = False  # Close menu when opening gallery
         return video_recorder
 
     return video_recorder

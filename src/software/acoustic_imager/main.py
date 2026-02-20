@@ -74,6 +74,8 @@ from acoustic_imager.ui.ui_components import (
     draw_menu,
     draw_recording_timestamp,
     handle_button_click,
+    handle_gallery_click,
+    draw_gallery_view,
     FPS_MODE_TO_TARGET,
 )
 from acoustic_imager.ui.video_recorder import VideoRecorder
@@ -137,6 +139,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     Handle mouse events for:
     - Button clicks (camera, source, debug, menu, etc.)
     - Bandpass filter dragging (frequency bar handles)
+    - Gallery view navigation
     """
     global video_recorder
 
@@ -149,6 +152,9 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
+        # Check gallery view first (if open)
+        if handle_gallery_click(mx, my):
+            return
         # Check UI buttons first
         for b in buttons.values():
             if b.contains(mx, my):
@@ -177,7 +183,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             return
 
         if button_state.menu_open:
-            for k in ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause"):
+            for k in ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause", "gallery"):
                 if k in menu_buttons and menu_buttons[k].contains(mx, my):
                     video_recorder = handle_button_click(
                         mx, my,
@@ -547,6 +553,11 @@ def main() -> None:
             draw_buttons(output_frame)
             draw_menu(output_frame)
             draw_recording_timestamp(output_frame, video_recorder)
+            
+            # ---- Draw gallery view if open ----
+            if button_state.gallery_open:
+                draw_gallery_view(output_frame, state.OUTPUT_DIR)
+            
             prof.mark("ui")
 
             # ---- Store current frame for screenshots ----

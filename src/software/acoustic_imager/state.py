@@ -30,6 +30,11 @@ class ButtonState:
     fps_mode: str = "MAX"       # "30" | "60" | "MAX"
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
+    
+    # Gallery state
+    gallery_open: bool = False
+    gallery_scroll_offset: int = 0
+    gallery_selected_item: Optional[int] = None
 
 
 # A single shared instance (matches original `button_state = ButtonState()`)
