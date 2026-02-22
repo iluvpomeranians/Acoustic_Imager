@@ -189,11 +189,12 @@ class CameraManager:
         try:
             picam2 = Picamera2()  # type: ignore
             cfg = picam2.create_preview_configuration(
-                main={"size": (self.camera_width, self.camera_height), "format": "RGB888"}
+                 main={"size": (self.camera_width, self.camera_height), "format": "BGR888"}
             )
             picam2.configure(cfg)
             try:
-                picam2.set_controls({"AwbEnable": True, "AwbMode": 1})
+                picam2.set_controls({"AeEnable": True, "AwbEnable": True})
+                picam2.set_controls({"ExposureValue": 0.7})  # try 0.3 to 0.7
             except Exception:
                 pass
 
@@ -272,7 +273,17 @@ class CameraManager:
                     continue
 
                 fr = self._picam2.capture_array()
+
                 if fr is not None and getattr(fr, "size", 0) > 0:
+                    # Picamera2 often returns RGB even if you request BGR888
+                    fr = cv2.cvtColor(fr, cv2.COLOR_RGB2BGR)
+
+                    # ---- brightness control ----
+                    fr = cv2.convertScaleAbs(
+                        fr,
+                        alpha=config.CAMERA_BRIGHTNESS_ALPHA,
+                        beta=config.CAMERA_BRIGHTNESS_BETA
+                    )
                     with self._latest.lock:
                         self._latest.frame = fr
                         self._latest.ok = True

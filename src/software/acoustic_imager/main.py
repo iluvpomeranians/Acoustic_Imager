@@ -298,6 +298,18 @@ def main() -> None:
     if state.CAMERA_AVAILABLE and button_state.camera_enabled:
         camera_mgr.start()
 
+    detector = None
+    if state.CAMERA_AVAILABLE and button_state.camera_enabled:
+        #detector = DetectorClient(target_fps=8.0)
+
+        def frame_provider():
+            f = camera_mgr.get_latest_frame()
+            if f is None or getattr(f, "size", 0) == 0:
+                return None
+            return f   # always BGR now
+
+        #detector.start(frame_provider)
+
     # ---- Create static background ----
     background_full = create_background_frame(config.WIDTH, config.HEIGHT)
     left_width = config.WIDTH - config.FREQ_BAR_WIDTH
@@ -483,16 +495,18 @@ def main() -> None:
                 if cam_frame is not None and getattr(cam_frame, "size", 0) > 0:
                     try:
                         if camera_mgr.camera_type == "picamera2":
-                            # RGB -> BGR conversion
-                            cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR, dst=cam_bgr)
-                            base_frame[:] = cam_bgr
-                        else:
-                            # Already BGR from OpenCV
+                            # already BGR
                             if cam_frame.shape[1] == config.WIDTH and cam_frame.shape[0] == config.HEIGHT:
                                 base_frame[:] = cam_frame
                             else:
                                 cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT),
-                                          dst=base_frame, interpolation=cv2.INTER_LINEAR)
+                                        dst=base_frame, interpolation=cv2.INTER_LINEAR)
+                        else:
+                            # opencv backend already BGR
+                            if cam_frame.shape[:2] == (config.HEIGHT, config.WIDTH):
+                                base_frame[:] = cam_frame
+                            else:
+                                cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT), dst=base_frame, interpolation=cv2.INTER_LINEAR)
                     except Exception:
                         base_frame[:] = background_full
                 else:
@@ -553,11 +567,11 @@ def main() -> None:
             draw_buttons(output_frame)
             draw_menu(output_frame)
             draw_recording_timestamp(output_frame, video_recorder)
-            
+
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:
                 draw_gallery_view(output_frame, state.OUTPUT_DIR)
-            
+
             prof.mark("ui")
 
             # ---- Store current frame for screenshots ----

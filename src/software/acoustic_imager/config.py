@@ -42,6 +42,13 @@ CAMERA_HEIGHT = HEIGHT
 USE_CAMERA = True
 USE_LIBCAMERA = True
 
+# Camera post-processing
+CAMERA_BRIGHTNESS_ALPHA = 1.20   # contrast multiplier (1.0 = no change)
+CAMERA_BRIGHTNESS_BETA  = 15      # brightness offset (-100 to +100 typical)
+DETECTION_BOX_COLOR = (0, 215, 255)
+#DETECTION_BOX_COLOR = (150, 180, 0) #teal
+#DETECTION_BOX_COLOR = (0, 200, 200) # yellow
+
 # Bandpass
 F_DISPLAY_MAX = 45000.0
 F_MIN_HZ_DEFAULT = 0.0
