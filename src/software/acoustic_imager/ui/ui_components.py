@@ -23,6 +23,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
+import time
 
 import cv2
 import numpy as np
@@ -54,6 +55,29 @@ try:
     from ..state import button_state
 except Exception:
     button_state = None  # will be created below if missing
+
+_GRAD_CACHE: dict[tuple[int, int, int, int, int], np.ndarray] = {}
+# key = (w, h, b, g, r)
+def _get_grad(w: int, h: int, color: tuple[int, int, int]) -> np.ndarray:
+    key = (w, h, int(color[0]), int(color[1]), int(color[2]))
+    g = _GRAD_CACHE.get(key)
+    if g is not None:
+        return g
+
+    top = np.clip(np.array(color, np.float32) * 1.15, 0, 255)
+    bot = np.clip(np.array(color, np.float32) * 0.85, 0, 255)
+
+    t = np.linspace(0.0, 1.0, h, dtype=np.float32)[:, None, None]  # (h,1,1)
+    grad = (top[None, None, :] * (1.0 - t) + bot[None, None, :] * t).astype(np.uint8)  # (h,1,3)
+    grad = np.repeat(grad, w, axis=1)  # (h,w,3)
+
+    _GRAD_CACHE[key] = grad
+    return grad
+
+_REC_HUD_CACHE: dict[tuple[int, int, bool], np.ndarray] = {}
+# key = (w, h, paused) -> hud background image
+
+_REC_TEXT_SIZE_CACHE: dict[str, tuple[int, int]] = {}
 
 
 # ===============================================================
@@ -89,7 +113,7 @@ def _rounded_rect(img, x, y, w, h, r, color, thickness=-1):
         (x + w, y + h),
         color,
         thickness,
-        lineType=cv2.LINE_AA
+        lineType=cv2.LINE_8
     )
 
 
@@ -110,30 +134,36 @@ class Button:
     def draw(self, frame: np.ndarray) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
-        active = (70, 90, 70)
+        active = (80, 110, 80)
         border = (230, 230, 230)
 
         color = active if self.is_active else (hover if self.is_hovered else base)
 
-        # Solid filled rounded rectangle (no overlay, no blending)
-        _rounded_rect(frame, self.x, self.y, self.w, self.h,
-                      r=10, color=color, thickness=-1)
+        x, y, w, h = self.x, self.y, self.w, self.h
 
-        # Border
-        _rounded_rect(frame, self.x, self.y, self.w, self.h,
-                      r=10, color=border, thickness=2)
+        # ---- vertical gradient fill (cached) ----
+        x0 = max(0, x)
+        y0 = max(0, y)
+        x1 = min(frame.shape[1], x + w)
+        y1 = min(frame.shape[0], y + h)
+        if x1 > x0 and y1 > y0:
+            roi = frame[y0:y1, x0:x1]
+            roi[:] = _get_grad(roi.shape[1], roi.shape[0], color)
 
-        # Text
+        # ---- border (keep cheap line type) ----
+        _rounded_rect(frame, x, y, w, h, r=10, color=border, thickness=2)
+
+        # ---- text (AA is surprisingly expensive; use LINE_8) ----
         font = cv2.FONT_HERSHEY_SIMPLEX
         scale = 0.52
         thick = 1
         tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
-        tx = self.x + (self.w - tw) // 2
-        ty = self.y + (self.h + th) // 2
+        tx = x + (w - tw) // 2
+        ty = y + (h + th) // 2
 
         cv2.putText(frame, self.text, (tx, ty),
                     font, scale, (255, 255, 255),
-                    thick, cv2.LINE_AA)
+                    thick, cv2.LINE_8)
 
 
 def init_buttons(left_width: int, camera_available: bool) -> None:
@@ -171,10 +201,10 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
 def init_menu_buttons(left_width: int) -> None:
     menu_buttons.clear()
 
-    menu_x = 590
-    menu_y = 10
+    menu_y = 1
     menu_w = 220
     menu_h = 60
+    menu_x = 650
 
     menu_buttons["menu"] = Button(menu_x, menu_y, menu_w, menu_h, "MENU")
 
@@ -201,7 +231,7 @@ def init_menu_buttons(left_width: int) -> None:
     menu_buttons["shot"] = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
     menu_buttons["rec"] = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
     menu_buttons["pause"] = Button(menu_x + 2 * (tool_w + tool_gap), tools_y, tool_w, item_h, "PAUSE")
-    
+
     # Gallery button (full width, below tools)
     gallery_y = tools_y + (item_h + gap)
     menu_buttons["gallery"] = Button(menu_x, gallery_y, menu_w, item_h, "GALLERY")
@@ -269,7 +299,7 @@ def draw_menu(frame: np.ndarray) -> None:
     # Tool button actives reflect current state
     menu_buttons["rec"].is_active = button_state.is_recording
     menu_buttons["pause"].is_active = button_state.is_paused
-    
+
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
     menu_buttons["fps30"].draw(frame)
@@ -315,45 +345,67 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         menu_bottom = menu_buttons["menu"].y + menu_buttons["menu"].h + 10
         timestamp_y = menu_bottom
 
-    # Timestamp box dimensions
+    # Draw semi-transparent background
     timestamp_h = 35
 
-    # Draw semi-transparent background
-    overlay = frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w].copy()
-    bg_color = (30, 30, 30) if not video_recorder.is_paused else (40, 40, 60)
-    cv2.rectangle(overlay, (0, 0), (menu_w, timestamp_h), bg_color, -1)
-    cv2.addWeighted(overlay, 0.7, frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w], 0.3, 0,
-                    frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w])
+    # Bounds check
+    if timestamp_y < 0 or timestamp_y + timestamp_h > frame.shape[0]:
+        return
+
+    roi = frame[timestamp_y:timestamp_y+timestamp_h, menu_x:menu_x+menu_w]
+    if roi.shape[1] != menu_w or roi.shape[0] != timestamp_h:
+        return
+
+    paused = video_recorder.is_paused
+    key = (menu_w, timestamp_h, paused)
+
+    hud = _REC_HUD_CACHE.get(key)
+    if hud is None:
+        hud = np.zeros((timestamp_h, menu_w, 3), dtype=np.uint8)
+        bg_color = (30, 30, 30) if not paused else (40, 40, 60)
+        hud[:] = bg_color
+
+        # subtle “glass” top band (cheap)
+        band_h = 10
+        band = hud.copy()
+        band[:band_h] = np.clip(band[:band_h].astype(np.int16) + 15, 0, 255).astype(np.uint8)
+        cv2.addWeighted(band, 0.35, hud, 0.65, 0.0, hud)
+
+        # border baked in
+        border_color = (200, 200, 200) if not paused else (100, 100, 200)
+        cv2.rectangle(hud, (0, 0), (menu_w - 1, timestamp_h - 1), border_color, 1, cv2.LINE_8)
+
+        _REC_HUD_CACHE[key] = hud
+
+    # just blit cached hud
+    roi[:] = hud
 
     # Draw border
     border_color = (200, 200, 200) if not video_recorder.is_paused else (100, 100, 200)
     cv2.rectangle(frame, (menu_x, timestamp_y), (menu_x + menu_w, timestamp_y + timestamp_h),
-                  border_color, 1, cv2.LINE_AA)
+              border_color, 1, cv2.LINE_8)
 
     # Draw recording indicator (red dot or paused icon)
     indicator_x = menu_x + 10
     indicator_y = timestamp_y + timestamp_h // 2
 
-    if video_recorder.is_paused:
-        # Draw pause icon (two vertical bars)
+    if paused:
         bar_w = 3
         bar_h = 10
         bar_gap = 4
         cv2.rectangle(frame,
-                     (indicator_x, indicator_y - bar_h//2),
-                     (indicator_x + bar_w, indicator_y + bar_h//2),
-                     (100, 150, 255), -1, cv2.LINE_AA)
+                    (indicator_x, indicator_y - bar_h//2),
+                    (indicator_x + bar_w, indicator_y + bar_h//2),
+                    (100, 150, 255), -1, cv2.LINE_8)
         cv2.rectangle(frame,
-                     (indicator_x + bar_w + bar_gap, indicator_y - bar_h//2),
-                     (indicator_x + 2*bar_w + bar_gap, indicator_y + bar_h//2),
-                     (100, 150, 255), -1, cv2.LINE_AA)
+                    (indicator_x + bar_w + bar_gap, indicator_y - bar_h//2),
+                    (indicator_x + 2*bar_w + bar_gap, indicator_y + bar_h//2),
+                    (100, 150, 255), -1, cv2.LINE_8)
     else:
-        # Draw pulsing red dot (recording)
-        import time
-        pulse = int((time.time() * 2) % 2)  # Blink every 0.5 seconds
+        pulse = int((time.time() * 2) % 2)
         if pulse:
-            cv2.circle(frame, (indicator_x + 5, indicator_y), 6, (0, 0, 255), -1, cv2.LINE_AA)
-            cv2.circle(frame, (indicator_x + 5, indicator_y), 6, (255, 255, 255), 1, cv2.LINE_AA)
+            cv2.circle(frame, (indicator_x + 5, indicator_y), 6, (0, 0, 255), -1, cv2.LINE_8)
+            cv2.circle(frame, (indicator_x + 5, indicator_y), 6, (255, 255, 255), 1, cv2.LINE_8)
 
     # Draw timestamp text
     timestamp_text = f"{minutes:02d}:{seconds:02d}"
@@ -362,13 +414,19 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     font_thick = 1
     text_color = (255, 255, 255) if not video_recorder.is_paused else (150, 150, 255)
 
-    # Center the text
-    (text_w, text_h), _ = cv2.getTextSize(timestamp_text, font, font_scale, font_thick)
-    text_x = menu_x + (menu_w - text_w) // 2 + 10  # Offset for indicator
+    if timestamp_text in _REC_TEXT_SIZE_CACHE:
+        text_w, text_h = _REC_TEXT_SIZE_CACHE[timestamp_text]
+    else:
+        (text_w, text_h), _ = cv2.getTextSize(timestamp_text, font, font_scale, font_thick)
+        _REC_TEXT_SIZE_CACHE[timestamp_text] = (text_w, text_h)
+
+    text_color = (255, 255, 255) if not paused else (150, 150, 255)
+
+    text_x = menu_x + (menu_w - text_w) // 2 + 10
     text_y = timestamp_y + (timestamp_h + text_h) // 2
 
     cv2.putText(frame, timestamp_text, (text_x, text_y),
-                font, font_scale, text_color, font_thick, cv2.LINE_AA)
+            font, font_scale, text_color, font_thick, cv2.LINE_8)
 
 
 # ===============================================================
@@ -381,23 +439,23 @@ def get_gallery_items(output_dir: Path) -> List[Tuple[Path, str, datetime]]:
     Sorted by modification time (newest first).
     """
     items = []
-    
+
     if not output_dir.exists():
         return items
-    
+
     # Get all screenshots (PNG files)
     for img_file in output_dir.glob("screenshot_*.png"):
         mtime = datetime.fromtimestamp(img_file.stat().st_mtime)
         items.append((img_file, "image", mtime))
-    
+
     # Get all recordings (MP4 files)
     for vid_file in output_dir.glob("recording_*.mp4"):
         mtime = datetime.fromtimestamp(vid_file.stat().st_mtime)
         items.append((vid_file, "video", mtime))
-    
+
     # Sort by modification time (newest first)
     items.sort(key=lambda x: x[2], reverse=True)
-    
+
     return items
 
 
@@ -408,17 +466,17 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     """
     if output_dir is None:
         return
-    
+
     # Dark semi-transparent background
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (15, 15, 15), -1)
     cv2.addWeighted(overlay, 0.92, frame, 0.08, 0, frame)
-    
+
     # Header
     header_h = 80
     cv2.rectangle(frame, (0, 0), (frame.shape[1], header_h), (25, 25, 25), -1)
     cv2.line(frame, (0, header_h), (frame.shape[1], header_h), (80, 80, 80), 2)
-    
+
     # Title
     title = "GALLERY"
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -428,13 +486,13 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_x = (frame.shape[1] - title_w) // 2
     title_y = (header_h + title_h) // 2 + 5
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
-    
+
     # Back button
     back_btn_x = 20
     back_btn_y = 20
     back_btn_w = 100
     back_btn_h = 40
-    
+
     # Store back button for click detection
     if "gallery_back" not in menu_buttons:
         menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "< BACK")
@@ -443,12 +501,12 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_back"].y = back_btn_y
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
-    
+
     menu_buttons["gallery_back"].draw(frame)
-    
+
     # Get all gallery items
     items = get_gallery_items(output_dir)
-    
+
     if not items:
         # No items message
         msg = "No captures yet. Use SHOT or REC to create content."
@@ -459,35 +517,35 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         msg_y = frame.shape[0] // 2
         cv2.putText(frame, msg, (msg_x, msg_y), font, msg_scale, (150, 150, 150), msg_thick, cv2.LINE_AA)
         return
-    
+
     # Grid layout parameters
     margin = 20
     grid_start_y = header_h + margin
     grid_start_x = margin
-    
+
     thumb_w = 280
     thumb_h = 180
     gap = 15
-    
+
     cols = (frame.shape[1] - 2 * margin + gap) // (thumb_w + gap)
     cols = max(1, cols)
-    
+
     # Draw grid of thumbnails
     for idx, (filepath, item_type, mtime) in enumerate(items):
         row = idx // cols
         col = idx % cols
-        
+
         x = grid_start_x + col * (thumb_w + gap)
         y = grid_start_y + row * (thumb_h + gap + 50)  # Extra space for label
-        
+
         # Skip if off-screen (for future scrolling implementation)
         if y > frame.shape[0]:
             break
-        
+
         # Draw thumbnail background
         cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), (40, 40, 40), -1)
         cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), (100, 100, 100), 2, cv2.LINE_AA)
-        
+
         # Load and draw thumbnail
         try:
             if item_type == "image":
@@ -501,26 +559,26 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 cap = cv2.VideoCapture(str(filepath))
                 ret, vid_frame = cap.read()
                 cap.release()
-                
+
                 if ret and vid_frame is not None:
                     vid_resized = cv2.resize(vid_frame, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
                     frame[y+2:y+thumb_h-2, x+2:x+thumb_w-2] = vid_resized
-                    
+
                     # Draw play icon overlay for videos
                     center_x = x + thumb_w // 2
                     center_y = y + thumb_h // 2
                     play_size = 30
-                    
+
                     # Semi-transparent circle
-                    overlay_roi = frame[center_y-play_size:center_y+play_size, 
+                    overlay_roi = frame[center_y-play_size:center_y+play_size,
                                        center_x-play_size:center_x+play_size].copy()
                     cv2.circle(overlay_roi, (play_size, play_size), play_size, (0, 0, 0), -1)
-                    cv2.addWeighted(overlay_roi, 0.6, 
-                                  frame[center_y-play_size:center_y+play_size, 
+                    cv2.addWeighted(overlay_roi, 0.6,
+                                  frame[center_y-play_size:center_y+play_size,
                                        center_x-play_size:center_x+play_size], 0.4, 0,
-                                  frame[center_y-play_size:center_y+play_size, 
+                                  frame[center_y-play_size:center_y+play_size,
                                        center_x-play_size:center_x+play_size])
-                    
+
                     # White play triangle
                     pts = np.array([
                         [center_x - 10, center_y - 15],
@@ -530,26 +588,26 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                     cv2.fillPoly(frame, [pts], (255, 255, 255), cv2.LINE_AA)
         except Exception as e:
             # Draw error placeholder
-            cv2.putText(frame, "Error", (x + 10, y + thumb_h // 2), 
+            cv2.putText(frame, "Error", (x + 10, y + thumb_h // 2),
                        font, 0.5, (100, 100, 100), 1, cv2.LINE_AA)
-        
+
         # Draw label below thumbnail
         label_y = y + thumb_h + 20
         filename = filepath.name
-        
+
         # Truncate filename if too long
         if len(filename) > 30:
             filename = filename[:27] + "..."
-        
+
         # File type indicator
         type_icon = "[IMG]" if item_type == "image" else "[VID]"
         type_color = (100, 200, 100) if item_type == "image" else (100, 150, 255)
-        
+
         cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
-        
+
         # Filename
         cv2.putText(frame, filename, (x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
-    
+
     # Footer with count
     footer_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos)"
     footer_y = frame.shape[0] - 15
@@ -566,14 +624,14 @@ def handle_gallery_click(x: int, y: int) -> bool:
     """
     if not button_state.gallery_open:
         return False
-    
+
     # Check back button
     if "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(x, y):
         button_state.gallery_open = False
         button_state.gallery_scroll_offset = 0
         button_state.gallery_selected_item = None
         return True
-    
+
     return True  # Consume all clicks when gallery is open
 
 
@@ -656,7 +714,7 @@ def handle_menu_click(
             video_recorder.resume_recording()
             menu_buttons["pause"].text = "PAUSE"
         return video_recorder
-    
+
     # GALLERY
     if "gallery" in menu_buttons and menu_buttons["gallery"].contains(x, y):
         button_state.gallery_open = True
