@@ -14,6 +14,16 @@ from typing import Optional, Tuple, Any
 
 from .config import USE_CAMERA, F_MIN_HZ_DEFAULT, F_MAX_HZ_DEFAULT, SOURCE_DEFAULT
 
+# ===============================================================
+# HUD state
+# ===============================================================
+@dataclass
+class HudState:
+    details_level: str = "MIN"   # "OFF" | "MIN" | "MAX"
+    open_panel: str = ""         # "" | "time" | "fps" | "net"
+
+HUD = HudState()
+
 
 # ===============================================================
 # UI / App state
@@ -30,7 +40,7 @@ class ButtonState:
     fps_mode: str = "MAX"       # "30" | "60" | "MAX"
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
-    
+
     # Gallery state
     gallery_open: bool = False
     gallery_scroll_offset: int = 0

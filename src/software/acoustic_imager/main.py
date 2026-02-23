@@ -59,6 +59,9 @@ from acoustic_imager.dsp.bars import (
     y_to_freq,
 )
 
+from acoustic_imager.ui.hud import draw_hud, handle_hud_click
+from acoustic_imager.state import HUD
+
 # I/O managers
 from acoustic_imager.io.camera_manager import CameraManager
 
@@ -155,6 +158,19 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Check gallery view first (if open)
         if handle_gallery_click(mx, my):
             return
+
+        # 1) HUD click handling (top priority, before buttons)
+        try:
+            from acoustic_imager.state import HUD
+            from acoustic_imager.ui.hud import handle_hud_click
+            # you need access to latest hud_rects -> simplest: store it in state each frame
+            if event == cv2.EVENT_LBUTTONDOWN and hasattr(state, "HUD_RECTS"):
+                new_panel = handle_hud_click(mx, my, state.HUD_RECTS, HUD.open_panel)
+                if new_panel != HUD.open_panel:
+                    HUD.open_panel = new_panel
+                    return
+        except Exception:
+            pass
         # Check UI buttons first
         for b in buttons.values():
             if b.contains(mx, my):
@@ -183,8 +199,10 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             return
 
         if button_state.menu_open:
-            for k in ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause", "gallery"):
-                if k in menu_buttons and menu_buttons[k].contains(mx, my):
+            for k, b in menu_buttons.items():
+                if k == "menu":
+                    continue
+                if b.contains(mx, my):
                     video_recorder = handle_button_click(
                         mx, my,
                         current_frame=state.CURRENT_FRAME,
@@ -331,6 +349,7 @@ def main() -> None:
     cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
 
     # ---- Initialize UI ----
+    button_state.debug_enabled = False
     init_buttons(left_width, state.CAMERA_AVAILABLE)
     init_menu_buttons(left_width)
 
@@ -347,6 +366,7 @@ def main() -> None:
     try:
         while True:
             prof.start_frame()
+            elapsed = time.time() - start_time
 
             # ---- FPS estimation ----
             now_t = time.perf_counter()
@@ -530,14 +550,14 @@ def main() -> None:
 
             # ---- Draw debug info ----
             if button_state.debug_enabled:
-                elapsed = time.time() - start_time
+
                 text_x = config.DB_BAR_WIDTH + 12
 
-                cv2.putText(output_frame, f"Frame: {frame_count}", (text_x, 30),
+                cv2.putText(output_frame, f"Frame: {frame_count}", (text_x, 60),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(output_frame, f"t = {elapsed:.2f}s", (text_x, 60),
+                cv2.putText(output_frame, f"t = {elapsed:.2f}s", (text_x, 80),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(output_frame, f"Source: {source_label}", (text_x, 90),
+                cv2.putText(output_frame, f"Source: {source_label}", (text_x, 100),
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
                 if source_label.startswith("SPI"):
@@ -567,6 +587,21 @@ def main() -> None:
             draw_buttons(output_frame)
             draw_menu(output_frame)
             draw_recording_timestamp(output_frame, video_recorder)
+
+            hud_rects = draw_hud(
+                output_frame,
+                details_level=HUD.details_level,
+                open_panel=HUD.open_panel,
+                fps_ema=fps_ema,
+                elapsed_s=elapsed,
+                frame_count=frame_count,
+                source_label=source_label,
+                source_stats=source_stats,
+                fps_mode=button_state.fps_mode,
+                frame_bytes=config.FRAME_BYTES,
+            )
+
+            state.HUD_RECTS = hud_rects
 
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:

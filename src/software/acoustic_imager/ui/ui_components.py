@@ -168,34 +168,7 @@ class Button:
 
 def init_buttons(left_width: int, camera_available: bool) -> None:
     buttons.clear()
-
-    n = 3
-    margin = 10
-    y = HEIGHT - 50 - 10
-    h = 50
-
-    left_pad = DB_BAR_WIDTH + 12
-    right_pad = 12
-    avail = left_width - left_pad - right_pad
-
-    w = (avail - (n - 1) * margin) // n
-    w = int(max(160, min(240, w)))
-
-    total = n * w + (n - 1) * margin
-    x0 = left_pad + (avail - total) // 2
-
-    cam_text = "Camera: N/A" if not camera_available else (
-        "Camera: ON" if button_state.camera_enabled else "Camera: OFF"
-    )
-    buttons["camera"] = Button(x0 + 0 * (w + margin + 20), y, w, h, cam_text)
-    buttons["camera"].is_active = camera_available and button_state.camera_enabled
-
-    buttons["source"] = Button(x0 + 1 * (w + margin + 5), y, w, h, f"Source: {button_state.source_mode}")
-    buttons["source"].is_active = True
-
-    dbg_text = "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
-    buttons["debug"] = Button(x0 + 2 * (w + margin + 5), y, w, h, dbg_text)
-    buttons["debug"].is_active = button_state.debug_enabled
+    return
 
 
 def init_menu_buttons(left_width: int) -> None:
@@ -223,16 +196,33 @@ def init_menu_buttons(left_width: int) -> None:
     gain_y = y0 + (item_h + gap)
     menu_buttons["gain"] = Button(menu_x, gain_y, menu_w, item_h, f"GAIN: {button_state.gain_mode}")
 
-    # Segmented tools under GAIN (SHOT | REC | PAUSE)
-    tools_y = gain_y + (item_h + gap)
+    # Camera toggle (full width)
+    cam_y = gain_y + (item_h + gap)
+    menu_buttons["cam"] = Button(
+        menu_x, cam_y, menu_w, item_h,
+        "CAMERA: ON" if button_state.camera_enabled else "CAMERA: OFF"
+    )
+
+    # Source cycle (full width)
+    src_y = cam_y + (item_h + gap)
+    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SOURCE: {button_state.source_mode}")
+
+    # Debug toggle (full width)
+    dbg_y = src_y + (item_h + gap)
+    menu_buttons["debug"] = Button(
+        menu_x, dbg_y, menu_w, item_h,
+        "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
+    )
+
+    # Segmented tools under DEBUG (SHOT | REC | PAUSE)
+    tools_y = dbg_y + (item_h + gap)
     tool_gap = 6
     tool_w = (menu_w - 2 * tool_gap) // 3
 
-    menu_buttons["shot"] = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
-    menu_buttons["rec"] = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
+    menu_buttons["shot"]  = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
+    menu_buttons["rec"]   = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
     menu_buttons["pause"] = Button(menu_x + 2 * (tool_w + tool_gap), tools_y, tool_w, item_h, "PAUSE")
 
-    # Gallery button (full width, below tools)
     gallery_y = tools_y + (item_h + gap)
     menu_buttons["gallery"] = Button(menu_x, gallery_y, menu_w, item_h, "GALLERY")
 
@@ -244,7 +234,7 @@ def update_button_states(mx: int, my: int) -> None:
     if "menu" in menu_buttons:
         menu_buttons["menu"].is_hovered = menu_buttons["menu"].contains(mx, my)
 
-    keys = ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause", "gallery")
+    keys = ("fps30", "fps60", "fpsmax", "gain", "cam", "source", "debug", "shot", "rec", "pause", "gallery")
 
     if button_state.menu_open:
         for k in keys:
@@ -274,7 +264,8 @@ def draw_menu(frame: np.ndarray) -> None:
     x = menu_buttons["menu"].x
     y = menu_buttons["menu"].y + menu_buttons["menu"].h + 6
     w = menu_buttons["menu"].w
-    h = 4 * 40 + 3 * 8 + 20
+    last = menu_buttons["gallery"]
+    h = (last.y + last.h) - y + 12
 
     # original ROI overlay behavior
     x0, y0 = x - 2, y - 2
@@ -296,6 +287,8 @@ def draw_menu(frame: np.ndarray) -> None:
 
     menu_buttons["gain"].is_active = (button_state.gain_mode == "HIGH")
 
+    menu_buttons["cam"].is_active = button_state.camera_enabled
+
     # Tool button actives reflect current state
     menu_buttons["rec"].is_active = button_state.is_recording
     menu_buttons["pause"].is_active = button_state.is_paused
@@ -306,6 +299,9 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["fps60"].draw(frame)
     menu_buttons["fpsmax"].draw(frame)
     menu_buttons["gain"].draw(frame)
+    menu_buttons["cam"].draw(frame)
+    menu_buttons["source"].draw(frame)
+    menu_buttons["debug"].draw(frame)
 
     menu_buttons["shot"].draw(frame)
     menu_buttons["rec"].draw(frame)
@@ -674,6 +670,30 @@ def handle_menu_click(
         menu_buttons["gain"].text = f"GAIN: {button_state.gain_mode}"
         return video_recorder
 
+    # CAMERA toggle
+    if "cam" in menu_buttons and menu_buttons["cam"].contains(x, y):
+        button_state.camera_enabled = not button_state.camera_enabled
+        menu_buttons["cam"].text = "CAMERA: ON" if button_state.camera_enabled else "CAMERA: OFF"
+        return video_recorder
+
+    # SOURCE cycle
+    if "source" in menu_buttons and menu_buttons["source"].contains(x, y):
+        modes = list(SOURCE_MODES)
+        cur = button_state.source_mode
+        try:
+            i = modes.index(cur)
+        except ValueError:
+            i = modes.index(SOURCE_DEFAULT)
+        button_state.source_mode = modes[(i + 1) % len(modes)]
+        menu_buttons["source"].text = f"SOURCE: {button_state.source_mode}"
+        return video_recorder
+
+    # DEBUG toggle
+    if "debug" in menu_buttons and menu_buttons["debug"].contains(x, y):
+        button_state.debug_enabled = not button_state.debug_enabled
+        menu_buttons["debug"].text = "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
+        return video_recorder
+
     # SHOT
     if "shot" in menu_buttons and menu_buttons["shot"].contains(x, y):
         if current_frame is not None and output_dir is not None:
@@ -751,13 +771,6 @@ def handle_button_click(
         width=width,
         height=height,
     )
-
-    if "camera" in buttons and buttons["camera"].contains(x, y):
-        if camera_available:
-            button_state.camera_enabled = not button_state.camera_enabled
-            buttons["camera"].is_active = button_state.camera_enabled
-            buttons["camera"].text = "Camera: ON" if button_state.camera_enabled else "Camera: OFF"
-        return video_recorder
 
     if "source" in buttons and buttons["source"].contains(x, y):
         modes = list(SOURCE_MODES)  # ("SIM", "SPI_LOOPBACK", "SPI_HW")
