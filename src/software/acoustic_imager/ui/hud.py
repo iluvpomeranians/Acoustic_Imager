@@ -7,9 +7,9 @@ import numpy as np
 
 @dataclass
 class HudRects:
-    time: Tuple[int,int,int,int]
-    fps:  Tuple[int,int,int,int]
     net:  Tuple[int,int,int,int]
+    fps:  Tuple[int,int,int,int]
+    time: Tuple[int,int,int,int]
 
 def _draw_pill(frame: np.ndarray, x: int, y: int, w: int, h: int,
                bg=(0,0,0), alpha: float = 0.35, border=(255,255,255), is_active: bool = False) -> None:
@@ -53,7 +53,7 @@ def draw_hud(
     Draw compact HUD top-left. Returns hit rects for mouse click handling.
     """
     if details_level == "OFF":
-        return HudRects((0,0,0,0),(0,0,0,0),(0,0,0,0))
+        return HudRects(net=(0,0,0,0), fps=(0,0,0,0), time=(0,0,0,0))
 
     h, w, _ = frame.shape
 
@@ -105,35 +105,35 @@ def draw_hud(
         (ww, hh), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
         return ww
 
-    time_w = 170
-    fps_w  = 165
     net_w  = 165
+    fps_w  = 165
+    time_w = 170
     
     # Calculate total width and center horizontally
-    total_width = time_w + gap + fps_w + gap + net_w
+    total_width = net_w + gap + fps_w + gap + time_w
     start_x = (w - total_width) // 2
 
-    x_time = start_x
-    x_fps  = x_time + time_w + gap
-    x_net  = x_fps  + fps_w  + gap
+    x_net  = start_x
+    x_fps  = x_net + net_w + gap
+    x_time = x_fps + fps_w + gap
 
     # Draw pills (highlight green when active/open)
-    _draw_pill(frame, x_time, y, time_w, pill_h, is_active=(open_panel == "time"))
-    _draw_pill(frame, x_fps,  y, fps_w,  pill_h, is_active=(open_panel == "fps"))
     _draw_pill(frame, x_net,  y, net_w,  pill_h, is_active=(open_panel == "net"))
+    _draw_pill(frame, x_fps,  y, fps_w,  pill_h, is_active=(open_panel == "fps"))
+    _draw_pill(frame, x_time, y, time_w, pill_h, is_active=(open_panel == "time"))
 
     cy = y + pill_h // 2
     text_y = y + 23  # consistent baseline
 
-    # --- TIME ---
-    draw_clock_icon(x_time + 18, cy)
+    # --- NETWORK ---
+    draw_net_icon(x_net + 18, cy)
     cv2.putText(
         frame,
-        time_txt,
-        (x_time + 40, text_y),   # text positioned after icon
+        f"{net_txt} Mb/s",
+        (x_net + 40, text_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.55,
-        (255, 255, 255),         # WHITE text
+        (255, 255, 255),
         1,
         cv2.LINE_AA
     )
@@ -151,23 +151,23 @@ def draw_hud(
         cv2.LINE_AA
     )
 
-    # --- NETWORK ---
-    draw_net_icon(x_net + 18, cy)
+    # --- TIME ---
+    draw_clock_icon(x_time + 18, cy)
     cv2.putText(
         frame,
-        f"{net_txt} Mb/s",
-        (x_net + 40, text_y),
+        time_txt,
+        (x_time + 40, text_y),   # text positioned after icon
         cv2.FONT_HERSHEY_SIMPLEX,
         0.55,
-        (255, 255, 255),
+        (255, 255, 255),         # WHITE text
         1,
         cv2.LINE_AA
     )
 
     rects = HudRects(
-        time=(x_time, y, time_w, pill_h),
-        fps=(x_fps,  y, fps_w,  pill_h),
         net=(x_net,  y, net_w,  pill_h),
+        fps=(x_fps,  y, fps_w,  pill_h),
+        time=(x_time, y, time_w, pill_h),
     )
 
     # Expanded panel (only when icon clicked)
@@ -221,10 +221,10 @@ def handle_hud_click(mx: int, my: int, rects: HudRects, open_panel: str) -> str:
     """
     Toggle which panel is open based on click.
     """
-    if _in_rect(mx, my, rects.time):
-        return "" if open_panel == "time" else "time"
-    if _in_rect(mx, my, rects.fps):
-        return "" if open_panel == "fps" else "fps"
     if _in_rect(mx, my, rects.net):
         return "" if open_panel == "net" else "net"
+    if _in_rect(mx, my, rects.fps):
+        return "" if open_panel == "fps" else "fps"
+    if _in_rect(mx, my, rects.time):
+        return "" if open_panel == "time" else "time"
     return open_panel

@@ -268,7 +268,11 @@ class Button:
         else:
             # ---- text (AA is surprisingly expensive; use LINE_8) ----
             font = cv2.FONT_HERSHEY_SIMPLEX
-            scale = 0.52
+            # Use smaller text for SPI_LOOPBACK to fit better
+            if "SPI_LOOPBACK" in self.text or "SPI_HW" in self.text:
+                scale = 0.42
+            else:
+                scale = 0.52
             thick = 1
             tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
             tx = x + (w - tw) // 2
