@@ -296,10 +296,9 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             if state.DRAG_TARGET == "box":
                 # Drag the entire box - maintain the frequency range
                 freq_range = state.DRAG_START_F_MAX - state.DRAG_START_F_MIN
-                y_offset = my - state.DRAG_START_Y
                 
-                # Convert y offset to frequency offset
-                freq_offset = y_to_freq(state.DRAG_START_Y, h, config.F_DISPLAY_MAX) - y_to_freq(my, h, config.F_DISPLAY_MAX)
+                # Convert y offset to frequency offset (swap order to fix inverse scrolling)
+                freq_offset = y_to_freq(my, h, config.F_DISPLAY_MAX) - y_to_freq(state.DRAG_START_Y, h, config.F_DISPLAY_MAX)
                 
                 # Move both frequencies
                 new_f_min = state.DRAG_START_F_MIN + freq_offset
