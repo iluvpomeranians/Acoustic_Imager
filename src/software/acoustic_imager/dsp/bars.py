@@ -220,8 +220,12 @@ def draw_frequency_bar(
     cv2.putText(bar, f"{fmax_khz:5.1f} kHz", (label_x, y_max_txt),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
 
+    # Draw bandpass box (horizontal + vertical lines)
     cv2.line(bar, (0, y_min), (bar_w - 1, y_min), (0, 255, 0), 1)
     cv2.line(bar, (0, y_max), (bar_w - 1, y_max), (0, 255, 0), 1)
+    # Vertical lines to complete the box
+    cv2.line(bar, (0, y_min), (0, y_max), (0, 255, 0), 1)
+    cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), (0, 255, 0), 1)
 
     # cv2.putText(bar, "Freq:", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # cv2.putText(bar, f"{int(f_display_max/1000)} kHz", (5, 40),
