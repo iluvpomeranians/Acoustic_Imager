@@ -262,14 +262,13 @@ class Button:
         base = (60, 60, 60)
         hover = (85, 85, 85)
         active = active_color if active_color is not None else (40, 200, 60)
-        border = (230, 230, 230)
-
+        
         color = active if self.is_active else (hover if self.is_hovered else base)
 
         x, y, w, h = self.x, self.y, self.w, self.h
 
         if transparent:
-            # Transparent style (like HUD pills)
+            # Transparent style (matching HUD/DEBUG transparency)
             x0 = max(0, x)
             y0 = max(0, y)
             x1 = min(frame.shape[1], x + w)
@@ -279,8 +278,8 @@ class Button:
                 roi = frame[y0:y1, x0:x1]
                 overlay = np.empty_like(roi)
                 overlay[:] = color
-                # Use higher opacity for active buttons to make them more obvious
-                alpha = 0.25 if self.is_active else 0.12
+                # Use 0.35 alpha for all buttons (matching HUD/DEBUG)
+                alpha = 0.35
                 cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
         else:
             # Solid style with gradient (original)
@@ -292,16 +291,16 @@ class Button:
                 roi = frame[y0:y1, x0:x1]
                 roi[:] = _get_grad(roi.shape[1], roi.shape[0], color)
 
-        # ---- border (keep cheap line type) ----
-        # Use matching border color for active buttons
+        # ---- border ----
+        # White border initially, green when active
         if self.is_active:
             if active_color is not None:
                 # Custom active color - make border brighter version
                 border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
             else:
-                border_color = (80, 255, 100)  # Default bright green
+                border_color = (80, 255, 100)  # Bright green for active
         else:
-            border_color = border
+            border_color = (255, 255, 255)  # White border for inactive
         _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
 
         # ---- Draw icon if specified ----
@@ -474,8 +473,8 @@ def draw_menu(frame: np.ndarray) -> None:
     alpha = 0.35
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
     
-    # Border - match debug box border color
-    border_color = (80, 255, 100) if menu_btn.is_active else (100, 100, 100)
+    # Border - white initially, green when active
+    border_color = (80, 255, 100) if menu_btn.is_active else (255, 255, 255)
     cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_AA)
     
     # Text

@@ -268,12 +268,18 @@ def draw_db_colorbar(
 
     frame[:, :width] = bar_color
 
-    # ---- if no slider state, just labels like before ----
+    # ---- if no slider state, center dB text ----
     if state is None:
-        cv2.putText(frame, f"{float(db_max):.0f} dB", (5, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_8)
-        cv2.putText(frame, f"{float(db_min):.0f} dB", (0, h - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_8)
+        # Center "dB" text vertically and horizontally in the bar
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        font_thickness = 1
+        db_text = "dB"
+        (text_w, text_h), _ = cv2.getTextSize(db_text, font, font_scale, font_thickness)
+        text_x = (width - text_w) // 2
+        text_y = h // 2 + text_h // 2
+        cv2.putText(frame, db_text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+        
         return float(db_min), float(db_max)
 
     # ---- slider-controlled scaling ----
