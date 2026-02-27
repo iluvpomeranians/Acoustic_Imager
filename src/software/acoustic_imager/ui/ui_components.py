@@ -173,12 +173,11 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
 
 def init_menu_buttons(left_width: int) -> None:
     menu_buttons.clear()
-
-    # Position menu button at bottom right corner
     menu_w = 180
     menu_h = 50
     menu_margin = 15
-    menu_x = WIDTH - menu_w - menu_margin
+    # left_width is the width of the camera/heatmap area (excludes frequency bar)
+    menu_x = left_width - menu_w - menu_margin
     menu_y = HEIGHT - menu_h - menu_margin
 
     menu_buttons["menu"] = Button(menu_x, menu_y, menu_w, menu_h, "MENU")
