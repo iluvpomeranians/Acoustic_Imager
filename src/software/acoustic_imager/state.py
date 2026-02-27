@@ -52,6 +52,15 @@ class ButtonState:
     gallery_drag_active: bool = False
     gallery_drag_start_y: int = 0
     gallery_drag_start_offset: int = 0
+    gallery_selected_items: set = None  # Multi-select for deletion
+    gallery_delete_confirm: bool = False  # Confirmation state for delete
+    
+    # Screenshot feedback
+    screenshot_flash_time: Optional[float] = None
+    
+    def __post_init__(self):
+        if self.gallery_selected_items is None:
+            self.gallery_selected_items = set()
 
 
 # A single shared instance (matches original `button_state = ButtonState()`)

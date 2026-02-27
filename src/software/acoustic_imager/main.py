@@ -76,6 +76,7 @@ from acoustic_imager.ui.ui_components import (
     draw_buttons,
     draw_menu,
     draw_recording_timestamp,
+    draw_screenshot_flash,
     handle_button_click,
     handle_gallery_click,
     draw_gallery_view,
@@ -644,6 +645,9 @@ def main() -> None:
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:
                 draw_gallery_view(output_frame, state.OUTPUT_DIR)
+
+            # ---- Draw screenshot flash effect ----
+            draw_screenshot_flash(output_frame)
 
             prof.mark("ui")
 
