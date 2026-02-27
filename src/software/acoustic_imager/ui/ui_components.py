@@ -323,29 +323,7 @@ def draw_menu(frame: np.ndarray) -> None:
     if not button_state.menu_open:
         return
 
-    # Draw dropdown above menu button
-    first = menu_buttons["fps30"]
-    last = menu_buttons["gallery"]
-    
-    dropdown_x = menu_btn.x
-    dropdown_y = first.y - 6
-    dropdown_w = menu_btn.w
-    dropdown_h = (last.y + last.h) - first.y + 12
-
-    # Semi-transparent dropdown background
-    x0, y0 = dropdown_x - 2, dropdown_y - 2
-    x1, y1 = x0 + (dropdown_w + 4), y0 + (dropdown_h + 4)
-
-    x0 = max(0, x0)
-    y0 = max(0, y0)
-    x1 = min(frame.shape[1], x1)
-    y1 = min(frame.shape[0], y1)
-
-    roi = frame[y0:y1, x0:x1]
-    overlay = roi.copy()
-    _rounded_rect(overlay, 0, 0, overlay.shape[1], overlay.shape[0], r=12, color=(20, 20, 20), thickness=-1)
-    cv2.addWeighted(overlay, 0.25, roi, 0.75, 0, roi)
-
+    # Draw dropdown above menu button (no background container)
     menu_buttons["fps30"].is_active = (button_state.fps_mode == "30")
     menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")
     menu_buttons["fpsmax"].is_active = (button_state.fps_mode == "MAX")
@@ -353,6 +331,8 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["gain"].is_active = (button_state.gain_mode == "HIGH")
 
     menu_buttons["cam"].is_active = button_state.camera_enabled
+    
+    menu_buttons["debug"].is_active = button_state.debug_enabled
 
     # Tool button actives reflect current state
     menu_buttons["rec"].is_active = button_state.is_recording

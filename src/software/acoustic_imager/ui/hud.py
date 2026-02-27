@@ -12,12 +12,18 @@ class HudRects:
     net:  Tuple[int,int,int,int]
 
 def _draw_pill(frame: np.ndarray, x: int, y: int, w: int, h: int,
-               bg=(0,0,0), alpha: float = 0.35, border=(255,255,255)) -> None:
+               bg=(0,0,0), alpha: float = 0.35, border=(255,255,255), is_active: bool = False) -> None:
     H, W = frame.shape[:2]
     x0 = max(0, x); y0 = max(0, y)
     x1 = min(W, x + w); y1 = min(H, y + h)
     if x1 <= x0 or y1 <= y0:
         return
+
+    # Use green colors when active
+    if is_active:
+        bg = (40, 200, 60)
+        alpha = 0.25
+        border = (80, 255, 100)
 
     roi = frame[y0:y1, x0:x1]
     overlay = np.empty_like(roi)
@@ -111,10 +117,10 @@ def draw_hud(
     x_fps  = x_time + time_w + gap
     x_net  = x_fps  + fps_w  + gap
 
-    # Draw pills
-    _draw_pill(frame, x_time, y, time_w, pill_h)
-    _draw_pill(frame, x_fps,  y, fps_w,  pill_h)
-    _draw_pill(frame, x_net,  y, net_w,  pill_h)
+    # Draw pills (highlight green when active/open)
+    _draw_pill(frame, x_time, y, time_w, pill_h, is_active=(open_panel == "time"))
+    _draw_pill(frame, x_fps,  y, fps_w,  pill_h, is_active=(open_panel == "fps"))
+    _draw_pill(frame, x_net,  y, net_w,  pill_h, is_active=(open_panel == "net"))
 
     cy = y + pill_h // 2
     text_y = y + 23  # consistent baseline
