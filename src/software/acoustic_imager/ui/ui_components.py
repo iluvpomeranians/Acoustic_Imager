@@ -131,7 +131,7 @@ class Button:
             (self.y - pad) <= my <= (self.y + self.h + pad)
         )
 
-    def draw(self, frame: np.ndarray) -> None:
+    def draw(self, frame: np.ndarray, transparent: bool = False) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
         active = (80, 110, 80)
@@ -141,14 +141,27 @@ class Button:
 
         x, y, w, h = self.x, self.y, self.w, self.h
 
-        # ---- vertical gradient fill (cached) ----
-        x0 = max(0, x)
-        y0 = max(0, y)
-        x1 = min(frame.shape[1], x + w)
-        y1 = min(frame.shape[0], y + h)
-        if x1 > x0 and y1 > y0:
-            roi = frame[y0:y1, x0:x1]
-            roi[:] = _get_grad(roi.shape[1], roi.shape[0], color)
+        if transparent:
+            # Transparent style (like HUD pills)
+            x0 = max(0, x)
+            y0 = max(0, y)
+            x1 = min(frame.shape[1], x + w)
+            y1 = min(frame.shape[0], y + h)
+            
+            if x1 > x0 and y1 > y0:
+                roi = frame[y0:y1, x0:x1]
+                overlay = np.empty_like(roi)
+                overlay[:] = color
+                cv2.addWeighted(overlay, 0.35, roi, 0.65, 0.0, dst=roi)
+        else:
+            # Solid style with gradient (original)
+            x0 = max(0, x)
+            y0 = max(0, y)
+            x1 = min(frame.shape[1], x + w)
+            y1 = min(frame.shape[0], y + h)
+            if x1 > x0 and y1 > y0:
+                roi = frame[y0:y1, x0:x1]
+                roi[:] = _get_grad(roi.shape[1], roi.shape[0], color)
 
         # ---- border (keep cheap line type) ----
         _rounded_rect(frame, x, y, w, h, r=10, color=border, thickness=2)
@@ -329,18 +342,19 @@ def draw_menu(frame: np.ndarray) -> None:
 
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
-    menu_buttons["fps30"].draw(frame)
-    menu_buttons["fps60"].draw(frame)
-    menu_buttons["fpsmax"].draw(frame)
-    menu_buttons["gain"].draw(frame)
-    menu_buttons["cam"].draw(frame)
-    menu_buttons["source"].draw(frame)
-    menu_buttons["debug"].draw(frame)
+    # Draw all menu dropdown buttons with transparent style
+    menu_buttons["fps30"].draw(frame, transparent=True)
+    menu_buttons["fps60"].draw(frame, transparent=True)
+    menu_buttons["fpsmax"].draw(frame, transparent=True)
+    menu_buttons["gain"].draw(frame, transparent=True)
+    menu_buttons["cam"].draw(frame, transparent=True)
+    menu_buttons["source"].draw(frame, transparent=True)
+    menu_buttons["debug"].draw(frame, transparent=True)
 
-    menu_buttons["shot"].draw(frame)
-    menu_buttons["rec"].draw(frame)
-    menu_buttons["pause"].draw(frame)
-    menu_buttons["gallery"].draw(frame)
+    menu_buttons["shot"].draw(frame, transparent=True)
+    menu_buttons["rec"].draw(frame, transparent=True)
+    menu_buttons["pause"].draw(frame, transparent=True)
+    menu_buttons["gallery"].draw(frame, transparent=True)
 
 
 def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:
@@ -546,7 +560,7 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
     
-    menu_buttons["gallery_back"].draw(frame)
+    menu_buttons["gallery_back"].draw(frame, transparent=True)
     
     # Navigation arrows
     if button_state.gallery_selected_item > 0:
@@ -564,7 +578,7 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_prev"].w = prev_btn_w
             menu_buttons["gallery_prev"].h = prev_btn_h
         
-        menu_buttons["gallery_prev"].draw(frame)
+        menu_buttons["gallery_prev"].draw(frame, transparent=True)
     
     if button_state.gallery_selected_item < len(items) - 1:
         # Next button
@@ -581,7 +595,7 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_next"].w = next_btn_w
             menu_buttons["gallery_next"].h = next_btn_h
         
-        menu_buttons["gallery_next"].draw(frame)
+        menu_buttons["gallery_next"].draw(frame, transparent=True)
     
     # Filename at bottom
     filename = filepath.name
@@ -675,7 +689,7 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
     
-    menu_buttons["gallery_back"].draw(frame)
+    menu_buttons["gallery_back"].draw(frame, transparent=True)
     
     # Control panel at bottom
     controls_y = frame.shape[0] - 90
@@ -697,7 +711,7 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_play"].h = play_btn_h
         menu_buttons["gallery_play"].text = play_text
     
-    menu_buttons["gallery_play"].draw(frame)
+    menu_buttons["gallery_play"].draw(frame, transparent=True)
     
     # Progress bar
     progress_x = 50
@@ -796,7 +810,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
 
-    menu_buttons["gallery_back"].draw(frame)
+    menu_buttons["gallery_back"].draw(frame, transparent=True)
 
     if not items:
         # No items message
