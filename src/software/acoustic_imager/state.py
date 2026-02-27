@@ -52,6 +52,7 @@ class ButtonState:
     gallery_drag_active: bool = False
     gallery_drag_start_y: int = 0
     gallery_drag_start_offset: int = 0
+    gallery_select_mode: bool = False  # Whether we're in select mode for multi-select
     gallery_selected_items: set = None  # Multi-select for deletion
     gallery_delete_confirm: bool = False  # Confirmation state for delete
     
