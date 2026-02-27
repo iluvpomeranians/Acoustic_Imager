@@ -1658,8 +1658,12 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                             button_state.gallery_video_playing = False
                             button_state.gallery_video_frame_idx = 0
                     return True
+        
+        # Clicking in empty space in grid view - allow drag scrolling
+        return False
 
-    return True  # Consume all clicks when gallery is open
+    # In viewer mode, consume all clicks
+    return True
 
 
 def handle_menu_click(

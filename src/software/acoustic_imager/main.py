@@ -37,6 +37,7 @@ import os
 from acoustic_imager import config
 from acoustic_imager import state
 from acoustic_imager.custom_types import LatestFrame
+from acoustic_imager.touch_handler import TouchGestureHandler, MouseTouchSimulator
 
 # Data sources
 from acoustic_imager.sources.sim_source import SimSource
@@ -137,6 +138,17 @@ except ImportError:
 
 
 # ===============================================================
+# Global variables for touch/gesture handling
+# ===============================================================
+touch_handler: Optional[TouchGestureHandler] = None
+mouse_touch_sim: Optional[MouseTouchSimulator] = None
+video_recorder: Optional[VideoRecorder] = None
+sim_source = None
+spi_hw = None
+spi_loopback = None
+
+
+# ===============================================================
 # Mouse callback for interactive controls
 # ===============================================================
 def mouse_callback(event, x: int, y: int, flags, param) -> None:
@@ -155,32 +167,98 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     state.CURSOR_POS = (mx, my)
     update_button_states(mx, my)
 
+    # ---- Multi-touch simulation for testing (LEFT = primary, RIGHT = secondary touch) ----
+    global touch_handler, mouse_touch_sim
+    
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if mouse_touch_sim is not None:
+            mouse_touch_sim.left_down = True
+            mouse_touch_sim.left_pos = (mx, my)
+            
+        if touch_handler is not None:
+            touch_handler.add_touch(0, mx, my)
+    
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        if mouse_touch_sim is not None:
+            mouse_touch_sim.right_down = True
+            mouse_touch_sim.right_pos = (mx, my)
+            
+        if touch_handler is not None:
+            touch_handler.add_touch(1, mx, my)
+        return  # Consume right-click for pinch simulation
+    
+    elif event == cv2.EVENT_LBUTTONUP:
+        if mouse_touch_sim is not None:
+            mouse_touch_sim.left_down = False
+            
+        if touch_handler is not None:
+            touch_handler.remove_touch(0)
+    
+    elif event == cv2.EVENT_RBUTTONUP:
+        if mouse_touch_sim is not None:
+            mouse_touch_sim.right_down = False
+            
+        if touch_handler is not None:
+            touch_handler.remove_touch(1)
+        return
+    
+    elif event == cv2.EVENT_MOUSEMOVE:
+        if mouse_touch_sim is not None:
+            if mouse_touch_sim.left_down:
+                mouse_touch_sim.left_pos = (mx, my)
+                if touch_handler is not None:
+                    touch_handler.update_touch(0, mx, my)
+            if mouse_touch_sim.right_down:
+                mouse_touch_sim.right_pos = (mx, my)
+                if touch_handler is not None:
+                    touch_handler.update_touch(1, mx, my)
+    
+    # ---- Detect and handle pinch gesture for bandpass filter ----
+    if touch_handler is not None and touch_handler.get_touch_count() == 2:
+        gesture = touch_handler.detect_gesture()
+        
+        if gesture is not None and gesture['type'] == 'pinch':
+            # Check if pinch is over the frequency bar
+            bar_left = left_width
+            midpoint = gesture.get('midpoint')
+            
+            if midpoint is not None:
+                mid_x, mid_y = midpoint
+                
+                if mid_x >= bar_left and mid_x < config.WIDTH:
+                    # Pinch on frequency bar - adjust bandpass filter
+                    scale = gesture['scale']
+                    
+                    # Get current frequency range center and span
+                    freq_center = (state.F_MIN_HZ + state.F_MAX_HZ) / 2
+                    freq_span = state.F_MAX_HZ - state.F_MIN_HZ
+                    
+                    # Adjust span based on pinch (pinch in = narrower, pinch out = wider)
+                    # Invert scale: scale > 1 (fingers apart) = widen, scale < 1 (fingers together) = narrow
+                    new_span = freq_span * scale
+                    
+                    # Clamp span to reasonable limits
+                    new_span = max(100, min(new_span, config.F_DISPLAY_MAX))
+                    
+                    # Update min/max symmetrically around center
+                    state.F_MIN_HZ = max(0, freq_center - new_span / 2)
+                    state.F_MAX_HZ = min(config.F_DISPLAY_MAX, freq_center + new_span / 2)
+                    
+                    print(f"Pinch gesture: scale={scale:.2f}, freq range: {state.F_MIN_HZ:.0f}-{state.F_MAX_HZ:.0f} Hz")
+                    return
+    
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
-        # Check if we're in gallery grid view for drag scrolling
-        if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
-            # Check if click is not on back button or thumbnail
-            back_button_clicked = "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(mx, my)
+        # Check gallery view first (if open) - this consumes clicks on buttons/thumbnails
+        if button_state.gallery_open:
+            # Try to handle as a UI click first
+            click_handled = handle_gallery_click(mx, my, state.OUTPUT_DIR)
             
-            if not back_button_clicked:
-                # Check if clicking on a thumbnail
-                thumbnail_clicked = False
-                if hasattr(button_state, 'gallery_thumbnail_rects'):
-                    for thumb in button_state.gallery_thumbnail_rects:
-                        if (thumb['x'] <= mx <= thumb['x'] + thumb['w'] and
-                            thumb['y'] <= my <= thumb['y'] + thumb['h']):
-                            thumbnail_clicked = True
-                            break
-                
-                # If not clicking button or thumbnail, start drag
-                if not thumbnail_clicked:
-                    button_state.gallery_drag_active = True
-                    button_state.gallery_drag_start_y = my
-                    button_state.gallery_drag_start_offset = button_state.gallery_scroll_offset
-                    return
-        
-        # Check gallery view first (if open)
-        if handle_gallery_click(mx, my, state.OUTPUT_DIR):
+            # If click was NOT handled by UI elements and we're in grid view, start drag scroll
+            if not click_handled and button_state.gallery_viewer_mode == "grid":
+                button_state.gallery_drag_active = True
+                button_state.gallery_drag_start_y = my
+                button_state.gallery_drag_start_offset = button_state.gallery_scroll_offset
             return
 
         # Check recording timestamp bar click (for pause/resume) - works when menu is open or closed
@@ -397,6 +475,11 @@ def main() -> None:
     global video_recorder
     video_recorder = VideoRecorder(state.OUTPUT_DIR, config.WIDTH, config.HEIGHT, fps=30)
 
+    # ---- Setup touch gesture handler ----
+    global touch_handler, mouse_touch_sim
+    touch_handler = TouchGestureHandler(pinch_threshold=10.0, swipe_threshold=30.0)
+    mouse_touch_sim = MouseTouchSimulator()  # For testing with mouse on non-touch systems
+    
     # ---- Setup OpenCV window ----
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
