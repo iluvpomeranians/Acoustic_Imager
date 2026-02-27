@@ -432,18 +432,21 @@ def get_recording_timestamp_rect() -> Optional[Tuple[int, int, int, int]]:
     if "menu" not in menu_buttons or "gallery" not in menu_buttons:
         return None
     
+    # Taller height for easier clicking (50px instead of default button height)
+    RECORDING_BAR_HEIGHT = 50
+    
     # Position at GALLERY button location (replaces it during recording)
     if button_state.menu_open:
         gallery_btn = menu_buttons["gallery"]
         menu_x = gallery_btn.x
         menu_w = gallery_btn.w
         timestamp_y = gallery_btn.y
-        timestamp_h = gallery_btn.h
+        timestamp_h = RECORDING_BAR_HEIGHT
     else:
         # Menu is closed: position ABOVE MENU button
         menu_x = menu_buttons["menu"].x
         menu_w = menu_buttons["menu"].w
-        timestamp_h = 35
+        timestamp_h = RECORDING_BAR_HEIGHT
         timestamp_y = menu_buttons["menu"].y - timestamp_h - 10
     
     return (menu_x, timestamp_y, menu_w, timestamp_h)
@@ -678,6 +681,24 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         
         menu_buttons["gallery_next"].draw(frame, transparent=True)
     
+    # Delete button (top-right)
+    delete_btn_x = frame.shape[1] - 120
+    delete_btn_y = 20
+    delete_btn_w = 100
+    delete_btn_h = 40
+    
+    if "gallery_delete" not in menu_buttons:
+        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "DELETE")
+    else:
+        menu_buttons["gallery_delete"].x = delete_btn_x
+        menu_buttons["gallery_delete"].y = delete_btn_y
+        menu_buttons["gallery_delete"].w = delete_btn_w
+        menu_buttons["gallery_delete"].h = delete_btn_h
+    
+    # Draw delete button with red color
+    menu_buttons["gallery_delete"].is_active = True
+    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(150, 0, 0))
+    
     # Filename at bottom
     filename = filepath.name
     (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.6, 1)
@@ -829,6 +850,24 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     time_y = controls_y + 35
     cv2.putText(frame, time_text, (time_x, time_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
     
+    # Delete button (top-right)
+    delete_btn_x = frame.shape[1] - 120
+    delete_btn_y = 20
+    delete_btn_w = 100
+    delete_btn_h = 40
+    
+    if "gallery_delete" not in menu_buttons:
+        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "DELETE")
+    else:
+        menu_buttons["gallery_delete"].x = delete_btn_x
+        menu_buttons["gallery_delete"].y = delete_btn_y
+        menu_buttons["gallery_delete"].w = delete_btn_w
+        menu_buttons["gallery_delete"].h = delete_btn_h
+    
+    # Draw delete button with red color
+    menu_buttons["gallery_delete"].is_active = True
+    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(150, 0, 0))
+    
     # Filename
     filename = filepath.name
     (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.5, 1)
@@ -892,6 +931,25 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_back"].h = back_btn_h
 
     menu_buttons["gallery_back"].draw(frame, transparent=True)
+    
+    # Delete All button (top-right, only if there are items)
+    if items:
+        delete_all_btn_x = frame.shape[1] - 150
+        delete_all_btn_y = 20
+        delete_all_btn_w = 130
+        delete_all_btn_h = 40
+        
+        if "gallery_delete_all" not in menu_buttons:
+            menu_buttons["gallery_delete_all"] = Button(delete_all_btn_x, delete_all_btn_y, delete_all_btn_w, delete_all_btn_h, "DELETE ALL")
+        else:
+            menu_buttons["gallery_delete_all"].x = delete_all_btn_x
+            menu_buttons["gallery_delete_all"].y = delete_all_btn_y
+            menu_buttons["gallery_delete_all"].w = delete_all_btn_w
+            menu_buttons["gallery_delete_all"].h = delete_all_btn_h
+        
+        # Draw delete all button with red color
+        menu_buttons["gallery_delete_all"].is_active = True
+        menu_buttons["gallery_delete_all"].draw(frame, transparent=True, active_color=(150, 0, 0))
 
     if not items:
         # No items message
@@ -1063,6 +1121,30 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_video_frame_idx = 0
         return True
     
+    # Check delete button (works in both image and video viewer)
+    if button_state.gallery_viewer_mode in ("image", "video"):
+        if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
+            items = get_gallery_items(output_dir) if output_dir else []
+            if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
+                filepath = items[button_state.gallery_selected_item][0]
+                try:
+                    # Delete the file
+                    filepath.unlink()
+                    print(f"Deleted: {filepath}")
+                    
+                    # Update selection
+                    if len(items) <= 1:
+                        # No more items, go back to grid
+                        button_state.gallery_viewer_mode = "grid"
+                        button_state.gallery_selected_item = None
+                    else:
+                        # Move to previous item if we deleted the last one
+                        if button_state.gallery_selected_item >= len(items) - 1:
+                            button_state.gallery_selected_item = len(items) - 2
+                except Exception as e:
+                    print(f"Failed to delete {filepath}: {e}")
+            return True
+    
     # Handle viewer mode clicks
     if button_state.gallery_viewer_mode == "image":
         # Previous button
@@ -1110,8 +1192,31 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     button_state.gallery_video_playing = False  # Pause on seek
             return True
     
-    # Handle grid view clicks (thumbnail selection)
+    # Handle grid view clicks
     if button_state.gallery_viewer_mode == "grid":
+        # Check delete all button
+        if "gallery_delete_all" in menu_buttons and menu_buttons["gallery_delete_all"].contains(x, y):
+            items = get_gallery_items(output_dir) if output_dir else []
+            if items:
+                try:
+                    # Delete all files
+                    deleted_count = 0
+                    for filepath, item_type, mtime in items:
+                        try:
+                            filepath.unlink()
+                            deleted_count += 1
+                        except Exception as e:
+                            print(f"Failed to delete {filepath}: {e}")
+                    print(f"Deleted {deleted_count} files")
+                    
+                    # Reset gallery state
+                    button_state.gallery_scroll_offset = 0
+                    button_state.gallery_selected_item = None
+                except Exception as e:
+                    print(f"Failed to delete files: {e}")
+            return True
+        
+        # Check thumbnail clicks
         if hasattr(button_state, 'gallery_thumbnail_rects'):
             for thumb in button_state.gallery_thumbnail_rects:
                 if (thumb['x'] <= x <= thumb['x'] + thumb['w'] and
