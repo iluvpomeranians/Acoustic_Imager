@@ -382,8 +382,46 @@ def main() -> None:
     video_recorder = VideoRecorder(state.OUTPUT_DIR, config.WIDTH, config.HEIGHT, fps=30)
 
     # ---- Setup OpenCV window ----
-    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
+    
+    # Try to detect screen resolution using different methods
+    try:
+        # Method 1: Try to get screen info from environment
+        import subprocess
+        result = subprocess.run(['xrandr'], capture_output=True, text=True, timeout=1)
+        if result.returncode == 0:
+            for line in result.stdout.split('\n'):
+                if '*' in line:  # Current resolution marked with *
+                    parts = line.split()
+                    for part in parts:
+                        if 'x' in part and part[0].isdigit():
+                            w, h = part.split('x')
+                            actual_width = int(w)
+                            actual_height = int(h.split('+')[0])
+                            print(f"Detected screen resolution (xrandr): {actual_width}x{actual_height}")
+                            config.WIDTH = actual_width
+                            config.HEIGHT = actual_height
+                            break
+    except Exception as e:
+        print(f"Could not detect screen resolution via xrandr: {e}")
+    
+    # Set fullscreen
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    
+    # Recalculate dependent values with updated dimensions
+    left_width = config.WIDTH - config.FREQ_BAR_WIDTH
+    
+    # Recreate buffers with correct size
+    base_frame = np.empty((config.HEIGHT, config.WIDTH, 3), dtype=np.uint8)
+    cam_bgr = np.empty((config.HEIGHT, config.WIDTH, 3), dtype=np.uint8)
+    background_full = create_background_frame(config.WIDTH, config.HEIGHT)
+    
+    # Reinitialize UI with new dimensions
+    init_buttons(left_width, state.CAMERA_AVAILABLE)
+    init_menu_buttons(left_width)
+    
+    print(f"Final resolution: {config.WIDTH}x{config.HEIGHT}")
+    
     cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
 
     # ---- Initialize UI ----
