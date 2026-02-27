@@ -807,11 +807,11 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     filename_y = controls_y + 45
     cv2.putText(frame, filename, (filename_x, filename_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # Delete button - positioned next to filename in control dock (larger)
+    # Delete button - positioned next to filename in control dock (wider but same height as before)
     delete_btn_w = 80
-    delete_btn_h = 50
+    delete_btn_h = 35
     delete_btn_x = filename_x + text_w + 20  # To the right of filename
-    delete_btn_y = controls_y + 20
+    delete_btn_y = controls_y + 25
 
     if "gallery_delete" not in menu_buttons:
         menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "")
@@ -912,11 +912,11 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     controls_y = frame.shape[0] - 90
     cv2.rectangle(frame, (0, controls_y), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
     
-    # Play/Pause button (centered, larger)
+    # Play/Pause button (centered, wider but original height)
     play_btn_w = 100
-    play_btn_h = 50
+    play_btn_h = 40
     play_btn_x = frame.shape[1] // 2 - (play_btn_w // 2)
-    play_btn_y = controls_y + 10
+    play_btn_y = controls_y + 15
     play_text = "PAUSE" if button_state.gallery_video_playing else "PLAY"
     
     if "gallery_play" not in menu_buttons:
@@ -962,6 +962,12 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     filename_y = controls_y + 45
     cv2.putText(frame, filename, (filename_x, filename_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
     
+    # Delete button - positioned next to filename (wider but original height)
+    delete_btn_w = 80
+    delete_btn_h = 40
+    delete_btn_x = filename_x + filename_w + 20  # To the right of filename
+    delete_btn_y = controls_y + 15
+    
     # Time display (bottom right)
     current_time = button_state.gallery_video_frame_idx / fps if fps > 0 else 0
     total_time = total_frames / fps if fps > 0 else 0
@@ -971,12 +977,6 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     time_x = frame.shape[1] - time_w - 20
     time_y = controls_y + 45
     cv2.putText(frame, time_text, (time_x, time_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
-
-    # Delete button - positioned next to PLAY button (larger)
-    delete_btn_w = 80
-    delete_btn_h = 50
-    delete_btn_x = play_btn_x + play_btn_w + 15  # To the right of play button
-    delete_btn_y = play_btn_y
 
     if "gallery_delete" not in menu_buttons:
         menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "")
@@ -1281,6 +1281,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     
     # Clamp scroll offset to valid range
     button_state.gallery_scroll_offset = max(0, min(button_state.gallery_scroll_offset, max_scroll))
+    
+    # Create a clipping mask to prevent thumbnails from drawing over the header
+    clip_y_start = header_h
 
     # Store thumbnail positions for click detection
     if not hasattr(button_state, 'gallery_thumbnail_rects'):
@@ -1313,6 +1316,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             'type': item_type
         })
 
+        # Skip drawing if thumbnail would overlap header
+        if y < clip_y_start:
+            continue
+        
         # Check if this item is selected (only matters in select mode)
         is_selected = button_state.gallery_select_mode and idx in button_state.gallery_selected_items
         
