@@ -604,38 +604,64 @@ def main() -> None:
 
             # ---- Draw debug info ----
             if button_state.debug_enabled:
-
-                text_x = config.DB_BAR_WIDTH + 12
-
-                cv2.putText(output_frame, f"Frame: {frame_count}", (text_x, 60),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(output_frame, f"t = {elapsed:.2f}s", (text_x, 80),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(output_frame, f"Source: {source_label}", (text_x, 100),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                # Collect debug text lines
+                debug_lines = [
+                    f"Frame: {frame_count}",
+                    f"t = {elapsed:.2f}s",
+                    f"Source: {source_label}",
+                ]
 
                 if source_label.startswith("SPI"):
                     mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
-                    y0 = 120
-                    dy = 22
-
                     bytes_per_s = config.FRAME_BYTES * fps_ema
                     mbps_bytes = bytes_per_s / 1e6
                     mbps_bits = (bytes_per_s * 8) / 1e6
 
-                    cv2.putText(output_frame, f"SPI {mhz:.0f}MHz", (text_x, y0),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"ok: {source_stats.frames_ok}", (text_x, y0 + 1*dy),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"badParse: {source_stats.bad_parse}   badCRC: {source_stats.bad_crc}",
-                               (text_x, y0 + 2*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"FPS: {fps_ema:5.1f}", (text_x, y0 + 3*dy),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"Throughput: {mbps_bytes:.2f} MB/s  ({mbps_bits:.1f} Mb/s)",
-                               (text_x, y0 + 4*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+                    debug_lines.extend([
+                        f"SPI {mhz:.0f}MHz",
+                        f"ok: {source_stats.frames_ok}",
+                        f"badParse: {source_stats.bad_parse}   badCRC: {source_stats.bad_crc}",
+                        f"FPS: {fps_ema:5.1f}",
+                        f"Throughput: {mbps_bytes:.2f} MB/s  ({mbps_bits:.1f} Mb/s)",
+                    ])
                     if source_stats.last_err:
-                        cv2.putText(output_frame, f"lastErr: {source_stats.last_err[:60]}",
-                                   (text_x, y0 + 5*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+                        debug_lines.append(f"lastErr: {source_stats.last_err[:60]}")
+
+                # Calculate box dimensions
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.5
+                font_thickness = 1
+                line_height = 20
+                padding = 15
+                
+                # Measure max text width
+                max_width = 0
+                for line in debug_lines:
+                    (text_w, text_h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
+                    max_width = max(max_width, text_w)
+                
+                box_w = max_width + 2 * padding
+                box_h = len(debug_lines) * line_height + 2 * padding
+                
+                # Position at bottom left
+                box_x = 10
+                box_y = config.HEIGHT - box_h - 10
+                
+                # Draw semi-transparent grey background box
+                overlay = output_frame.copy()
+                cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (40, 40, 40), -1)
+                cv2.addWeighted(overlay, 0.7, output_frame, 0.3, 0, output_frame)
+                
+                # Draw border
+                cv2.rectangle(output_frame, (box_x, box_y), (box_x + box_w, box_y + box_h), (100, 100, 100), 2, cv2.LINE_AA)
+                
+                # Draw text lines
+                text_x = box_x + padding
+                text_y = box_y + padding + 15
+                for line in debug_lines:
+                    cv2.putText(output_frame, line, (text_x, text_y),
+                               font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+                    text_y += line_height
 
             # ---- Draw UI buttons ----
             draw_buttons(output_frame)
