@@ -117,6 +117,44 @@ def _rounded_rect(img, x, y, w, h, r, color, thickness=-1):
     )
 
 
+def _draw_camera_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
+    """Draw a camera lens icon."""
+    # Camera body (rectangle)
+    cv2.rectangle(frame, (cx - size, cy - size//2), (cx + size, cy + size//2), (255, 255, 255), -1, cv2.LINE_AA)
+    # Lens (circle)
+    cv2.circle(frame, (cx, cy), size//2, (200, 200, 200), -1, cv2.LINE_AA)
+    cv2.circle(frame, (cx, cy), size//2, (0, 0, 0), 1, cv2.LINE_AA)
+    # Flash indicator
+    cv2.rectangle(frame, (cx - size, cy - size//2 - 3), (cx - size + 4, cy - size//2), (255, 255, 255), -1, cv2.LINE_AA)
+
+
+def _draw_rec_icon(frame: np.ndarray, cx: int, cy: int, size: int = 8, is_active: bool = False):
+    """Draw a red recording dot icon."""
+    color = (0, 0, 255) if is_active else (255, 255, 255)
+    cv2.circle(frame, (cx, cy), size, color, -1, cv2.LINE_AA)
+    # Border
+    border_color = (255, 255, 255) if is_active else (0, 0, 0)
+    cv2.circle(frame, (cx, cy), size, border_color, 1, cv2.LINE_AA)
+
+
+def _draw_pause_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
+    """Draw pause bars icon (||)."""
+    bar_w = size // 3
+    bar_h = size
+    gap = size // 3
+    
+    # Left bar
+    cv2.rectangle(frame, 
+                 (cx - gap - bar_w, cy - bar_h//2),
+                 (cx - gap, cy + bar_h//2),
+                 (255, 255, 255), -1, cv2.LINE_AA)
+    # Right bar
+    cv2.rectangle(frame,
+                 (cx + gap, cy - bar_h//2),
+                 (cx + gap + bar_w, cy + bar_h//2),
+                 (255, 255, 255), -1, cv2.LINE_AA)
+
+
 class Button:
     def __init__(self, x, y, w, h, text):
         self.x, self.y, self.w, self.h = int(x), int(y), int(w), int(h)
@@ -131,7 +169,7 @@ class Button:
             (self.y - pad) <= my <= (self.y + self.h + pad)
         )
 
-    def draw(self, frame: np.ndarray, transparent: bool = False, active_color: Optional[tuple] = None) -> None:
+    def draw(self, frame: np.ndarray, transparent: bool = False, active_color: Optional[tuple] = None, icon_type: Optional[str] = None) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
         active = active_color if active_color is not None else (40, 200, 60)
@@ -177,17 +215,29 @@ class Button:
             border_color = border
         _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
 
-        # ---- text (AA is surprisingly expensive; use LINE_8) ----
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        scale = 0.52
-        thick = 1
-        tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
-        tx = x + (w - tw) // 2
-        ty = y + (h + th) // 2
+        # ---- Draw icon if specified ----
+        if icon_type:
+            cx = x + w // 2
+            cy = y + h // 2
+            
+            if icon_type == "camera":
+                _draw_camera_icon(frame, cx, cy, size=10)
+            elif icon_type == "rec":
+                _draw_rec_icon(frame, cx, cy, size=7, is_active=self.is_active)
+            elif icon_type == "pause":
+                _draw_pause_icon(frame, cx, cy, size=9)
+        else:
+            # ---- text (AA is surprisingly expensive; use LINE_8) ----
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            scale = 0.52
+            thick = 1
+            tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
+            tx = x + (w - tw) // 2
+            ty = y + (h + th) // 2
 
-        cv2.putText(frame, self.text, (tx, ty),
-                    font, scale, (255, 255, 255),
-                    thick, cv2.LINE_8)
+            cv2.putText(frame, self.text, (tx, ty),
+                        font, scale, (255, 255, 255),
+                        thick, cv2.LINE_8)
 
 
 def init_buttons(left_width: int, camera_available: bool) -> None:
@@ -365,9 +415,9 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["source"].draw(frame, transparent=True)
     menu_buttons["debug"].draw(frame, transparent=True)
 
-    menu_buttons["shot"].draw(frame, transparent=True)
-    menu_buttons["rec"].draw(frame, transparent=True)
-    menu_buttons["pause"].draw(frame, transparent=True)
+    menu_buttons["shot"].draw(frame, transparent=True, icon_type="camera")
+    menu_buttons["rec"].draw(frame, transparent=True, icon_type="rec")
+    menu_buttons["pause"].draw(frame, transparent=True, icon_type="pause")
     
     # Don't draw gallery button if recording (replaced by timestamp)
     if not button_state.is_recording:
@@ -398,12 +448,11 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         timestamp_y = gallery_btn.y
         timestamp_h = gallery_btn.h
     else:
-        # Menu is closed: position below MENU button
+        # Menu is closed: position ABOVE MENU button
         menu_x = menu_buttons["menu"].x
         menu_w = menu_buttons["menu"].w
-        menu_bottom = menu_buttons["menu"].y + menu_buttons["menu"].h + 10
-        timestamp_y = menu_bottom
         timestamp_h = 35
+        timestamp_y = menu_buttons["menu"].y - timestamp_h - 10
 
     # Bounds check
     if timestamp_y < 0 or timestamp_y + timestamp_h > frame.shape[0]:
