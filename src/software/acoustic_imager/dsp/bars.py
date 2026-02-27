@@ -268,17 +268,25 @@ def draw_db_colorbar(
 
     frame[:, :width] = bar_color
 
-    # ---- if no slider state, center dB text ----
+    # ---- if no slider state, show top/bottom labels centered horizontally ----
     if state is None:
-        # Center "dB" text vertically and horizontally in the bar
         font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.6
+        font_scale = 0.5
         font_thickness = 1
-        db_text = "dB"
-        (text_w, text_h), _ = cv2.getTextSize(db_text, font, font_scale, font_thickness)
-        text_x = (width - text_w) // 2
-        text_y = h // 2 + text_h // 2
-        cv2.putText(frame, db_text, (text_x, text_y), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+        
+        # Top label (db_max)
+        top_text = f"{float(db_max):.0f} dB"
+        (top_w, top_h), _ = cv2.getTextSize(top_text, font, font_scale, font_thickness)
+        top_x = (width - top_w) // 2  # Center horizontally
+        top_y = 20
+        cv2.putText(frame, top_text, (top_x, top_y), font, font_scale, (0, 0, 0), font_thickness, cv2.LINE_8)
+        
+        # Bottom label (db_min)
+        bottom_text = f"{float(db_min):.0f} dB"
+        (bottom_w, bottom_h), _ = cv2.getTextSize(bottom_text, font, font_scale, font_thickness)
+        bottom_x = (width - bottom_w) // 2  # Center horizontally
+        bottom_y = h - 10
+        cv2.putText(frame, bottom_text, (bottom_x, bottom_y), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_8)
         
         return float(db_min), float(db_max)
 
