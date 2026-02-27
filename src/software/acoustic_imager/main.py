@@ -153,10 +153,21 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     state.CURSOR_POS = (mx, my)
     update_button_states(mx, my)
 
+    # Handle mouse wheel for gallery scrolling
+    if event == cv2.EVENT_MOUSEWHEEL:
+        if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
+            # Scroll amount (positive = scroll up, negative = scroll down)
+            scroll_amount = flags * 30  # Adjust sensitivity
+            button_state.gallery_scroll_offset -= scroll_amount
+            
+            # Clamp scroll offset to valid range
+            button_state.gallery_scroll_offset = max(0, button_state.gallery_scroll_offset)
+            return
+    
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
         # Check gallery view first (if open)
-        if handle_gallery_click(mx, my):
+        if handle_gallery_click(mx, my, state.OUTPUT_DIR):
             return
 
         # 1) HUD click handling (top priority, before buttons)
