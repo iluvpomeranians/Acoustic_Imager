@@ -102,8 +102,12 @@ def draw_hud(
     time_w = 170
     fps_w  = 165
     net_w  = 165
+    
+    # Calculate total width and center horizontally
+    total_width = time_w + gap + fps_w + gap + net_w
+    start_x = (w - total_width) // 2
 
-    x_time = pad
+    x_time = start_x
     x_fps  = x_time + time_w + gap
     x_net  = x_fps  + fps_w  + gap
 

@@ -174,16 +174,25 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
 def init_menu_buttons(left_width: int) -> None:
     menu_buttons.clear()
 
-    menu_y = 1
-    menu_w = 220
-    menu_h = 60
-    menu_x = 650
+    # Position menu button at bottom right corner
+    menu_w = 180
+    menu_h = 50
+    menu_margin = 15
+    menu_x = WIDTH - menu_w - menu_margin
+    menu_y = HEIGHT - menu_h - menu_margin
 
     menu_buttons["menu"] = Button(menu_x, menu_y, menu_w, menu_h, "MENU")
 
     item_h = 40
     gap = 8
-    y0 = menu_y + menu_h + gap
+    
+    # Calculate total dropdown height to position it above the menu button
+    total_items = 7  # FPS row + GAIN + CAM + SOURCE + DEBUG + SHOT/REC/PAUSE row + GALLERY
+    dropdown_h = total_items * (item_h + gap) + gap
+    
+    # Position dropdown above menu button
+    dropdown_y = menu_y - dropdown_h - gap
+    y0 = dropdown_y
 
     # Segmented FPS buttons (30 | 60 | MAX)
     seg_gap = 6
@@ -256,20 +265,46 @@ def draw_menu(frame: np.ndarray) -> None:
         return
 
     menu_buttons["menu"].is_active = button_state.menu_open
-    menu_buttons["menu"].draw(frame)
+    
+    # Draw transparent menu button (similar to HUD pills)
+    menu_btn = menu_buttons["menu"]
+    x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
+    
+    # Semi-transparent background
+    roi = frame[y:y+h, x:x+w]
+    overlay = np.empty_like(roi)
+    bg_color = (80, 110, 80) if menu_btn.is_active else ((85, 85, 85) if menu_btn.is_hovered else (60, 60, 60))
+    overlay[:] = bg_color
+    cv2.addWeighted(overlay, 0.35, roi, 0.65, 0.0, dst=roi)
+    
+    # Border
+    border_color = (230, 230, 230)
+    cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_8)
+    
+    # Text
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.52
+    thick = 1
+    tw, th = cv2.getTextSize(menu_btn.text, font, scale, thick)[0]
+    tx = x + (w - tw) // 2
+    ty = y + (h + th) // 2
+    cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (255, 255, 255), thick, cv2.LINE_8)
 
     if not button_state.menu_open:
         return
 
-    x = menu_buttons["menu"].x
-    y = menu_buttons["menu"].y + menu_buttons["menu"].h + 6
-    w = menu_buttons["menu"].w
+    # Draw dropdown above menu button
+    first = menu_buttons["fps30"]
     last = menu_buttons["gallery"]
-    h = (last.y + last.h) - y + 12
+    
+    dropdown_x = menu_btn.x
+    dropdown_y = first.y - 6
+    dropdown_w = menu_btn.w
+    dropdown_h = (last.y + last.h) - first.y + 12
 
-    # original ROI overlay behavior
-    x0, y0 = x - 2, y - 2
-    x1, y1 = x0 + (w + 4), y0 + (h + 4)
+    # Semi-transparent dropdown background
+    x0, y0 = dropdown_x - 2, dropdown_y - 2
+    x1, y1 = x0 + (dropdown_w + 4), y0 + (dropdown_h + 4)
 
     x0 = max(0, x0)
     y0 = max(0, y0)
