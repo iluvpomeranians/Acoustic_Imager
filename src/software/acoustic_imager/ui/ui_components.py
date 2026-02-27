@@ -997,9 +997,13 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         btn_gap = 10
         btn_h = 40
         
-        # SELECT mode button (always visible in grid)
+        # Calculate button positions from right to left
+        right_margin = 20
+        current_x = frame.shape[1] - right_margin
+        
+        # 1. SELECT/DONE button (always visible)
         select_mode_btn_w = 100
-        select_mode_btn_x = frame.shape[1] - select_mode_btn_w - 20
+        select_mode_btn_x = current_x - select_mode_btn_w
         select_mode_btn_y = 20
         
         if "gallery_select_mode" not in menu_buttons:
@@ -1014,11 +1018,12 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
         menu_buttons["gallery_select_mode"].draw(frame, transparent=True)
         
-        # Only show selection-related buttons when in select mode
+        current_x = select_mode_btn_x - btn_gap
+        
+        # 2. SELECT ALL button (only in select mode)
         if button_state.gallery_select_mode:
-            # Select All button
             select_all_btn_w = 120
-            select_all_btn_x = select_mode_btn_x - select_all_btn_w - btn_gap
+            select_all_btn_x = current_x - select_all_btn_w
             select_all_btn_y = 20
             
             if "gallery_select_all" not in menu_buttons:
@@ -1033,52 +1038,37 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
             
             menu_buttons["gallery_select_all"].draw(frame, transparent=True)
-        
-        # Action buttons (only show if items are selected in select mode)
-        if button_state.gallery_select_mode and button_state.gallery_selected_items:
-            selected_count = len(button_state.gallery_selected_items)
             
-            # Delete Selected button (with confirmation state)
-            delete_btn_w = 160
-            delete_btn_x = select_all_btn_x - delete_btn_w - btn_gap
-            delete_btn_y = 20
+            current_x = select_all_btn_x - btn_gap
             
-            # Update button text based on confirmation state
-            if button_state.gallery_delete_confirm:
-                delete_text = "CONFIRM DELETE?"
-                delete_color = (200, 0, 0)  # Brighter red for confirmation
-            else:
-                delete_text = f"DELETE ({selected_count})"
-                delete_color = (150, 0, 0)  # Normal red
-            
-            if "gallery_delete_selected" not in menu_buttons:
-                menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, btn_h, delete_text)
-            else:
-                menu_buttons["gallery_delete_selected"].x = delete_btn_x
-                menu_buttons["gallery_delete_selected"].y = delete_btn_y
-                menu_buttons["gallery_delete_selected"].w = delete_btn_w
-                menu_buttons["gallery_delete_selected"].h = btn_h
-                menu_buttons["gallery_delete_selected"].text = delete_text
-            
-            # Draw delete button with red color
-            menu_buttons["gallery_delete_selected"].is_active = True
-            menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
-            
-            # View button (only if single item selected)
-            if selected_count == 1:
-                view_btn_w = 100
-                view_btn_x = delete_btn_x - view_btn_w - btn_gap
-                view_btn_y = 20
+            # 3. DELETE button (only when items are selected in select mode)
+            if button_state.gallery_selected_items:
+                selected_count = len(button_state.gallery_selected_items)
                 
-                if "gallery_view" not in menu_buttons:
-                    menu_buttons["gallery_view"] = Button(view_btn_x, view_btn_y, view_btn_w, btn_h, "VIEW")
+                delete_btn_w = 180
+                delete_btn_x = current_x - delete_btn_w
+                delete_btn_y = 20
+                
+                # Update button text based on confirmation state
+                if button_state.gallery_delete_confirm:
+                    delete_text = "CONFIRM DELETE?"
+                    delete_color = (200, 0, 0)  # Brighter red for confirmation
                 else:
-                    menu_buttons["gallery_view"].x = view_btn_x
-                    menu_buttons["gallery_view"].y = view_btn_y
-                    menu_buttons["gallery_view"].w = view_btn_w
-                    menu_buttons["gallery_view"].h = btn_h
+                    delete_text = f"DELETE ({selected_count})"
+                    delete_color = (150, 0, 0)  # Normal red
                 
-                menu_buttons["gallery_view"].draw(frame, transparent=True)
+                if "gallery_delete_selected" not in menu_buttons:
+                    menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, btn_h, delete_text)
+                else:
+                    menu_buttons["gallery_delete_selected"].x = delete_btn_x
+                    menu_buttons["gallery_delete_selected"].y = delete_btn_y
+                    menu_buttons["gallery_delete_selected"].w = delete_btn_w
+                    menu_buttons["gallery_delete_selected"].h = btn_h
+                    menu_buttons["gallery_delete_selected"].text = delete_text
+                
+                # Draw delete button with red color
+                menu_buttons["gallery_delete_selected"].is_active = True
+                menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
 
     if not items:
         # No items message
@@ -1371,6 +1361,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         # Check select mode toggle button
         if "gallery_select_mode" in menu_buttons and menu_buttons["gallery_select_mode"].contains(x, y):
             button_state.gallery_select_mode = not button_state.gallery_select_mode
+            print(f"SELECT mode toggled: {'ON' if button_state.gallery_select_mode else 'OFF'}")
             if not button_state.gallery_select_mode:
                 # Exiting select mode - clear selections
                 button_state.gallery_selected_items.clear()
@@ -1385,28 +1376,12 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 if all_selected:
                     # Deselect all
                     button_state.gallery_selected_items.clear()
+                    print("Deselected all items")
                 else:
                     # Select all
                     button_state.gallery_selected_items = set(range(len(items)))
+                    print(f"Selected all {len(items)} items")
             button_state.gallery_delete_confirm = False  # Reset confirmation when selection changes
-            return True
-        
-        # Check view button (open viewer for single selected item)
-        if button_state.gallery_select_mode and "gallery_view" in menu_buttons and menu_buttons["gallery_view"].contains(x, y):
-            if len(button_state.gallery_selected_items) == 1:
-                items = get_gallery_items(output_dir) if output_dir else []
-                idx = list(button_state.gallery_selected_items)[0]
-                if idx < len(items):
-                    button_state.gallery_selected_item = idx
-                    item_type = items[idx][1]
-                    if item_type == "image":
-                        button_state.gallery_viewer_mode = "image"
-                    else:
-                        button_state.gallery_viewer_mode = "video"
-                        button_state.gallery_video_playing = False
-                        button_state.gallery_video_frame_idx = 0
-                    button_state.gallery_selected_items.clear()  # Clear selection when viewing
-                    button_state.gallery_select_mode = False  # Exit select mode when viewing
             return True
         
         # Check delete selected button (with confirmation) - only in select mode
@@ -1452,11 +1427,14 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         # In select mode: toggle selection
                         if idx in button_state.gallery_selected_items:
                             button_state.gallery_selected_items.remove(idx)
+                            print(f"Deselected item {idx}, total selected: {len(button_state.gallery_selected_items)}")
                         else:
                             button_state.gallery_selected_items.add(idx)
+                            print(f"Selected item {idx}, total selected: {len(button_state.gallery_selected_items)}")
                         button_state.gallery_delete_confirm = False  # Reset confirmation when selection changes
                     else:
                         # Not in select mode: open viewer directly
+                        print(f"Opening viewer for item {idx}")
                         button_state.gallery_selected_item = idx
                         item_type = thumb['type']
                         if item_type == "image":
