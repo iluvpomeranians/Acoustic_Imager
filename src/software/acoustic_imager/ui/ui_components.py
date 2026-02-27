@@ -703,7 +703,7 @@ def get_gallery_items(output_dir: Path) -> List[Tuple[Path, str, datetime]]:
 
 def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]], output_dir: Optional[Path]) -> None:
     """
-    Draw full-screen image viewer.
+    Draw image viewer with control dock at bottom.
     """
     # Black background
     frame[:] = (0, 0, 0)
@@ -713,36 +713,41 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     
     filepath, item_type, mtime = items[button_state.gallery_selected_item]
     
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    
+    # Control panel at bottom (same as video viewer)
+    controls_y = frame.shape[0] - 90
+    cv2.rectangle(frame, (0, controls_y), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
+    
     # Load image
     img = cv2.imread(str(filepath))
     if img is None:
         # Error message
-        font = cv2.FONT_HERSHEY_SIMPLEX
         msg = "Failed to load image"
         (msg_w, msg_h), _ = cv2.getTextSize(msg, font, 0.7, 1)
         cv2.putText(frame, msg, ((frame.shape[1] - msg_w) // 2, frame.shape[0] // 2),
                    font, 0.7, (150, 150, 150), 1, cv2.LINE_AA)
     else:
-        # Scale image to fit screen while maintaining aspect ratio
+        # Scale image to fit screen (leave space for control dock at bottom)
         h, w = img.shape[:2]
         frame_h, frame_w = frame.shape[:2]
+        available_h = controls_y  # Only use space above control dock
         
         # Calculate scaling factor
-        scale = min(frame_w / w, frame_h / h)
+        scale = min(frame_w / w, available_h / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
         
         # Resize image
         img_resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
         
-        # Center image
+        # Center image in available space (above control dock)
         x_offset = (frame_w - new_w) // 2
-        y_offset = (frame_h - new_h) // 2
+        y_offset = (available_h - new_h) // 2
         
         frame[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = img_resized
     
     # Draw controls overlay
-    font = cv2.FONT_HERSHEY_SIMPLEX
     
     # Back button (narrow, just fits the arrow)
     back_btn_x = 20
@@ -760,11 +765,11 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
 
     menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
 
-    # Navigation arrows
+    # Navigation arrows (work for all media types)
     if button_state.gallery_selected_item > 0:
         # Previous button
         prev_btn_x = 20
-        prev_btn_y = frame.shape[0] // 2 - 30
+        prev_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
         prev_btn_w = 60
         prev_btn_h = 60
         
@@ -781,7 +786,7 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     if button_state.gallery_selected_item < len(items) - 1:
         # Next button
         next_btn_x = frame.shape[1] - 80
-        next_btn_y = frame.shape[0] // 2 - 30
+        next_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
         next_btn_w = 60
         next_btn_h = 60
         
@@ -795,22 +800,18 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         
         menu_buttons["gallery_next"].draw(frame, transparent=True)
 
-    # Filename at bottom
+    # Filename in control dock (bottom left)
     filename = filepath.name
-    (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.6, 1)
-    text_x = (frame.shape[1] - text_w) // 2
-    text_y = frame.shape[0] - 20
-    
-    # Semi-transparent background for text
-    cv2.rectangle(frame, (text_x - 10, text_y - text_h - 10), 
-                 (text_x + text_w + 10, text_y + 10), (0, 0, 0), -1)
-    cv2.putText(frame, filename, (text_x, text_y), font, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+    (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.5, 1)
+    filename_x = 20
+    filename_y = controls_y + 45
+    cv2.putText(frame, filename, (filename_x, filename_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # Delete button - positioned next to filename
+    # Delete button - positioned next to filename in control dock
     delete_btn_w = 50
     delete_btn_h = 35
-    delete_btn_x = text_x + text_w + 20  # To the right of filename
-    delete_btn_y = frame.shape[0] - delete_btn_h - 12
+    delete_btn_x = filename_x + text_w + 20  # To the right of filename
+    delete_btn_y = controls_y + 25
 
     if "gallery_delete" not in menu_buttons:
         menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "")
@@ -954,14 +955,21 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_progress"].w = progress_w
         menu_buttons["gallery_progress"].h = progress_h
     
-    # Time display
+    # Filename in control dock (bottom left)
+    filename = filepath.name
+    (filename_w, filename_h), _ = cv2.getTextSize(filename, font, 0.5, 1)
+    filename_x = 20
+    filename_y = controls_y + 45
+    cv2.putText(frame, filename, (filename_x, filename_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+    
+    # Time display (bottom right)
     current_time = button_state.gallery_video_frame_idx / fps if fps > 0 else 0
     total_time = total_frames / fps if fps > 0 else 0
     time_text = f"{int(current_time // 60):02d}:{int(current_time % 60):02d} / {int(total_time // 60):02d}:{int(total_time % 60):02d}"
     
     (time_w, time_h), _ = cv2.getTextSize(time_text, font, 0.5, 1)
     time_x = frame.shape[1] - time_w - 20
-    time_y = controls_y + 35
+    time_y = controls_y + 45
     cv2.putText(frame, time_text, (time_x, time_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
     # Delete button - positioned next to PLAY button
@@ -981,6 +989,41 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
     menu_buttons["gallery_delete"].is_active = True
     menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
+    
+    # Navigation arrows (work for all media types)
+    if button_state.gallery_selected_item > 0:
+        # Previous button
+        prev_btn_x = 20
+        prev_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
+        prev_btn_w = 60
+        prev_btn_h = 60
+        
+        if "gallery_prev" not in menu_buttons:
+            menu_buttons["gallery_prev"] = Button(prev_btn_x, prev_btn_y, prev_btn_w, prev_btn_h, "<")
+        else:
+            menu_buttons["gallery_prev"].x = prev_btn_x
+            menu_buttons["gallery_prev"].y = prev_btn_y
+            menu_buttons["gallery_prev"].w = prev_btn_w
+            menu_buttons["gallery_prev"].h = prev_btn_h
+        
+        menu_buttons["gallery_prev"].draw(frame, transparent=True)
+    
+    if button_state.gallery_selected_item < len(items) - 1:
+        # Next button
+        next_btn_x = frame.shape[1] - 80
+        next_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
+        next_btn_w = 60
+        next_btn_h = 60
+        
+        if "gallery_next" not in menu_buttons:
+            menu_buttons["gallery_next"] = Button(next_btn_x, next_btn_y, next_btn_w, next_btn_h, ">")
+        else:
+            menu_buttons["gallery_next"].x = next_btn_x
+            menu_buttons["gallery_next"].y = next_btn_y
+            menu_buttons["gallery_next"].w = next_btn_w
+            menu_buttons["gallery_next"].h = next_btn_h
+        
+        menu_buttons["gallery_next"].draw(frame, transparent=True)
 
 
 def draw_delete_modal(frame: np.ndarray) -> None:
@@ -1452,16 +1495,23 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             print("Delete modal opened")
             return True
     
-    # Handle viewer mode clicks
-    if button_state.gallery_viewer_mode == "image":
+    # Handle viewer mode clicks (navigation works for both image and video)
+    if button_state.gallery_viewer_mode in ("image", "video"):
         # Previous button
         if "gallery_prev" in menu_buttons and menu_buttons["gallery_prev"].contains(x, y):
             if button_state.gallery_selected_item > 0:
                 button_state.gallery_selected_item -= 1
-                # Skip to previous image if current is video
                 items = get_gallery_items(output_dir) if output_dir else []
-                while button_state.gallery_selected_item > 0 and items[button_state.gallery_selected_item][1] != "image":
-                    button_state.gallery_selected_item -= 1
+                
+                # Update viewer mode based on new item type
+                if button_state.gallery_selected_item < len(items):
+                    new_item_type = items[button_state.gallery_selected_item][1]
+                    button_state.gallery_viewer_mode = new_item_type
+                    
+                    # Reset video state when switching to video
+                    if new_item_type == "video":
+                        button_state.gallery_video_playing = False
+                        button_state.gallery_video_frame_idx = 0
             return True
         
         # Next button
@@ -1469,12 +1519,20 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             items = get_gallery_items(output_dir) if output_dir else []
             if button_state.gallery_selected_item < len(items) - 1:
                 button_state.gallery_selected_item += 1
-                # Skip to next image if current is video
-                while button_state.gallery_selected_item < len(items) - 1 and items[button_state.gallery_selected_item][1] != "image":
-                    button_state.gallery_selected_item += 1
+                
+                # Update viewer mode based on new item type
+                if button_state.gallery_selected_item < len(items):
+                    new_item_type = items[button_state.gallery_selected_item][1]
+                    button_state.gallery_viewer_mode = new_item_type
+                    
+                    # Reset video state when switching to video
+                    if new_item_type == "video":
+                        button_state.gallery_video_playing = False
+                        button_state.gallery_video_frame_idx = 0
             return True
     
-    elif button_state.gallery_viewer_mode == "video":
+    # Video-specific controls (Play/Pause, Progress bar)
+    if button_state.gallery_viewer_mode == "video":
         # Play/Pause button
         if "gallery_play" in menu_buttons and menu_buttons["gallery_play"].contains(x, y):
             button_state.gallery_video_playing = not button_state.gallery_video_playing
