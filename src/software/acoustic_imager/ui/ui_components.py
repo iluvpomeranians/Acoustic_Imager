@@ -184,14 +184,18 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
     return
 
 
-def init_menu_buttons(left_width: int) -> None:
+def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     menu_buttons.clear()
+    
+    # Use actual frame height if provided, otherwise fall back to config HEIGHT
+    actual_height = frame_height if frame_height is not None else HEIGHT
+    
     menu_w = 180
     menu_h = 50
     menu_margin_x = 15
     menu_margin_bottom = 5  
     menu_x = left_width - menu_w - menu_margin_x
-    menu_y = HEIGHT - menu_h - menu_margin_bottom
+    menu_y = actual_height - menu_h - menu_margin_bottom
 
     menu_buttons["menu"] = Button(menu_x, menu_y, menu_w, menu_h, "MENU")
 
@@ -278,8 +282,12 @@ def draw_menu(frame: np.ndarray) -> None:
 
     menu_buttons["menu"].is_active = button_state.menu_open
     
-    # Draw transparent menu button (similar to HUD pills)
+    # Dynamically position menu button at bottom of actual frame
     menu_btn = menu_buttons["menu"]
+    actual_frame_height = frame.shape[0]
+    menu_btn.y = actual_frame_height - menu_btn.h - 5  # 5px from bottom
+    
+    # Draw transparent menu button (similar to HUD pills)
     x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
     
     # Semi-transparent background
