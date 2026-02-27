@@ -643,8 +643,8 @@ def main() -> None:
                 box_w = max_width + 2 * padding
                 box_h = len(debug_lines) * line_height + 2 * padding
                 
-                # Position at bottom left
-                box_x = 10
+                # Position at bottom left of camera/heatmap area (after dB bar)
+                box_x = config.DB_BAR_WIDTH + 10
                 box_y = config.HEIGHT - box_h - 10
                 
                 # Draw semi-transparent grey background box
