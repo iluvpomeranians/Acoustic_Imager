@@ -807,11 +807,11 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     filename_y = controls_y + 45
     cv2.putText(frame, filename, (filename_x, filename_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # Delete button - positioned next to filename in control dock
-    delete_btn_w = 50
-    delete_btn_h = 35
+    # Delete button - positioned next to filename in control dock (larger)
+    delete_btn_w = 80
+    delete_btn_h = 50
     delete_btn_x = filename_x + text_w + 20  # To the right of filename
-    delete_btn_y = controls_y + 25
+    delete_btn_y = controls_y + 20
 
     if "gallery_delete" not in menu_buttons:
         menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "")
@@ -912,11 +912,11 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     controls_y = frame.shape[0] - 90
     cv2.rectangle(frame, (0, controls_y), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
     
-    # Play/Pause button
-    play_btn_x = frame.shape[1] // 2 - 30
+    # Play/Pause button (centered, larger)
+    play_btn_w = 100
+    play_btn_h = 50
+    play_btn_x = frame.shape[1] // 2 - (play_btn_w // 2)
     play_btn_y = controls_y + 10
-    play_btn_w = 60
-    play_btn_h = 40
     play_text = "PAUSE" if button_state.gallery_video_playing else "PLAY"
     
     if "gallery_play" not in menu_buttons:
@@ -972,9 +972,9 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     time_y = controls_y + 45
     cv2.putText(frame, time_text, (time_x, time_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # Delete button - positioned next to PLAY button
-    delete_btn_w = 50
-    delete_btn_h = 40
+    # Delete button - positioned next to PLAY button (larger)
+    delete_btn_w = 80
+    delete_btn_h = 50
     delete_btn_x = play_btn_x + play_btn_w + 15  # To the right of play button
     delete_btn_y = play_btn_y
 
