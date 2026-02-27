@@ -376,6 +376,14 @@ def update_button_states(mx: int, my: int) -> None:
         for k in keys:
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = False
+    
+    # Update gallery button hover states
+    if button_state.gallery_open:
+        gallery_keys = ("gallery_back", "gallery_select_mode", "gallery_select_all", "gallery_delete_selected",
+                       "gallery_delete", "gallery_prev", "gallery_next", "gallery_play", "gallery_progress")
+        for k in gallery_keys:
+            if k in menu_buttons:
+                menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 
 
 def draw_buttons(frame: np.ndarray) -> None:
@@ -1020,7 +1028,11 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_select_mode"].text = "DONE" if button_state.gallery_select_mode else "SELECT"
         
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
-        menu_buttons["gallery_select_mode"].draw(frame, transparent=True)
+        # Use blue color when select mode is active
+        if button_state.gallery_select_mode:
+            menu_buttons["gallery_select_mode"].draw(frame, transparent=True, active_color=(200, 100, 40))  # Blue
+        else:
+            menu_buttons["gallery_select_mode"].draw(frame, transparent=True)
         
         current_x = select_mode_btn_x - btn_gap
         
@@ -1362,15 +1374,18 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     
     # Handle grid view clicks
     if button_state.gallery_viewer_mode == "grid":
-        # Check select mode toggle button
-        if "gallery_select_mode" in menu_buttons and menu_buttons["gallery_select_mode"].contains(x, y):
-            button_state.gallery_select_mode = not button_state.gallery_select_mode
-            print(f"SELECT mode toggled: {'ON' if button_state.gallery_select_mode else 'OFF'}")
-            if not button_state.gallery_select_mode:
-                # Exiting select mode - clear selections
-                button_state.gallery_selected_items.clear()
-                button_state.gallery_delete_confirm = False
-            return True
+        # Check select mode toggle button (HIGHEST PRIORITY)
+        if "gallery_select_mode" in menu_buttons:
+            btn = menu_buttons["gallery_select_mode"]
+            print(f"DEBUG: SELECT button at ({btn.x}, {btn.y}, {btn.w}, {btn.h}), click at ({x}, {y})")
+            if btn.contains(x, y):
+                button_state.gallery_select_mode = not button_state.gallery_select_mode
+                print(f"SELECT mode toggled: {'ON' if button_state.gallery_select_mode else 'OFF'}")
+                if not button_state.gallery_select_mode:
+                    # Exiting select mode - clear selections
+                    button_state.gallery_selected_items.clear()
+                    button_state.gallery_delete_confirm = False
+                return True
         
         # Check select all button (only available in select mode)
         if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons and menu_buttons["gallery_select_all"].contains(x, y):
