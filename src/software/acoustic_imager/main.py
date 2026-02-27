@@ -382,7 +382,7 @@ def main() -> None:
     video_recorder = VideoRecorder(state.OUTPUT_DIR, config.WIDTH, config.HEIGHT, fps=30)
 
     # ---- Setup OpenCV window ----
-    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
+    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
 
