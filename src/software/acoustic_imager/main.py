@@ -604,10 +604,9 @@ def main() -> None:
 
             # ---- Draw debug info ----
             if button_state.debug_enabled:
-                # Collect debug text lines
+                # Collect debug text lines (abbreviated to save space)
                 debug_lines = [
-                    f"Frame: {frame_count}",
-                    f"t = {elapsed:.2f}s",
+                    f"Frame: {frame_count}  t={elapsed:.2f}s",
                     f"Source: {source_label}",
                 ]
 
@@ -618,29 +617,32 @@ def main() -> None:
                     mbps_bits = (bytes_per_s * 8) / 1e6
 
                     debug_lines.extend([
-                        f"SPI {mhz:.0f}MHz",
-                        f"ok: {source_stats.frames_ok}",
-                        f"badParse: {source_stats.bad_parse}   badCRC: {source_stats.bad_crc}",
-                        f"FPS: {fps_ema:5.1f}",
-                        f"Throughput: {mbps_bytes:.2f} MB/s  ({mbps_bits:.1f} Mb/s)",
+                        f"SPI {mhz:.0f}MHz  FPS: {fps_ema:5.1f}",
+                        f"ok:{source_stats.frames_ok} badParse:{source_stats.bad_parse} badCRC:{source_stats.bad_crc}",
+                        f"Throughput: {mbps_bytes:.2f}MB/s ({mbps_bits:.1f}Mb/s)",
                     ])
                     if source_stats.last_err:
-                        debug_lines.append(f"lastErr: {source_stats.last_err[:60]}")
+                        debug_lines.append(f"Err: {source_stats.last_err[:40]}")
 
                 # Calculate box dimensions
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.5
+                font_scale = 0.45
                 font_thickness = 1
-                line_height = 20
-                padding = 15
+                line_height = 18
+                padding = 12
+                
+                # Calculate max available width (don't extend beyond menu button)
+                # Menu is at: left_width - 100 - 15
+                max_available_width = left_width - config.DB_BAR_WIDTH - 135
                 
                 # Measure max text width
-                max_width = 0
+                max_text_width = 0
                 for line in debug_lines:
                     (text_w, text_h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
-                    max_width = max(max_width, text_w)
+                    max_text_width = max(max_text_width, text_w)
                 
-                box_w = max_width + 2 * padding
+                # Constrain to max available width
+                box_w = min(max_text_width + 2 * padding, max_available_width)
                 box_h = len(debug_lines) * line_height + 2 * padding
                 
                 # Position at bottom left of camera/heatmap area (after dB bar)
@@ -657,7 +659,7 @@ def main() -> None:
                 
                 # Draw text lines
                 text_x = box_x + padding
-                text_y = box_y + padding + 15
+                text_y = box_y + padding + 13
                 for line in debug_lines:
                     cv2.putText(output_frame, line, (text_x, text_y),
                                font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
