@@ -1185,8 +1185,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
         
-        print(f"DEBUG DRAW: SELECT button at ({select_mode_btn_x}, {select_mode_btn_y}, {select_mode_btn_w}, {btn_h}), active={button_state.gallery_select_mode}")
-        
         # Use blue color when select mode is active
         if button_state.gallery_select_mode:
             menu_buttons["gallery_select_mode"].draw(frame, transparent=True, active_color=(200, 100, 40))  # Blue
@@ -1467,7 +1465,6 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 try:
                     # Delete the file
                     filepath.unlink()
-                    print(f"✓ Deleted: {filepath}")
                     
                     # Update selection
                     if len(items) <= 1:
@@ -1488,7 +1485,6 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         # NO button - cancel deletion
         if "modal_no" in menu_buttons and menu_buttons["modal_no"].contains(x, y):
             button_state.gallery_delete_modal_open = False
-            print("Deletion cancelled")
             return True
         
         # Click outside modal - cancel
@@ -1498,7 +1494,6 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     if button_state.gallery_viewer_mode in ("image", "video"):
         if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
             button_state.gallery_delete_modal_open = True
-            print("Delete modal opened")
             return True
     
     # Handle viewer mode clicks (navigation works for both image and video)
@@ -1565,15 +1560,11 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     
     # Handle grid view clicks
     if button_state.gallery_viewer_mode == "grid":
-        print(f"DEBUG: Grid view click at ({x}, {y})")
-        
         # Priority 1: Check select mode toggle button FIRST (before thumbnails)
         if "gallery_select_mode" in menu_buttons:
             btn = menu_buttons["gallery_select_mode"]
-            print(f"DEBUG: SELECT button exists at ({btn.x}, {btn.y}, w={btn.w}, h={btn.h})")
             if btn.contains(x, y):
                 button_state.gallery_select_mode = not button_state.gallery_select_mode
-                print(f"✓ SELECT mode toggled: {'ON (BLUE)' if button_state.gallery_select_mode else 'OFF'}")
                 if not button_state.gallery_select_mode:
                     # Exiting select mode - clear selections
                     button_state.gallery_selected_items.clear()
@@ -1589,11 +1580,9 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     if all_selected:
                         # Deselect all
                         button_state.gallery_selected_items.clear()
-                        print("✓ Deselected all items")
                     else:
                         # Select all
                         button_state.gallery_selected_items = set(range(len(items)))
-                        print(f"✓ Selected all {len(items)} items")
                 button_state.gallery_delete_confirm = False
                 return True
         
@@ -1605,7 +1594,6 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     # First click: request confirmation
                     if not button_state.gallery_delete_confirm:
                         button_state.gallery_delete_confirm = True
-                        print("⚠ Delete confirmation requested - click DELETE again to confirm")
                         return True
                     
                     # Second click: perform deletion
@@ -1620,7 +1608,6 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                                     deleted_count += 1
                                 except Exception as e:
                                     print(f"Failed to delete {filepath}: {e}")
-                        print(f"✓ Deleted {deleted_count} selected files")
                         
                         # Clear selection and reset confirmation
                         button_state.gallery_selected_items.clear()
@@ -1641,14 +1628,11 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         # In select mode: toggle selection
                         if idx in button_state.gallery_selected_items:
                             button_state.gallery_selected_items.remove(idx)
-                            print(f"✓ Deselected item {idx}, total: {len(button_state.gallery_selected_items)}")
                         else:
                             button_state.gallery_selected_items.add(idx)
-                            print(f"✓ Selected item {idx}, total: {len(button_state.gallery_selected_items)}")
                         button_state.gallery_delete_confirm = False
                     else:
                         # Not in select mode: open viewer directly
-                        print(f"✓ Opening viewer for item {idx}")
                         button_state.gallery_selected_item = idx
                         item_type = thumb['type']
                         if item_type == "image":

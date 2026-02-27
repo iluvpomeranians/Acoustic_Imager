@@ -136,9 +136,16 @@ class TouchGestureHandler:
         if len(self.active_touches) == 2:
             current_distance = self._get_distance_between_touches()
             
-            if current_distance is not None and self.last_pinch_distance is not None:
+            if current_distance is not None:
+                # Initialize last_pinch_distance if not set
+                if self.last_pinch_distance is None:
+                    self.last_pinch_distance = current_distance
+                    # Don't return gesture on first measurement
+                    return None
+                
                 distance_delta = current_distance - self.last_pinch_distance
                 
+                # VERY SENSITIVE: Detect even tiny movements
                 if abs(distance_delta) > self.pinch_threshold:
                     scale = current_distance / self.last_pinch_distance
                     midpoint = self._get_midpoint()
@@ -152,6 +159,10 @@ class TouchGestureHandler:
                         'distance_delta': distance_delta,
                         'midpoint': midpoint,
                     }
+                else:
+                    # Even if below threshold, still update distance for smoother tracking
+                    # This prevents "sticking" where small movements are lost
+                    self.last_pinch_distance = current_distance
         
         # SWIPE DETECTION (one finger)
         elif len(self.active_touches) == 1 and len(self.initial_touches) == 1:

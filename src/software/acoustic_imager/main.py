@@ -217,35 +217,36 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     if touch_handler is not None and touch_handler.get_touch_count() == 2:
         gesture = touch_handler.detect_gesture()
         
-        if gesture is not None and gesture['type'] == 'pinch':
-            # Check if pinch is over the frequency bar
-            bar_left = left_width
-            midpoint = gesture.get('midpoint')
-            
-            if midpoint is not None:
-                mid_x, mid_y = midpoint
+        if gesture is not None:
+            if gesture['type'] == 'pinch':
+                # Check if pinch is over the frequency bar
+                bar_left = left_width
+                midpoint = gesture.get('midpoint')
                 
-                if mid_x >= bar_left and mid_x < config.WIDTH:
-                    # Pinch on frequency bar - adjust bandpass filter
-                    scale = gesture['scale']
+                if midpoint is not None:
+                    mid_x, mid_y = midpoint
                     
-                    # Get current frequency range center and span
-                    freq_center = (state.F_MIN_HZ + state.F_MAX_HZ) / 2
-                    freq_span = state.F_MAX_HZ - state.F_MIN_HZ
-                    
-                    # Adjust span based on pinch (pinch in = narrower, pinch out = wider)
-                    # Invert scale: scale > 1 (fingers apart) = widen, scale < 1 (fingers together) = narrow
-                    new_span = freq_span * scale
-                    
-                    # Clamp span to reasonable limits
-                    new_span = max(100, min(new_span, config.F_DISPLAY_MAX))
-                    
-                    # Update min/max symmetrically around center
-                    state.F_MIN_HZ = max(0, freq_center - new_span / 2)
-                    state.F_MAX_HZ = min(config.F_DISPLAY_MAX, freq_center + new_span / 2)
-                    
-                    print(f"Pinch gesture: scale={scale:.2f}, freq range: {state.F_MIN_HZ:.0f}-{state.F_MAX_HZ:.0f} Hz")
-                    return
+                    # SUPER LENIENT: Accept pinch ANYWHERE on screen for easy testing
+                    # (You can restrict to frequency bar later by uncommenting the condition below)
+                    # if mid_x >= bar_left * 0.7:  # Restrict to right side only
+                    if True:  # Accept anywhere for now
+                        scale = gesture['scale']
+                        
+                        # Get current frequency range center and span
+                        freq_center = (state.F_MIN_HZ + state.F_MAX_HZ) / 2
+                        freq_span = state.F_MAX_HZ - state.F_MIN_HZ
+                        
+                        # Adjust span based on pinch (pinch in = narrower, pinch out = wider)
+                        # scale > 1 (fingers apart) = widen, scale < 1 (fingers together) = narrow
+                        new_span = freq_span * scale
+                        
+                        # Clamp span to reasonable limits
+                        new_span = max(100, min(new_span, config.F_DISPLAY_MAX))
+                        
+                        # Update min/max symmetrically around center
+                        state.F_MIN_HZ = max(0, freq_center - new_span / 2)
+                        state.F_MAX_HZ = min(config.F_DISPLAY_MAX, freq_center + new_span / 2)
+                        return
     
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
@@ -477,8 +478,8 @@ def main() -> None:
 
     # ---- Setup touch gesture handler ----
     global touch_handler, mouse_touch_sim
-    touch_handler = TouchGestureHandler(pinch_threshold=10.0, swipe_threshold=30.0)
-    mouse_touch_sim = MouseTouchSimulator()  # For testing with mouse on non-touch systems
+    touch_handler = TouchGestureHandler(pinch_threshold=1.0, swipe_threshold=20.0)
+    mouse_touch_sim = MouseTouchSimulator()
     
     # ---- Setup OpenCV window ----
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -786,6 +787,34 @@ def main() -> None:
                 video_recorder.write_frame(output_frame)
             prof.mark("record")
 
+            # ---- Draw touch point indicators for debugging ----
+            if touch_handler is not None and touch_handler.get_touch_count() > 0:
+                for touch_id, touch in touch_handler.active_touches.items():
+                    # Draw colored circles at touch points
+                    color = (0, 255, 0) if touch_id == 0 else (255, 0, 255)  # Green for first, Magenta for second
+                    cv2.circle(output_frame, (int(touch.x), int(touch.y)), 30, color, 3, cv2.LINE_AA)
+                    cv2.circle(output_frame, (int(touch.x), int(touch.y)), 5, color, -1, cv2.LINE_AA)
+                    # Label the touch point
+                    cv2.putText(output_frame, f"T{touch_id}", (int(touch.x) + 35, int(touch.y) - 35),
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.0, color, 2, cv2.LINE_AA)
+                
+                # Draw line between two touch points
+                if touch_handler.get_touch_count() == 2:
+                    touches = list(touch_handler.active_touches.values())
+                    pt1 = (int(touches[0].x), int(touches[0].y))
+                    pt2 = (int(touches[1].x), int(touches[1].y))
+                    cv2.line(output_frame, pt1, pt2, (0, 255, 255), 2, cv2.LINE_AA)  # Yellow line
+                    
+                    # Show distance
+                    distance = touch_handler._get_distance_between_touches()
+                    if distance is not None:
+                        mid = touch_handler._get_midpoint()
+                        if mid is not None:
+                            mid_x, mid_y = mid
+                            text = f"{distance:.0f}px"
+                            cv2.putText(output_frame, text, (int(mid_x) - 40, int(mid_y) - 10),
+                                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2, cv2.LINE_AA)
+            
             # ---- Display frame ----
             cv2.imshow(config.WINDOW_NAME, output_frame)
             prof.mark("imshow")
