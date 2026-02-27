@@ -744,14 +744,14 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     # Draw controls overlay
     font = cv2.FONT_HERSHEY_SIMPLEX
     
-    # Back button (top-left)
+    # Back button (narrow, just fits the arrow)
     back_btn_x = 20
     back_btn_y = 20
-    back_btn_w = 100
+    back_btn_w = 50  # Narrower button
     back_btn_h = 40
     
     if "gallery_back" not in menu_buttons:
-        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "< BACK")
+        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
     else:
         menu_buttons["gallery_back"].x = back_btn_x
         menu_buttons["gallery_back"].y = back_btn_y
@@ -795,25 +795,6 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         
         menu_buttons["gallery_next"].draw(frame, transparent=True)
 
-    # Delete button - positioned at bottom right, OUTSIDE the image frame
-    delete_btn_w = 100
-    delete_btn_h = 35
-    delete_btn_x = frame.shape[1] - delete_btn_w - 20
-    delete_btn_y = frame.shape[0] - delete_btn_h - 80  # Above bottom, outside media
-
-    if "gallery_delete" not in menu_buttons:
-        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "DELETE")
-    else:
-        menu_buttons["gallery_delete"].x = delete_btn_x
-        menu_buttons["gallery_delete"].y = delete_btn_y
-        menu_buttons["gallery_delete"].w = delete_btn_w
-        menu_buttons["gallery_delete"].h = delete_btn_h
-        menu_buttons["gallery_delete"].text = "DELETE"
-
-    # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
-    menu_buttons["gallery_delete"].is_active = True
-    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
-
     # Filename at bottom
     filename = filepath.name
     (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.6, 1)
@@ -824,6 +805,24 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     cv2.rectangle(frame, (text_x - 10, text_y - text_h - 10), 
                  (text_x + text_w + 10, text_y + 10), (0, 0, 0), -1)
     cv2.putText(frame, filename, (text_x, text_y), font, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+
+    # Delete button - positioned next to filename
+    delete_btn_w = 50
+    delete_btn_h = 35
+    delete_btn_x = text_x + text_w + 20  # To the right of filename
+    delete_btn_y = frame.shape[0] - delete_btn_h - 12
+
+    if "gallery_delete" not in menu_buttons:
+        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "")
+    else:
+        menu_buttons["gallery_delete"].x = delete_btn_x
+        menu_buttons["gallery_delete"].y = delete_btn_y
+        menu_buttons["gallery_delete"].w = delete_btn_w
+        menu_buttons["gallery_delete"].h = delete_btn_h
+
+    # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
+    menu_buttons["gallery_delete"].is_active = True
+    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
 
 
 def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]], output_dir: Optional[Path]) -> None:
@@ -892,14 +891,14 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     # Draw controls
     font = cv2.FONT_HERSHEY_SIMPLEX
     
-    # Back button
+    # Back button (narrow, just fits the arrow)
     back_btn_x = 20
     back_btn_y = 20
-    back_btn_w = 100
+    back_btn_w = 50  # Narrower button
     back_btn_h = 40
-    
+
     if "gallery_back" not in menu_buttons:
-        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "< BACK")
+        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
     else:
         menu_buttons["gallery_back"].x = back_btn_x
         menu_buttons["gallery_back"].y = back_btn_y
@@ -965,29 +964,23 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     time_y = controls_y + 35
     cv2.putText(frame, time_text, (time_x, time_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # Delete button - positioned at bottom right, OUTSIDE the video frame
-    delete_btn_w = 100
-    delete_btn_h = 35
-    delete_btn_x = frame.shape[1] - delete_btn_w - 20
-    delete_btn_y = frame.shape[0] - delete_btn_h - 80  # Above bottom, outside media
+    # Delete button - positioned next to PLAY button
+    delete_btn_w = 50
+    delete_btn_h = 40
+    delete_btn_x = play_btn_x + play_btn_w + 15  # To the right of play button
+    delete_btn_y = play_btn_y
 
     if "gallery_delete" not in menu_buttons:
-        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "DELETE")
+        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "")
     else:
         menu_buttons["gallery_delete"].x = delete_btn_x
         menu_buttons["gallery_delete"].y = delete_btn_y
         menu_buttons["gallery_delete"].w = delete_btn_w
         menu_buttons["gallery_delete"].h = delete_btn_h
-        menu_buttons["gallery_delete"].text = "DELETE"
 
     # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
     menu_buttons["gallery_delete"].is_active = True
     menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
-
-    # Filename
-    filename = filepath.name
-    (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.5, 1)
-    cv2.putText(frame, filename, (20, controls_y + 35), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
 
 
 def draw_delete_modal(frame: np.ndarray) -> None:
@@ -1108,15 +1101,15 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_y = (header_h + title_h) // 2 + 5
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
 
-    # Back button
+    # Back button (narrow, just fits the arrow)
     back_btn_x = 20
     back_btn_y = 20
-    back_btn_w = 100
+    back_btn_w = 50  # Narrower button
     back_btn_h = 40
 
     # Store back button for click detection
     if "gallery_back" not in menu_buttons:
-        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "< BACK")
+        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
     else:
         menu_buttons["gallery_back"].x = back_btn_x
         menu_buttons["gallery_back"].y = back_btn_y
