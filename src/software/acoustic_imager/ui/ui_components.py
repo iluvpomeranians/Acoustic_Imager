@@ -1028,6 +1028,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_select_mode"].text = "DONE" if button_state.gallery_select_mode else "SELECT"
         
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
+        
+        print(f"DEBUG DRAW: SELECT button at ({select_mode_btn_x}, {select_mode_btn_y}, {select_mode_btn_w}, {btn_h}), active={button_state.gallery_select_mode}")
+        
         # Use blue color when select mode is active
         if button_state.gallery_select_mode:
             menu_buttons["gallery_select_mode"].draw(frame, transparent=True, active_color=(200, 100, 40))  # Blue
@@ -1374,68 +1377,72 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     
     # Handle grid view clicks
     if button_state.gallery_viewer_mode == "grid":
-        # Check select mode toggle button (HIGHEST PRIORITY)
+        print(f"DEBUG: Grid view click at ({x}, {y})")
+        
+        # Priority 1: Check select mode toggle button FIRST (before thumbnails)
         if "gallery_select_mode" in menu_buttons:
             btn = menu_buttons["gallery_select_mode"]
-            print(f"DEBUG: SELECT button at ({btn.x}, {btn.y}, {btn.w}, {btn.h}), click at ({x}, {y})")
+            print(f"DEBUG: SELECT button exists at ({btn.x}, {btn.y}, w={btn.w}, h={btn.h})")
             if btn.contains(x, y):
                 button_state.gallery_select_mode = not button_state.gallery_select_mode
-                print(f"SELECT mode toggled: {'ON' if button_state.gallery_select_mode else 'OFF'}")
+                print(f"✓ SELECT mode toggled: {'ON (BLUE)' if button_state.gallery_select_mode else 'OFF'}")
                 if not button_state.gallery_select_mode:
                     # Exiting select mode - clear selections
                     button_state.gallery_selected_items.clear()
                     button_state.gallery_delete_confirm = False
                 return True
         
-        # Check select all button (only available in select mode)
-        if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons and menu_buttons["gallery_select_all"].contains(x, y):
-            items = get_gallery_items(output_dir) if output_dir else []
-            if items:
-                all_selected = len(button_state.gallery_selected_items) == len(items)
-                if all_selected:
-                    # Deselect all
-                    button_state.gallery_selected_items.clear()
-                    print("Deselected all items")
-                else:
-                    # Select all
-                    button_state.gallery_selected_items = set(range(len(items)))
-                    print(f"Selected all {len(items)} items")
-            button_state.gallery_delete_confirm = False  # Reset confirmation when selection changes
-            return True
+        # Priority 2: Check select all button
+        if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons:
+            if menu_buttons["gallery_select_all"].contains(x, y):
+                items = get_gallery_items(output_dir) if output_dir else []
+                if items:
+                    all_selected = len(button_state.gallery_selected_items) == len(items)
+                    if all_selected:
+                        # Deselect all
+                        button_state.gallery_selected_items.clear()
+                        print("✓ Deselected all items")
+                    else:
+                        # Select all
+                        button_state.gallery_selected_items = set(range(len(items)))
+                        print(f"✓ Selected all {len(items)} items")
+                button_state.gallery_delete_confirm = False
+                return True
         
-        # Check delete selected button (with confirmation) - only in select mode
-        if button_state.gallery_select_mode and "gallery_delete_selected" in menu_buttons and menu_buttons["gallery_delete_selected"].contains(x, y):
-            items = get_gallery_items(output_dir) if output_dir else []
-            if button_state.gallery_selected_items:
-                # First click: request confirmation
-                if not button_state.gallery_delete_confirm:
-                    button_state.gallery_delete_confirm = True
-                    print("Delete confirmation requested - click DELETE again to confirm")
-                    return True
-                
-                # Second click: perform deletion
-                try:
-                    # Delete selected files
-                    deleted_count = 0
-                    for idx in sorted(button_state.gallery_selected_items, reverse=True):
-                        if idx < len(items):
-                            filepath = items[idx][0]
-                            try:
-                                filepath.unlink()
-                                deleted_count += 1
-                            except Exception as e:
-                                print(f"Failed to delete {filepath}: {e}")
-                    print(f"Deleted {deleted_count} selected files")
+        # Priority 3: Check delete button
+        if button_state.gallery_select_mode and "gallery_delete_selected" in menu_buttons:
+            if menu_buttons["gallery_delete_selected"].contains(x, y):
+                items = get_gallery_items(output_dir) if output_dir else []
+                if button_state.gallery_selected_items:
+                    # First click: request confirmation
+                    if not button_state.gallery_delete_confirm:
+                        button_state.gallery_delete_confirm = True
+                        print("⚠ Delete confirmation requested - click DELETE again to confirm")
+                        return True
                     
-                    # Clear selection and reset confirmation
-                    button_state.gallery_selected_items.clear()
-                    button_state.gallery_delete_confirm = False
-                except Exception as e:
-                    print(f"Failed to delete files: {e}")
-                    button_state.gallery_delete_confirm = False
-            return True
+                    # Second click: perform deletion
+                    try:
+                        # Delete selected files
+                        deleted_count = 0
+                        for idx in sorted(button_state.gallery_selected_items, reverse=True):
+                            if idx < len(items):
+                                filepath = items[idx][0]
+                                try:
+                                    filepath.unlink()
+                                    deleted_count += 1
+                                except Exception as e:
+                                    print(f"Failed to delete {filepath}: {e}")
+                        print(f"✓ Deleted {deleted_count} selected files")
+                        
+                        # Clear selection and reset confirmation
+                        button_state.gallery_selected_items.clear()
+                        button_state.gallery_delete_confirm = False
+                    except Exception as e:
+                        print(f"Error during deletion: {e}")
+                        button_state.gallery_delete_confirm = False
+                return True
         
-        # Check thumbnail clicks
+        # Priority 4: Check thumbnail clicks (LAST)
         if hasattr(button_state, 'gallery_thumbnail_rects'):
             for thumb in button_state.gallery_thumbnail_rects:
                 if (thumb['x'] <= x <= thumb['x'] + thumb['w'] and
@@ -1446,14 +1453,14 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         # In select mode: toggle selection
                         if idx in button_state.gallery_selected_items:
                             button_state.gallery_selected_items.remove(idx)
-                            print(f"Deselected item {idx}, total selected: {len(button_state.gallery_selected_items)}")
+                            print(f"✓ Deselected item {idx}, total: {len(button_state.gallery_selected_items)}")
                         else:
                             button_state.gallery_selected_items.add(idx)
-                            print(f"Selected item {idx}, total selected: {len(button_state.gallery_selected_items)}")
-                        button_state.gallery_delete_confirm = False  # Reset confirmation when selection changes
+                            print(f"✓ Selected item {idx}, total: {len(button_state.gallery_selected_items)}")
+                        button_state.gallery_delete_confirm = False
                     else:
                         # Not in select mode: open viewer directly
-                        print(f"Opening viewer for item {idx}")
+                        print(f"✓ Opening viewer for item {idx}")
                         button_state.gallery_selected_item = idx
                         item_type = thumb['type']
                         if item_type == "image":
