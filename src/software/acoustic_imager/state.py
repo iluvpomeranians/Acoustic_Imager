@@ -73,7 +73,10 @@ button_state = ButtonState()
 # Bandpass drag state
 # ===============================================================
 DRAG_ACTIVE: bool = False
-DRAG_TARGET: Optional[str] = None  # "min" or "max"
+DRAG_TARGET: Optional[str] = None  # "min", "max", or "box"
+DRAG_START_Y: int = 0  # Initial y position when box drag starts
+DRAG_START_F_MIN: float = 0.0  # Initial F_MIN_HZ when box drag starts
+DRAG_START_F_MAX: float = 0.0  # Initial F_MAX_HZ when box drag starts
 
 F_MIN_HZ: float = float(F_MIN_HZ_DEFAULT)
 F_MAX_HZ: float = float(F_MAX_HZ_DEFAULT)

@@ -215,17 +215,27 @@ def draw_frequency_bar(
     y_min_txt = int(np.clip(y_min - 6, 12, h - 6))
     y_max_txt = int(np.clip(y_max - 6, 12, h - 6))
 
+    # Draw semi-transparent fill inside the bandpass box
+    y_top = min(y_min, y_max)
+    y_bottom = max(y_min, y_max)
+    if y_bottom > y_top:
+        # Create a semi-transparent overlay
+        overlay = bar.copy()
+        cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), (0, 255, 0), -1)
+        # Blend with low alpha for subtle effect
+        cv2.addWeighted(overlay, 0.08, bar, 0.92, 0, bar)
+    
     cv2.putText(bar, f"{fmin_khz:5.1f} kHz", (label_x, y_min_txt),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(bar, f"{fmax_khz:5.1f} kHz", (label_x, y_max_txt),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
 
     # Draw bandpass box (horizontal + vertical lines)
-    cv2.line(bar, (0, y_min), (bar_w - 1, y_min), (0, 255, 0), 1)
-    cv2.line(bar, (0, y_max), (bar_w - 1, y_max), (0, 255, 0), 1)
+    cv2.line(bar, (0, y_min), (bar_w - 1, y_min), (0, 255, 0), 2)
+    cv2.line(bar, (0, y_max), (bar_w - 1, y_max), (0, 255, 0), 2)
     # Vertical lines to complete the box
-    cv2.line(bar, (0, y_min), (0, y_max), (0, 255, 0), 1)
-    cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), (0, 255, 0), 1)
+    cv2.line(bar, (0, y_min), (0, y_max), (0, 255, 0), 2)
+    cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), (0, 255, 0), 2)
 
     # cv2.putText(bar, "Freq:", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # cv2.putText(bar, f"{int(f_display_max/1000)} kHz", (5, 40),
