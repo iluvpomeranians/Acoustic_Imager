@@ -77,6 +77,7 @@ from acoustic_imager.ui.ui_components import (
     draw_menu,
     draw_recording_timestamp,
     draw_screenshot_flash,
+    get_recording_timestamp_rect,
     handle_button_click,
     handle_gallery_click,
     draw_gallery_view,
@@ -181,6 +182,20 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Check gallery view first (if open)
         if handle_gallery_click(mx, my, state.OUTPUT_DIR):
             return
+
+        # Check recording timestamp bar click (for pause/resume) - works when menu is open or closed
+        if button_state.is_recording and video_recorder is not None:
+            rect = get_recording_timestamp_rect()
+            if rect is not None:
+                rx, ry, rw, rh = rect
+                if rx <= mx <= rx + rw and ry <= my <= ry + rh:
+                    # Toggle pause
+                    button_state.is_paused = not button_state.is_paused
+                    if button_state.is_paused:
+                        video_recorder.pause_recording()
+                    else:
+                        video_recorder.resume_recording()
+                    return
 
         # 1) HUD click handling (top priority, before buttons)
         try:
