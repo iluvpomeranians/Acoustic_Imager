@@ -55,6 +55,7 @@ class ButtonState:
     gallery_select_mode: bool = False  # Whether we're in select mode for multi-select
     gallery_selected_items: set = None  # Multi-select for deletion
     gallery_delete_confirm: bool = False  # Confirmation state for delete
+    gallery_delete_modal_open: bool = False  # Whether delete confirmation modal is open
     
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None

@@ -181,9 +181,9 @@ def _draw_pause_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
     bar_w = size // 3
     bar_h = size
     gap = size // 3
-    
+
     # Left bar
-    cv2.rectangle(frame, 
+    cv2.rectangle(frame,
                  (cx - gap - bar_w, cy - bar_h//2),
                  (cx - gap, cy + bar_h//2),
                  (255, 255, 255), -1, cv2.LINE_AA)
@@ -192,6 +192,56 @@ def _draw_pause_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
                  (cx + gap, cy - bar_h//2),
                  (cx + gap + bar_w, cy + bar_h//2),
                  (255, 255, 255), -1, cv2.LINE_AA)
+
+
+def _draw_back_arrow_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
+    """Draw a back/left arrow icon (<)."""
+    # Arrow points left
+    arrow_pts = np.array([
+        [cx + size//2, cy - size],      # Top right
+        [cx - size//2, cy],             # Left point
+        [cx + size//2, cy + size]       # Bottom right
+    ], np.int32)
+    
+    # Draw filled arrow
+    cv2.fillPoly(frame, [arrow_pts], (255, 255, 255), cv2.LINE_AA)
+    # Draw outline
+    cv2.polylines(frame, [arrow_pts], True, (200, 200, 200), 2, cv2.LINE_AA)
+
+
+def _draw_trash_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
+    """Draw a trash can icon."""
+    # Trash can body (rectangle)
+    body_w = int(size * 1.2)
+    body_h = int(size * 1.4)
+    top_y = cy - body_h//2
+    bottom_y = cy + body_h//2
+    
+    # Body
+    cv2.rectangle(frame,
+                 (cx - body_w//2, top_y + 3),
+                 (cx + body_w//2, bottom_y),
+                 (255, 255, 255), -1, cv2.LINE_AA)
+    
+    # Lid (wider rectangle on top)
+    lid_w = int(body_w * 1.3)
+    cv2.rectangle(frame,
+                 (cx - lid_w//2, top_y),
+                 (cx + lid_w//2, top_y + 3),
+                 (255, 255, 255), -1, cv2.LINE_AA)
+    
+    # Handle on lid
+    handle_w = body_w // 3
+    cv2.rectangle(frame,
+                 (cx - handle_w//2, top_y - 3),
+                 (cx + handle_w//2, top_y),
+                 (255, 255, 255), -1, cv2.LINE_AA)
+    
+    # Vertical lines inside (trash details)
+    line_gap = body_w // 4
+    for i in range(-1, 2):
+        line_x = cx + i * line_gap
+        cv2.line(frame, (line_x, top_y + 6), (line_x, bottom_y - 3), (200, 200, 200), 1, cv2.LINE_AA)
 
 
 class Button:
@@ -265,6 +315,10 @@ class Button:
                 _draw_rec_icon(frame, cx, cy, size=7, is_active=self.is_active)
             elif icon_type == "pause":
                 _draw_pause_icon(frame, cx, cy, size=9)
+            elif icon_type == "back":
+                _draw_back_arrow_icon(frame, cx, cy, size=12)
+            elif icon_type == "trash":
+                _draw_trash_icon(frame, cx, cy, size=11)
         else:
             # ---- text (AA is surprisingly expensive; use LINE_8) ----
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -384,6 +438,12 @@ def update_button_states(mx: int, my: int) -> None:
         for k in gallery_keys:
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
+    
+    # Update modal button hover states
+    if button_state.gallery_delete_modal_open:
+        for k in ("modal_yes", "modal_no"):
+            if k in menu_buttons:
+                menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 
 
 def draw_buttons(frame: np.ndarray) -> None:
@@ -405,18 +465,18 @@ def draw_menu(frame: np.ndarray) -> None:
     # Draw transparent menu button (similar to HUD pills)
     x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
     
-    # Semi-transparent background
+    # Semi-transparent background (matching HUD/debug transparency)
     roi = frame[y:y+h, x:x+w]
     overlay = np.empty_like(roi)
-    bg_color = (40, 200, 60) if menu_btn.is_active else ((85, 85, 85) if menu_btn.is_hovered else (60, 60, 60))
+    bg_color = (40, 200, 60) if menu_btn.is_active else (40, 40, 40)  # Dark grey like debug box
     overlay[:] = bg_color
-    # Use higher opacity for active state to make green more obvious
-    alpha = 0.25 if menu_btn.is_active else 0.12
+    # Use HUD-style transparency (0.35 like HUD pills)
+    alpha = 0.35
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
     
-    # Border - use green border for active state
-    border_color = (80, 255, 100) if menu_btn.is_active else (230, 230, 230)
-    cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_8)
+    # Border - match debug box border color
+    border_color = (80, 255, 100) if menu_btn.is_active else (100, 100, 100)
+    cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_AA)
     
     # Text
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -697,9 +757,9 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_back"].y = back_btn_y
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
-    
-    menu_buttons["gallery_back"].draw(frame, transparent=True)
-    
+
+    menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
+
     # Navigation arrows
     if button_state.gallery_selected_item > 0:
         # Previous button
@@ -734,34 +794,26 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_next"].h = next_btn_h
         
         menu_buttons["gallery_next"].draw(frame, transparent=True)
-    
-    # Delete button (top-right) with confirmation state
-    delete_btn_x = frame.shape[1] - 150
-    delete_btn_y = 20
-    delete_btn_w = 130
-    delete_btn_h = 40
-    
-    # Update button text based on confirmation state
-    if button_state.gallery_delete_confirm:
-        delete_text = "CONFIRM?"
-        delete_color = (200, 0, 0)  # Brighter red for confirmation
-    else:
-        delete_text = "DELETE"
-        delete_color = (150, 0, 0)  # Normal red
-    
+
+    # Delete button - positioned at bottom right, OUTSIDE the image frame
+    delete_btn_w = 100
+    delete_btn_h = 35
+    delete_btn_x = frame.shape[1] - delete_btn_w - 20
+    delete_btn_y = frame.shape[0] - delete_btn_h - 80  # Above bottom, outside media
+
     if "gallery_delete" not in menu_buttons:
-        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, delete_text)
+        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "DELETE")
     else:
         menu_buttons["gallery_delete"].x = delete_btn_x
         menu_buttons["gallery_delete"].y = delete_btn_y
         menu_buttons["gallery_delete"].w = delete_btn_w
         menu_buttons["gallery_delete"].h = delete_btn_h
-        menu_buttons["gallery_delete"].text = delete_text
-    
-    # Draw delete button with red color
+        menu_buttons["gallery_delete"].text = "DELETE"
+
+    # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
     menu_buttons["gallery_delete"].is_active = True
-    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=delete_color)
-    
+    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
+
     # Filename at bottom
     filename = filepath.name
     (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.6, 1)
@@ -853,9 +905,9 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_back"].y = back_btn_y
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
-    
-    menu_buttons["gallery_back"].draw(frame, transparent=True)
-    
+
+    menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
+
     # Control panel at bottom
     controls_y = frame.shape[0] - 90
     cv2.rectangle(frame, (0, controls_y), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
@@ -912,38 +964,101 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     time_x = frame.shape[1] - time_w - 20
     time_y = controls_y + 35
     cv2.putText(frame, time_text, (time_x, time_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
-    
-    # Delete button (top-right) with confirmation state
-    delete_btn_x = frame.shape[1] - 150
-    delete_btn_y = 20
-    delete_btn_w = 130
-    delete_btn_h = 40
-    
-    # Update button text based on confirmation state
-    if button_state.gallery_delete_confirm:
-        delete_text = "CONFIRM?"
-        delete_color = (200, 0, 0)  # Brighter red for confirmation
-    else:
-        delete_text = "DELETE"
-        delete_color = (150, 0, 0)  # Normal red
-    
+
+    # Delete button - positioned at bottom right, OUTSIDE the video frame
+    delete_btn_w = 100
+    delete_btn_h = 35
+    delete_btn_x = frame.shape[1] - delete_btn_w - 20
+    delete_btn_y = frame.shape[0] - delete_btn_h - 80  # Above bottom, outside media
+
     if "gallery_delete" not in menu_buttons:
-        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, delete_text)
+        menu_buttons["gallery_delete"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, "DELETE")
     else:
         menu_buttons["gallery_delete"].x = delete_btn_x
         menu_buttons["gallery_delete"].y = delete_btn_y
         menu_buttons["gallery_delete"].w = delete_btn_w
         menu_buttons["gallery_delete"].h = delete_btn_h
-        menu_buttons["gallery_delete"].text = delete_text
-    
-    # Draw delete button with red color
+        menu_buttons["gallery_delete"].text = "DELETE"
+
+    # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
     menu_buttons["gallery_delete"].is_active = True
-    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=delete_color)
-    
+    menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
+
     # Filename
     filename = filepath.name
     (text_w, text_h), _ = cv2.getTextSize(filename, font, 0.5, 1)
     cv2.putText(frame, filename, (20, controls_y + 35), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+
+
+def draw_delete_modal(frame: np.ndarray) -> None:
+    """
+    Draw a confirmation modal for deleting items.
+    Shows "Are you sure?" with YES/NO buttons.
+    """
+    # Modal dimensions
+    modal_w = 400
+    modal_h = 180
+    modal_x = (frame.shape[1] - modal_w) // 2
+    modal_y = (frame.shape[0] - modal_h) // 2
+    
+    # Draw semi-transparent overlay over entire screen
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+    
+    # Draw modal box with dark background
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
+    
+    # Draw title text
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    title = "Delete this item?"
+    title_scale = 0.7
+    (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, 2)
+    title_x = modal_x + (modal_w - title_w) // 2
+    title_y = modal_y + 50
+    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), 2, cv2.LINE_AA)
+    
+    # Draw warning message
+    msg = "This action cannot be undone."
+    msg_scale = 0.5
+    (msg_w, msg_h), _ = cv2.getTextSize(msg, font, msg_scale, 1)
+    msg_x = modal_x + (modal_w - msg_w) // 2
+    msg_y = modal_y + 85
+    cv2.putText(frame, msg, (msg_x, msg_y), font, msg_scale, (200, 200, 200), 1, cv2.LINE_AA)
+    
+    # YES button (red)
+    yes_btn_w = 120
+    yes_btn_h = 45
+    yes_btn_x = modal_x + (modal_w // 2) - yes_btn_w - 15
+    yes_btn_y = modal_y + modal_h - yes_btn_h - 25
+    
+    if "modal_yes" not in menu_buttons:
+        menu_buttons["modal_yes"] = Button(yes_btn_x, yes_btn_y, yes_btn_w, yes_btn_h, "YES, DELETE")
+    else:
+        menu_buttons["modal_yes"].x = yes_btn_x
+        menu_buttons["modal_yes"].y = yes_btn_y
+        menu_buttons["modal_yes"].w = yes_btn_w
+        menu_buttons["modal_yes"].h = yes_btn_h
+    
+    menu_buttons["modal_yes"].is_active = True
+    menu_buttons["modal_yes"].draw(frame, transparent=True, active_color=(0, 0, 220))
+    
+    # NO button (grey)
+    no_btn_w = 120
+    no_btn_h = 45
+    no_btn_x = modal_x + (modal_w // 2) + 15
+    no_btn_y = modal_y + modal_h - no_btn_h - 25
+    
+    if "modal_no" not in menu_buttons:
+        menu_buttons["modal_no"] = Button(no_btn_x, no_btn_y, no_btn_w, no_btn_h, "CANCEL")
+    else:
+        menu_buttons["modal_no"].x = no_btn_x
+        menu_buttons["modal_no"].y = no_btn_y
+        menu_buttons["modal_no"].w = no_btn_w
+        menu_buttons["modal_no"].h = no_btn_h
+    
+    menu_buttons["modal_no"].draw(frame, transparent=True)
 
 
 def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
@@ -961,9 +1076,15 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     # Check if we're in viewer mode
     if button_state.gallery_viewer_mode == "image":
         draw_image_viewer(frame, items, output_dir)
+        # Draw delete modal if open
+        if button_state.gallery_delete_modal_open:
+            draw_delete_modal(frame)
         return
     elif button_state.gallery_viewer_mode == "video":
         draw_video_viewer(frame, items, output_dir)
+        # Draw delete modal if open
+        if button_state.gallery_delete_modal_open:
+            draw_delete_modal(frame)
         return
 
     # Grid view mode
@@ -1002,8 +1123,8 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_back"].w = back_btn_w
         menu_buttons["gallery_back"].h = back_btn_h
 
-    menu_buttons["gallery_back"].draw(frame, transparent=True)
-    
+    menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
+
     # Selection controls (top-right)
     if items:
         btn_gap = 10
@@ -1071,10 +1192,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 # Update button text based on confirmation state
                 if button_state.gallery_delete_confirm:
                     delete_text = "CONFIRM DELETE?"
-                    delete_color = (200, 0, 0)  # Brighter red for confirmation
+                    delete_color = (0, 0, 255)  # Brighter red for confirmation (BGR)
                 else:
                     delete_text = f"DELETE ({selected_count})"
-                    delete_color = (150, 0, 0)  # Normal red
+                    delete_color = (0, 0, 200)  # Normal red (BGR)
                 
                 if "gallery_delete_selected" not in menu_buttons:
                     menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, btn_h, delete_text)
@@ -1294,23 +1415,17 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_delete_confirm = False  # Reset confirmation
         return True
     
-    # Check delete button (works in both image and video viewer)
-    if button_state.gallery_viewer_mode in ("image", "video"):
-        if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
+    # Check modal buttons (if modal is open)
+    if button_state.gallery_delete_modal_open:
+        # YES button - confirm deletion
+        if "modal_yes" in menu_buttons and menu_buttons["modal_yes"].contains(x, y):
             items = get_gallery_items(output_dir) if output_dir else []
             if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
-                # First click: request confirmation
-                if not button_state.gallery_delete_confirm:
-                    button_state.gallery_delete_confirm = True
-                    print("Delete confirmation requested - click DELETE again to confirm")
-                    return True
-                
-                # Second click: perform deletion
                 filepath = items[button_state.gallery_selected_item][0]
                 try:
                     # Delete the file
                     filepath.unlink()
-                    print(f"Deleted: {filepath}")
+                    print(f"✓ Deleted: {filepath}")
                     
                     # Update selection
                     if len(items) <= 1:
@@ -1322,10 +1437,26 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         if button_state.gallery_selected_item >= len(items) - 1:
                             button_state.gallery_selected_item = len(items) - 2
                     
-                    button_state.gallery_delete_confirm = False
+                    button_state.gallery_delete_modal_open = False
                 except Exception as e:
                     print(f"Failed to delete {filepath}: {e}")
-                    button_state.gallery_delete_confirm = False
+                    button_state.gallery_delete_modal_open = False
+            return True
+        
+        # NO button - cancel deletion
+        if "modal_no" in menu_buttons and menu_buttons["modal_no"].contains(x, y):
+            button_state.gallery_delete_modal_open = False
+            print("Deletion cancelled")
+            return True
+        
+        # Click outside modal - cancel
+        return True
+    
+    # Check delete button (works in both image and video viewer) - opens modal
+    if button_state.gallery_viewer_mode in ("image", "video"):
+        if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
+            button_state.gallery_delete_modal_open = True
+            print("Delete modal opened")
             return True
     
     # Handle viewer mode clicks
