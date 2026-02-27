@@ -264,7 +264,7 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     gap = 8
     
     # Calculate total dropdown height to position it above the menu button
-    total_items = 8  # FPS row + GAIN + COLORMAP + CAM + SOURCE + DEBUG + SHOT/REC/PAUSE row + GALLERY
+    total_items = 8  # FPS row + GAIN + COLORMAP + CAM + SOURCE + DEBUG + SHOT/REC row + GALLERY
     dropdown_h = total_items * (item_h + gap) + gap
     
     # Position dropdown above menu button
@@ -304,14 +304,13 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
         "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
     )
 
-    # Segmented tools under DEBUG (SHOT | REC | PAUSE)
+    # Segmented tools under DEBUG (SHOT | REC)
     tools_y = dbg_y + (item_h + gap)
     tool_gap = 6
-    tool_w = (menu_w - 2 * tool_gap) // 3
+    tool_w = (menu_w - tool_gap) // 2  # Only 2 buttons now
 
     menu_buttons["shot"]  = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
     menu_buttons["rec"]   = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
-    menu_buttons["pause"] = Button(menu_x + 2 * (tool_w + tool_gap), tools_y, tool_w, item_h, "PAUSE")
 
     gallery_y = tools_y + (item_h + gap)
     menu_buttons["gallery"] = Button(menu_x, gallery_y, menu_w, item_h, "GALLERY")
@@ -324,7 +323,7 @@ def update_button_states(mx: int, my: int) -> None:
     if "menu" in menu_buttons:
         menu_buttons["menu"].is_hovered = menu_buttons["menu"].contains(mx, my)
 
-    keys = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "shot", "rec", "pause", "gallery")
+    keys = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "shot", "rec", "gallery")
 
     if button_state.menu_open:
         for k in keys:
@@ -397,7 +396,6 @@ def draw_menu(frame: np.ndarray) -> None:
 
     # Tool button actives reflect current state
     menu_buttons["rec"].is_active = button_state.is_recording
-    menu_buttons["pause"].is_active = button_state.is_paused
 
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
@@ -417,29 +415,23 @@ def draw_menu(frame: np.ndarray) -> None:
 
     menu_buttons["shot"].draw(frame, transparent=True, icon_type="camera")
     menu_buttons["rec"].draw(frame, transparent=True, icon_type="rec")
-    menu_buttons["pause"].draw(frame, transparent=True, icon_type="pause")
     
     # Don't draw gallery button if recording (replaced by timestamp)
     if not button_state.is_recording:
         menu_buttons["gallery"].draw(frame, transparent=True)
 
 
-def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:
+def get_recording_timestamp_rect() -> Optional[Tuple[int, int, int, int]]:
     """
-    Draw recording timestamp replacing the GALLERY button position when recording.
-    Shows elapsed time in MM:SS format, with red dot indicator.
+    Get the recording timestamp rectangle for click detection.
+    Returns (x, y, w, h) or None if not recording.
     """
-    if video_recorder is None or not video_recorder.is_recording:
-        return
-
+    if not button_state.is_recording:
+        return None
+    
     if "menu" not in menu_buttons or "gallery" not in menu_buttons:
-        return
-
-    # Get elapsed time
-    elapsed = video_recorder.get_elapsed_time()
-    minutes = int(elapsed // 60)
-    seconds = int(elapsed % 60)
-
+        return None
+    
     # Position at GALLERY button location (replaces it during recording)
     if button_state.menu_open:
         gallery_btn = menu_buttons["gallery"]
@@ -453,6 +445,28 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         menu_w = menu_buttons["menu"].w
         timestamp_h = 35
         timestamp_y = menu_buttons["menu"].y - timestamp_h - 10
+    
+    return (menu_x, timestamp_y, menu_w, timestamp_h)
+
+
+def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:
+    """
+    Draw recording timestamp (clickable to pause/resume).
+    Shows elapsed time in MM:SS format, with red dot indicator.
+    """
+    if video_recorder is None or not video_recorder.is_recording:
+        return
+
+    rect = get_recording_timestamp_rect()
+    if rect is None:
+        return
+    
+    menu_x, timestamp_y, menu_w, timestamp_h = rect
+
+    # Get elapsed time
+    elapsed = video_recorder.get_elapsed_time()
+    minutes = int(elapsed // 60)
+    seconds = int(elapsed % 60)
 
     # Bounds check
     if timestamp_y < 0 or timestamp_y + timestamp_h > frame.shape[0]:
@@ -485,12 +499,14 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
 
     # Draw transparent overlay instead of cached hud (always visible)
     overlay = np.empty_like(roi)
-    bg_color = (100, 0, 0) if not paused else (40, 40, 100)
+    # Red when recording, orange/amber when paused
+    bg_color = (100, 0, 0) if not paused else (0, 100, 150)
     overlay[:] = bg_color
     cv2.addWeighted(overlay, 0.25, roi, 0.75, 0.0, dst=roi)
 
     # Draw border
-    border_color = (255, 50, 50) if not paused else (100, 100, 255)
+    # Bright red when recording, orange when paused
+    border_color = (255, 50, 50) if not paused else (0, 165, 255)
     cv2.rectangle(frame, (menu_x, timestamp_y), (menu_x + menu_w, timestamp_y + timestamp_h),
               border_color, 2, cv2.LINE_8)
 
@@ -499,17 +515,18 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     indicator_y = timestamp_y + timestamp_h // 2
 
     if paused:
+        # Orange pause bars when paused
         bar_w = 3
         bar_h = 10
         bar_gap = 4
         cv2.rectangle(frame,
                     (indicator_x, indicator_y - bar_h//2),
                     (indicator_x + bar_w, indicator_y + bar_h//2),
-                    (100, 150, 255), -1, cv2.LINE_8)
+                    (0, 200, 255), -1, cv2.LINE_8)
         cv2.rectangle(frame,
                     (indicator_x + bar_w + bar_gap, indicator_y - bar_h//2),
                     (indicator_x + 2*bar_w + bar_gap, indicator_y + bar_h//2),
-                    (100, 150, 255), -1, cv2.LINE_8)
+                    (0, 200, 255), -1, cv2.LINE_8)
     else:
         pulse = int((time.time() * 2) % 2)
         if pulse:
@@ -521,7 +538,6 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.55
     font_thick = 1
-    text_color = (255, 255, 255) if not video_recorder.is_paused else (150, 150, 255)
 
     if timestamp_text in _REC_TEXT_SIZE_CACHE:
         text_w, text_h = _REC_TEXT_SIZE_CACHE[timestamp_text]
@@ -529,7 +545,7 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         (text_w, text_h), _ = cv2.getTextSize(timestamp_text, font, font_scale, font_thick)
         _REC_TEXT_SIZE_CACHE[timestamp_text] = (text_w, text_h)
 
-    text_color = (255, 255, 255) if not paused else (150, 150, 255)
+    text_color = (255, 255, 255) if not paused else (200, 230, 255)
 
     text_x = menu_x + (menu_w - text_w) // 2 + 10
     text_y = timestamp_y + (timestamp_h + text_h) // 2
@@ -1128,6 +1144,20 @@ def handle_menu_click(
     if "menu" not in menu_buttons:
         return video_recorder
 
+    # Check if clicking on recording timestamp (pause/resume)
+    if button_state.is_recording and video_recorder is not None:
+        rect = get_recording_timestamp_rect()
+        if rect is not None:
+            rx, ry, rw, rh = rect
+            if rx <= x <= rx + rw and ry <= y <= ry + rh:
+                # Toggle pause
+                button_state.is_paused = not button_state.is_paused
+                if button_state.is_paused:
+                    video_recorder.pause_recording()
+                else:
+                    video_recorder.resume_recording()
+                return video_recorder
+
     if menu_buttons["menu"].contains(x, y):
         button_state.menu_open = not button_state.menu_open
         return video_recorder
@@ -1213,20 +1243,6 @@ def handle_menu_click(
             video_recorder.stop_recording()
             button_state.is_paused = False
             menu_buttons["rec"].text = "REC"  # Change text back to REC
-        return video_recorder
-
-    # PAUSE
-    if "pause" in menu_buttons and menu_buttons["pause"].contains(x, y):
-        if not button_state.is_recording or video_recorder is None:
-            return video_recorder
-
-        button_state.is_paused = not button_state.is_paused
-        if button_state.is_paused:
-            video_recorder.pause_recording()
-            menu_buttons["pause"].text = "RESUME"
-        else:
-            video_recorder.resume_recording()
-            menu_buttons["pause"].text = "PAUSE"
         return video_recorder
 
     # GALLERY
