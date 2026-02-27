@@ -157,10 +157,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     if event == cv2.EVENT_MOUSEWHEEL:
         if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
             # Scroll amount (positive = scroll up, negative = scroll down)
-            scroll_amount = flags * 30  # Adjust sensitivity
-            button_state.gallery_scroll_offset -= scroll_amount
+            # flags > 0 means scroll up (should decrease offset to scroll up)
+            # flags < 0 means scroll down (should increase offset to scroll down)
+            scroll_amount = -flags * 30  # Adjust sensitivity (negative to invert direction)
+            button_state.gallery_scroll_offset += scroll_amount
             
-            # Clamp scroll offset to valid range
+            # Clamp scroll offset to valid range (min is 0, max calculated in draw function)
             button_state.gallery_scroll_offset = max(0, button_state.gallery_scroll_offset)
             return
     

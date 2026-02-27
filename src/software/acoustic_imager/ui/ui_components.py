@@ -786,6 +786,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
     cols = (frame.shape[1] - 2 * margin + gap) // (thumb_w + gap)
     cols = max(1, cols)
+    
+    # Calculate total content height
+    total_rows = (len(items) + cols - 1) // cols  # Ceiling division
+    item_height = thumb_h + gap + 50  # Thumbnail + gap + label space
+    total_content_height = grid_start_y + (total_rows * item_height)
+    footer_space = 40
+    
+    # Calculate max scroll (how much content extends beyond visible area)
+    visible_height = frame.shape[0] - header_h - footer_space
+    max_scroll = max(0, total_content_height - frame.shape[0] + footer_space)
+    
+    # Clamp scroll offset to valid range
+    button_state.gallery_scroll_offset = max(0, min(button_state.gallery_scroll_offset, max_scroll))
 
     # Store thumbnail positions for click detection
     if not hasattr(button_state, 'gallery_thumbnail_rects'):
