@@ -153,21 +153,30 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     state.CURSOR_POS = (mx, my)
     update_button_states(mx, my)
 
-    # Handle mouse wheel for gallery scrolling
-    if event == cv2.EVENT_MOUSEWHEEL:
-        if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
-            # Scroll amount (positive = scroll up, negative = scroll down)
-            # flags > 0 means scroll up (should decrease offset to scroll up)
-            # flags < 0 means scroll down (should increase offset to scroll down)
-            scroll_amount = -flags * 30  # Adjust sensitivity (negative to invert direction)
-            button_state.gallery_scroll_offset += scroll_amount
-            
-            # Clamp scroll offset to valid range (min is 0, max calculated in draw function)
-            button_state.gallery_scroll_offset = max(0, button_state.gallery_scroll_offset)
-            return
-    
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
+        # Check if we're in gallery grid view for drag scrolling
+        if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
+            # Check if click is not on back button or thumbnail
+            back_button_clicked = "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(mx, my)
+            
+            if not back_button_clicked:
+                # Check if clicking on a thumbnail
+                thumbnail_clicked = False
+                if hasattr(button_state, 'gallery_thumbnail_rects'):
+                    for thumb in button_state.gallery_thumbnail_rects:
+                        if (thumb['x'] <= mx <= thumb['x'] + thumb['w'] and
+                            thumb['y'] <= my <= thumb['y'] + thumb['h']):
+                            thumbnail_clicked = True
+                            break
+                
+                # If not clicking button or thumbnail, start drag
+                if not thumbnail_clicked:
+                    button_state.gallery_drag_active = True
+                    button_state.gallery_drag_start_y = my
+                    button_state.gallery_drag_start_offset = button_state.gallery_scroll_offset
+                    return
+        
         # Check gallery view first (if open)
         if handle_gallery_click(mx, my, state.OUTPUT_DIR):
             return
@@ -246,6 +255,16 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
+        # Handle gallery drag scrolling
+        if button_state.gallery_drag_active:
+            drag_distance = my - button_state.gallery_drag_start_y
+            # Drag down = positive distance = scroll up (decrease offset)
+            # Drag up = negative distance = scroll down (increase offset)
+            button_state.gallery_scroll_offset = button_state.gallery_drag_start_offset - drag_distance
+            # Clamping is done in draw function
+            return
+        
+        # Handle frequency bar dragging
         bar_left = left_width
         if state.DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
             f = y_to_freq(my, h, config.F_DISPLAY_MAX)
@@ -256,6 +275,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
+        # End gallery drag
+        if button_state.gallery_drag_active:
+            button_state.gallery_drag_active = False
+            return
+        
+        # End frequency bar drag
         state.DRAG_ACTIVE = False
         state.DRAG_TARGET = None
 

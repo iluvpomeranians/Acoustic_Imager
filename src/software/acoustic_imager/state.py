@@ -48,6 +48,9 @@ class ButtonState:
     gallery_viewer_mode: str = "grid"  # "grid" | "image" | "video"
     gallery_video_playing: bool = False
     gallery_video_frame_idx: int = 0
+    gallery_drag_active: bool = False
+    gallery_drag_start_y: int = 0
+    gallery_drag_start_offset: int = 0
 
 
 # A single shared instance (matches original `button_state = ButtonState()`)
