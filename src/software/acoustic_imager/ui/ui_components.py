@@ -131,10 +131,10 @@ class Button:
             (self.y - pad) <= my <= (self.y + self.h + pad)
         )
 
-    def draw(self, frame: np.ndarray, transparent: bool = False) -> None:
+    def draw(self, frame: np.ndarray, transparent: bool = False, active_color: Optional[tuple] = None) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
-        active = (40, 200, 60)
+        active = active_color if active_color is not None else (40, 200, 60)
         border = (230, 230, 230)
 
         color = active if self.is_active else (hover if self.is_hovered else base)
@@ -166,8 +166,15 @@ class Button:
                 roi[:] = _get_grad(roi.shape[1], roi.shape[0], color)
 
         # ---- border (keep cheap line type) ----
-        # Use green border for active buttons
-        border_color = (80, 255, 100) if self.is_active else border
+        # Use matching border color for active buttons
+        if self.is_active:
+            if active_color is not None:
+                # Custom active color - make border brighter version
+                border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
+            else:
+                border_color = (80, 255, 100)  # Default bright green
+        else:
+            border_color = border
         _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
 
         # ---- text (AA is surprisingly expensive; use LINE_8) ----
@@ -328,7 +335,11 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")
     menu_buttons["fpsmax"].is_active = (button_state.fps_mode == "MAX")
 
-    menu_buttons["gain"].is_active = (button_state.gain_mode == "HIGH")
+    # GAIN: always active, but LOW=dark green, HIGH=bright green
+    menu_buttons["gain"].is_active = True
+    
+    # MAP: always active (always green)
+    menu_buttons["colormap"].is_active = True
 
     menu_buttons["cam"].is_active = button_state.camera_enabled
     
@@ -344,7 +355,11 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["fps30"].draw(frame, transparent=True)
     menu_buttons["fps60"].draw(frame, transparent=True)
     menu_buttons["fpsmax"].draw(frame, transparent=True)
-    menu_buttons["gain"].draw(frame, transparent=True)
+    
+    # GAIN: dark green for LOW, bright green for HIGH
+    gain_color = (30, 100, 40) if button_state.gain_mode == "LOW" else (40, 200, 60)
+    menu_buttons["gain"].draw(frame, transparent=True, active_color=gain_color)
+    
     menu_buttons["colormap"].draw(frame, transparent=True)
     menu_buttons["cam"].draw(frame, transparent=True)
     menu_buttons["source"].draw(frame, transparent=True)
@@ -353,21 +368,21 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["shot"].draw(frame, transparent=True)
     menu_buttons["rec"].draw(frame, transparent=True)
     menu_buttons["pause"].draw(frame, transparent=True)
-    menu_buttons["gallery"].draw(frame, transparent=True)
+    
+    # Don't draw gallery button if recording (replaced by timestamp)
+    if not button_state.is_recording:
+        menu_buttons["gallery"].draw(frame, transparent=True)
 
 
 def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:
     """
-    Draw recording timestamp below the menu when recording is active.
-    Position changes based on menu state:
-    - Menu closed: timestamp below MENU button
-    - Menu open: timestamp below SHOT/REC/PAUSE buttons
+    Draw recording timestamp replacing the GALLERY button position when recording.
     Shows elapsed time in MM:SS format, with red dot indicator.
     """
     if video_recorder is None or not video_recorder.is_recording:
         return
 
-    if "menu" not in menu_buttons:
+    if "menu" not in menu_buttons or "gallery" not in menu_buttons:
         return
 
     # Get elapsed time
@@ -375,21 +390,20 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     minutes = int(elapsed // 60)
     seconds = int(elapsed % 60)
 
-    # Position based on menu state
-    menu_x = menu_buttons["menu"].x
-    menu_w = menu_buttons["menu"].w
-
+    # Position at GALLERY button location (replaces it during recording)
     if button_state.menu_open:
-        # Menu is open: position below SHOT/REC/PAUSE buttons
-        tools_bottom = menu_buttons["rec"].y + menu_buttons["rec"].h + 10
-        timestamp_y = tools_bottom
+        gallery_btn = menu_buttons["gallery"]
+        menu_x = gallery_btn.x
+        menu_w = gallery_btn.w
+        timestamp_y = gallery_btn.y
+        timestamp_h = gallery_btn.h
     else:
         # Menu is closed: position below MENU button
+        menu_x = menu_buttons["menu"].x
+        menu_w = menu_buttons["menu"].w
         menu_bottom = menu_buttons["menu"].y + menu_buttons["menu"].h + 10
         timestamp_y = menu_bottom
-
-    # Draw semi-transparent background
-    timestamp_h = 35
+        timestamp_h = 35
 
     # Bounds check
     if timestamp_y < 0 or timestamp_y + timestamp_h > frame.shape[0]:
@@ -420,13 +434,16 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
 
         _REC_HUD_CACHE[key] = hud
 
-    # just blit cached hud
-    roi[:] = hud
+    # Draw transparent overlay instead of cached hud (always visible)
+    overlay = np.empty_like(roi)
+    bg_color = (100, 0, 0) if not paused else (40, 40, 100)
+    overlay[:] = bg_color
+    cv2.addWeighted(overlay, 0.25, roi, 0.75, 0.0, dst=roi)
 
     # Draw border
-    border_color = (200, 200, 200) if not video_recorder.is_paused else (100, 100, 200)
+    border_color = (255, 50, 50) if not paused else (100, 100, 255)
     cv2.rectangle(frame, (menu_x, timestamp_y), (menu_x + menu_w, timestamp_y + timestamp_h),
-              border_color, 1, cv2.LINE_8)
+              border_color, 2, cv2.LINE_8)
 
     # Draw recording indicator (red dot or paused icon)
     indicator_x = menu_x + 10
