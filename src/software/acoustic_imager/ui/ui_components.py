@@ -134,7 +134,7 @@ class Button:
     def draw(self, frame: np.ndarray, transparent: bool = False) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
-        active = (80, 110, 80)
+        active = (40, 200, 60)
         border = (230, 230, 230)
 
         color = active if self.is_active else (hover if self.is_hovered else base)
@@ -152,7 +152,9 @@ class Button:
                 roi = frame[y0:y1, x0:x1]
                 overlay = np.empty_like(roi)
                 overlay[:] = color
-                cv2.addWeighted(overlay, 0.12, roi, 0.88, 0.0, dst=roi)
+                # Use higher opacity for active buttons to make them more obvious
+                alpha = 0.25 if self.is_active else 0.12
+                cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
         else:
             # Solid style with gradient (original)
             x0 = max(0, x)
@@ -164,7 +166,9 @@ class Button:
                 roi[:] = _get_grad(roi.shape[1], roi.shape[0], color)
 
         # ---- border (keep cheap line type) ----
-        _rounded_rect(frame, x, y, w, h, r=10, color=border, thickness=2)
+        # Use green border for active buttons
+        border_color = (80, 255, 100) if self.is_active else border
+        _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
 
         # ---- text (AA is surprisingly expensive; use LINE_8) ----
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -293,12 +297,14 @@ def draw_menu(frame: np.ndarray) -> None:
     # Semi-transparent background
     roi = frame[y:y+h, x:x+w]
     overlay = np.empty_like(roi)
-    bg_color = (80, 110, 80) if menu_btn.is_active else ((85, 85, 85) if menu_btn.is_hovered else (60, 60, 60))
+    bg_color = (40, 200, 60) if menu_btn.is_active else ((85, 85, 85) if menu_btn.is_hovered else (60, 60, 60))
     overlay[:] = bg_color
-    cv2.addWeighted(overlay, 0.12, roi, 0.88, 0.0, dst=roi)
+    # Use higher opacity for active state to make green more obvious
+    alpha = 0.25 if menu_btn.is_active else 0.12
+    cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
     
-    # Border
-    border_color = (230, 230, 230)
+    # Border - use green border for active state
+    border_color = (80, 255, 100) if menu_btn.is_active else (230, 230, 230)
     cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_8)
     
     # Text
