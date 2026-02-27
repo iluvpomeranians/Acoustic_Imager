@@ -7,6 +7,14 @@ import cv2
 from dataclasses import dataclass
 import time
 
+# Colormap mapping
+COLORMAP_DICT = {
+    "MAGMA": cv2.COLORMAP_MAGMA,
+    "JET": cv2.COLORMAP_JET,
+    "TURBO": cv2.COLORMAP_TURBO,
+    "INFERNO": cv2.COLORMAP_INFERNO,
+}
+
 @dataclass
 class DbSliderState:
     enabled: bool = False       # double-click toggles this
@@ -16,7 +24,7 @@ class DbSliderState:
     _last_click_t: float = 0.0  # for double click detect
     _last_click_y: int = 0
 
-_DB_COLORBAR_CACHE: dict[tuple[int, int], np.ndarray] = {}  # (h, w) -> magma image
+_DB_COLORBAR_CACHE: dict[tuple[int, int, str], np.ndarray] = {}  # (h, w, colormap) -> colormap image
 
 def db_to_y(db: float, h: int, db_min: float, db_max: float) -> int:
     if h <= 1:
@@ -237,9 +245,10 @@ def draw_db_colorbar(
     db_max: float,
     width: int,
     state: Optional[DbSliderState] = None,
+    colormap: str = "MAGMA",
 ) -> tuple[float, float]:
     """
-    Draws the magma dB colorbar on the LEFT side of the frame,
+    Draws the dB colorbar on the LEFT side of the frame,
     with an optional draggable slider + ruler.
 
     Returns (db_min_out, db_max_out) so caller can use updated scaling.
@@ -247,13 +256,14 @@ def draw_db_colorbar(
     h = int(frame.shape[0])
     width = int(max(1, width))
 
-    # ---- cached magma gradient ----
-    key = (h, width)
+    # ---- cached colormap gradient ----
+    key = (h, width, colormap)
     bar_color = _DB_COLORBAR_CACHE.get(key)
     if bar_color is None:
         grad = np.linspace(0, 255, h, dtype=np.uint8)[::-1]   # top bright
         bar = np.repeat(grad[:, None], width, axis=1)
-        bar_color = cv2.applyColorMap(bar, cv2.COLORMAP_MAGMA)
+        colormap_cv = COLORMAP_DICT.get(colormap, cv2.COLORMAP_MAGMA)
+        bar_color = cv2.applyColorMap(bar, colormap_cv)
         _DB_COLORBAR_CACHE[key] = bar_color
 
     frame[:, :width] = bar_color

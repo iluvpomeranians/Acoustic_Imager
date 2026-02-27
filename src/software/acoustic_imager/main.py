@@ -575,7 +575,7 @@ def main() -> None:
             prof.mark("background")
 
             # ---- Blend heatmap onto background ----
-            output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8)
+            output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8, button_state.colormap_mode)
             prof.mark("blend")
 
             # ---- Draw frequency bar and dB colorbar ----
@@ -583,7 +583,7 @@ def main() -> None:
                 output_frame, fft_data, config.f_axis, f_min, f_max,
                 config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX
             )
-            draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH)
+            draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
             prof.mark("bars")
 
             # ---- Draw debug info ----

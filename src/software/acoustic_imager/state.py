@@ -40,6 +40,7 @@ class ButtonState:
     fps_mode: str = "MAX"       # "30" | "60" | "MAX"
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
+    colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
 
     # Gallery state
     gallery_open: bool = False

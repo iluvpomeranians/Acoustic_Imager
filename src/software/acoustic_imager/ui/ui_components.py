@@ -207,7 +207,7 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     gap = 8
     
     # Calculate total dropdown height to position it above the menu button
-    total_items = 7  # FPS row + GAIN + CAM + SOURCE + DEBUG + SHOT/REC/PAUSE row + GALLERY
+    total_items = 8  # FPS row + GAIN + COLORMAP + CAM + SOURCE + DEBUG + SHOT/REC/PAUSE row + GALLERY
     dropdown_h = total_items * (item_h + gap) + gap
     
     # Position dropdown above menu button
@@ -225,8 +225,12 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     gain_y = y0 + (item_h + gap)
     menu_buttons["gain"] = Button(menu_x, gain_y, menu_w, item_h, f"GAIN: {button_state.gain_mode}")
 
+    # Colormap cycle (full width)
+    colormap_y = gain_y + (item_h + gap)
+    menu_buttons["colormap"] = Button(menu_x, colormap_y, menu_w, item_h, f"MAP: {button_state.colormap_mode}")
+
     # Camera toggle (full width)
-    cam_y = gain_y + (item_h + gap)
+    cam_y = colormap_y + (item_h + gap)
     menu_buttons["cam"] = Button(
         menu_x, cam_y, menu_w, item_h,
         "CAMERA: ON" if button_state.camera_enabled else "CAMERA: OFF"
@@ -263,7 +267,7 @@ def update_button_states(mx: int, my: int) -> None:
     if "menu" in menu_buttons:
         menu_buttons["menu"].is_hovered = menu_buttons["menu"].contains(mx, my)
 
-    keys = ("fps30", "fps60", "fpsmax", "gain", "cam", "source", "debug", "shot", "rec", "pause", "gallery")
+    keys = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "shot", "rec", "pause", "gallery")
 
     if button_state.menu_open:
         for k in keys:
@@ -361,6 +365,7 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["fps60"].draw(frame, transparent=True)
     menu_buttons["fpsmax"].draw(frame, transparent=True)
     menu_buttons["gain"].draw(frame, transparent=True)
+    menu_buttons["colormap"].draw(frame, transparent=True)
     menu_buttons["cam"].draw(frame, transparent=True)
     menu_buttons["source"].draw(frame, transparent=True)
     menu_buttons["debug"].draw(frame, transparent=True)
@@ -1099,6 +1104,18 @@ def handle_menu_click(
     if "gain" in menu_buttons and menu_buttons["gain"].contains(x, y):
         button_state.gain_mode = "HIGH" if button_state.gain_mode == "LOW" else "LOW"
         menu_buttons["gain"].text = f"GAIN: {button_state.gain_mode}"
+        return video_recorder
+
+    # Colormap cycle (MAGMA -> JET -> TURBO -> INFERNO)
+    if "colormap" in menu_buttons and menu_buttons["colormap"].contains(x, y):
+        colormaps = ["MAGMA", "JET", "TURBO", "INFERNO"]
+        cur = button_state.colormap_mode
+        try:
+            i = colormaps.index(cur)
+        except ValueError:
+            i = 0
+        button_state.colormap_mode = colormaps[(i + 1) % len(colormaps)]
+        menu_buttons["colormap"].text = f"MAP: {button_state.colormap_mode}"
         return video_recorder
 
     # CAMERA toggle

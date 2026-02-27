@@ -4,6 +4,14 @@ from __future__ import annotations
 import numpy as np
 import cv2
 
+# Colormap mapping
+COLORMAP_DICT = {
+    "MAGMA": cv2.COLORMAP_MAGMA,
+    "JET": cv2.COLORMAP_JET,
+    "TURBO": cv2.COLORMAP_TURBO,
+    "INFERNO": cv2.COLORMAP_INFERNO,
+}
+
 
 def spectra_to_heatmap_absolute(
     spec_matrix: np.ndarray,
@@ -95,6 +103,7 @@ def blend_heatmap_left(
     heatmap_left: np.ndarray,
     left_width: int,
     w_lut_u8: np.ndarray,
+    colormap: str = "MAGMA",
 ) -> np.ndarray:
     """
     Drops in your FAST blend block but packaged as a function.
@@ -102,7 +111,8 @@ def blend_heatmap_left(
     Returns output_frame view (same object as base_frame).
     """
     left_bg = base_frame[:, :left_width, :]
-    colored = cv2.applyColorMap(heatmap_left, cv2.COLORMAP_MAGMA)
+    colormap_cv = COLORMAP_DICT.get(colormap, cv2.COLORMAP_MAGMA)
+    colored = cv2.applyColorMap(heatmap_left, colormap_cv)
 
     w = cv2.LUT(heatmap_left, w_lut_u8)
     w3 = cv2.merge((w, w, w))
