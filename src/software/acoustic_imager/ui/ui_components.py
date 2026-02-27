@@ -152,7 +152,7 @@ class Button:
                 roi = frame[y0:y1, x0:x1]
                 overlay = np.empty_like(roi)
                 overlay[:] = color
-                cv2.addWeighted(overlay, 0.35, roi, 0.65, 0.0, dst=roi)
+                cv2.addWeighted(overlay, 0.20, roi, 0.80, 0.0, dst=roi)
         else:
             # Solid style with gradient (original)
             x0 = max(0, x)
@@ -295,7 +295,7 @@ def draw_menu(frame: np.ndarray) -> None:
     overlay = np.empty_like(roi)
     bg_color = (80, 110, 80) if menu_btn.is_active else ((85, 85, 85) if menu_btn.is_hovered else (60, 60, 60))
     overlay[:] = bg_color
-    cv2.addWeighted(overlay, 0.35, roi, 0.65, 0.0, dst=roi)
+    cv2.addWeighted(overlay, 0.20, roi, 0.80, 0.0, dst=roi)
     
     # Border
     border_color = (230, 230, 230)
@@ -334,7 +334,7 @@ def draw_menu(frame: np.ndarray) -> None:
     roi = frame[y0:y1, x0:x1]
     overlay = roi.copy()
     _rounded_rect(overlay, 0, 0, overlay.shape[1], overlay.shape[0], r=12, color=(20, 20, 20), thickness=-1)
-    cv2.addWeighted(overlay, 0.55, roi, 0.45, 0, roi)
+    cv2.addWeighted(overlay, 0.40, roi, 0.60, 0, roi)
 
     menu_buttons["fps30"].is_active = (button_state.fps_mode == "30")
     menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")

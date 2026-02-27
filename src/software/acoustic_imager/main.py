@@ -307,7 +307,7 @@ def main() -> None:
     print("=" * 70)
     print("Acoustic Imager - Real-Time Beamforming Visualization")
     print("=" * 70)
-    print(f"Resolution: {config.WIDTH}x{config.HEIGHT}")
+    print(f"Config resolution: {config.WIDTH}x{config.HEIGHT}")
     print(f"Mics: {config.N_MICS} | FFT bins: {config.N_BINS}")
     print(f"Sample rate: {config.SAMPLE_RATE_HZ} Hz")
     print(f"FPS modes: 30 / 60 / MAX (default: {button_state.fps_mode})")
@@ -366,7 +366,34 @@ def main() -> None:
 
         #detector.start(frame_provider)
 
-    # ---- Create static background ----
+    # ---- Detect screen resolution for fullscreen mode ----
+    # Create temporary window to get screen dimensions
+    temp_window = "temp_detection"
+    cv2.namedWindow(temp_window, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty(temp_window, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    
+    # Get actual screen dimensions
+    screen_info = cv2.getWindowImageRect(temp_window)
+    if screen_info[2] > 0 and screen_info[3] > 0:
+        ACTUAL_WIDTH = screen_info[2]
+        ACTUAL_HEIGHT = screen_info[3]
+        print(f"\n>>> Detected screen resolution: {ACTUAL_WIDTH}x{ACTUAL_HEIGHT}")
+        print(f">>> Updating to fullscreen mode: {ACTUAL_WIDTH}x{ACTUAL_HEIGHT}\n")
+    else:
+        # Fallback to config values if detection fails
+        ACTUAL_WIDTH = config.WIDTH
+        ACTUAL_HEIGHT = config.HEIGHT
+        print(f"\n>>> Could not detect screen, using config resolution: {ACTUAL_WIDTH}x{ACTUAL_HEIGHT}\n")
+    
+    cv2.destroyWindow(temp_window)
+    
+    # Update config dimensions for fullscreen
+    config.WIDTH = ACTUAL_WIDTH
+    config.HEIGHT = ACTUAL_HEIGHT
+    config.CAMERA_WIDTH = ACTUAL_WIDTH
+    config.CAMERA_HEIGHT = ACTUAL_HEIGHT
+    
+    # ---- Create static background with actual screen dimensions ----
     background_full = create_background_frame(config.WIDTH, config.HEIGHT)
     left_width = config.WIDTH - config.FREQ_BAR_WIDTH
 
@@ -382,7 +409,7 @@ def main() -> None:
     video_recorder = VideoRecorder(state.OUTPUT_DIR, config.WIDTH, config.HEIGHT, fps=30)
 
     # ---- Setup OpenCV window ----
-    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
 
