@@ -32,6 +32,8 @@ from .video_recorder import VideoRecorder
 
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
 
+DRAG_PX = 4  # tweak (6-12 feels good)
+
 # -------------------------------------------------------------
 # Import config/state
 # (Fallbacks included)
@@ -78,6 +80,9 @@ _REC_HUD_CACHE: dict[tuple[int, int, bool], np.ndarray] = {}
 # key = (w, h, paused) -> hud background image
 
 _REC_TEXT_SIZE_CACHE: dict[str, tuple[int, int]] = {}
+
+_THUMB_CACHE: dict[Path, np.ndarray] = {}
+_THUMB_CACHE_MTIME: dict[Path, float] = {}
 
 
 # ===============================================================
@@ -322,7 +327,7 @@ class Button:
             # ---- text (AA is surprisingly expensive; use LINE_8) ----
             font = cv2.FONT_HERSHEY_SIMPLEX
 
-            if "LOOP" in self.text in self.text:
+            if "LOOP" in self.text:
                 scale = 0.42
             else:
                 scale = 0.52
@@ -1275,6 +1280,40 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     visible_height = frame.shape[0] - header_h - footer_space
     max_scroll = max(0, total_content_height - frame.shape[0] + footer_space)
 
+    # --- Inertial scrolling update (grid mode) ---
+    if button_state.gallery_inertia_active and not button_state.gallery_dragging:
+        now = time.perf_counter()
+        dt = max(1e-6, now - getattr(button_state, "gallery_last_inertia_t", now))
+        button_state.gallery_last_inertia_t = now
+
+        # Integrate velocity -> position
+        new_scroll = float(button_state.gallery_scroll_offset) + button_state.gallery_scroll_velocity * dt
+
+        # Friction (tune these)
+        FRICTION = 1.2  # bigger = stops sooner
+        decay = max(0.0, 1.0 - FRICTION * dt)
+        button_state.gallery_scroll_velocity *= decay
+
+        # Clamp and stop at ends
+        max_scroll = float(getattr(button_state, "gallery_max_scroll", 0))
+        if new_scroll < 0.0:
+            new_scroll = 0.0
+            button_state.gallery_scroll_velocity = 0.0
+            button_state.gallery_inertia_active = False
+        elif new_scroll > max_scroll:
+            new_scroll = max_scroll
+            button_state.gallery_scroll_velocity = 0.0
+            button_state.gallery_inertia_active = False
+
+        # Stop if slow
+        if abs(button_state.gallery_scroll_velocity) < 15.0:
+            button_state.gallery_scroll_velocity = 0.0
+            button_state.gallery_inertia_active = False
+
+        button_state.gallery_scroll_offset = int(new_scroll)
+
+    button_state.gallery_max_scroll = int(max_scroll)
+
     # Clamp scroll offset to valid range
     button_state.gallery_scroll_offset = max(0, min(button_state.gallery_scroll_offset, max_scroll))
 
@@ -1312,20 +1351,36 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             'type': item_type
         })
 
-        # Skip drawing if thumbnail would overlap header
-        if y < clip_y_start:
+        # Visible vertical range for thumbnails
+        vis_top = header_h
+        vis_bot = frame.shape[0]
+
+        # Thumbnail rect
+        x0, y0 = x, y
+        x1, y1 = x + thumb_w, y + thumb_h
+
+        # Compute clipped rect
+        cx0 = max(x0, 0)
+        cx1 = min(x1, frame.shape[1])
+        cy0 = max(y0, vis_top)
+        cy1 = min(y1, vis_bot)
+
+        # If nothing visible, skip
+        if cx1 <= cx0 or cy1 <= cy0:
             continue
 
         # Check if this item is selected (only matters in select mode)
         is_selected = button_state.gallery_select_mode and idx in button_state.gallery_selected_items
 
-        # Draw thumbnail background
-        cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), (40, 40, 40), -1)
+        # Background
+        cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (40, 40, 40), -1)
 
-        # Draw border - green if selected, gray if not
-        border_color = (80, 255, 100) if is_selected else (100, 100, 100)
-        border_thickness = 4 if is_selected else 2
-        cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), border_color, border_thickness, cv2.LINE_AA)
+        # Border (draw full border only if fully visible; otherwise it looks weird)
+        fully_visible = (y0 >= vis_top) and (y1 <= vis_bot)
+        if fully_visible:
+            border_color = (80, 255, 100) if is_selected else (100, 100, 100)
+            border_thickness = 4 if is_selected else 2
+            cv2.rectangle(frame, (x0, y0), (x1, y1), border_color, border_thickness, cv2.LINE_AA)
 
         # Draw selection indicator (checkmark) if selected (only in select mode)
         if is_selected:
@@ -1347,48 +1402,107 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         # Load and draw thumbnail
         try:
             if item_type == "image":
-                img = cv2.imread(str(filepath))
-                if img is not None:
-                    # Resize to fit thumbnail
-                    img_resized = cv2.resize(img, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
-                    # Clip to visible area
-                    if y + 2 >= header_h and y + thumb_h - 2 <= frame.shape[0]:
-                        frame[y+2:y+thumb_h-2, x+2:x+thumb_w-2] = img_resized
-            elif item_type == "video":
-                # For videos, show first frame as thumbnail
-                cap = cv2.VideoCapture(str(filepath))
-                ret, vid_frame = cap.read()
-                cap.release()
+                mtime_s = filepath.stat().st_mtime
+                cached = _THUMB_CACHE.get(filepath)
+                cached_m = _THUMB_CACHE_MTIME.get(filepath)
 
-                if ret and vid_frame is not None:
-                    vid_resized = cv2.resize(vid_frame, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
-                    # Clip to visible area
-                    if y + 2 >= header_h and y + thumb_h - 2 <= frame.shape[0]:
-                        frame[y+2:y+thumb_h-2, x+2:x+thumb_w-2] = vid_resized
+                if cached is None or cached_m != mtime_s:
+                    img = cv2.imread(str(filepath))
+                    if img is not None:
+                        cached = cv2.resize(img, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
+                        _THUMB_CACHE[filepath] = cached
+                        _THUMB_CACHE_MTIME[filepath] = mtime_s
+
+                if cached is not None:
+                    dst_x0 = x + 2
+                    dst_y0 = y + 2
+                    dst_x1 = x + thumb_w - 2
+                    dst_y1 = y + thumb_h - 2
+
+                    cdx0 = max(dst_x0, 0)
+                    cdx1 = min(dst_x1, frame.shape[1])
+                    cdy0 = max(dst_y0, vis_top)
+                    cdy1 = min(dst_y1, vis_bot)
+
+                    if cdx1 > cdx0 and cdy1 > cdy0:
+                        sx0 = cdx0 - dst_x0
+                        sy0 = cdy0 - dst_y0
+                        sx1 = sx0 + (cdx1 - cdx0)
+                        sy1 = sy0 + (cdy1 - cdy0)
+
+                        frame[cdy0:cdy1, cdx0:cdx1] = cached[sy0:sy1, sx0:sx1]
+            elif item_type == "video":
+                mtime_s = filepath.stat().st_mtime
+                cached = _THUMB_CACHE.get(filepath)
+                cached_m = _THUMB_CACHE_MTIME.get(filepath)
+
+                if cached is None or cached_m != mtime_s:
+                    cap = cv2.VideoCapture(str(filepath))
+                    ret, vid_frame = cap.read()
+                    cap.release()
+
+                    if ret and vid_frame is not None:
+                        cached = cv2.resize(vid_frame, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
+                        _THUMB_CACHE[filepath] = cached
+                        _THUMB_CACHE_MTIME[filepath] = mtime_s
+
+                if cached is not None:
+                    dst_x0 = x + 2
+                    dst_y0 = y + 2
+                    dst_x1 = x + thumb_w - 2
+                    dst_y1 = y + thumb_h - 2
+
+                    cdx0 = max(dst_x0, 0)
+                    cdx1 = min(dst_x1, frame.shape[1])
+                    cdy0 = max(dst_y0, vis_top)
+                    cdy1 = min(dst_y1, vis_bot)
+
+                    if cdx1 > cdx0 and cdy1 > cdy0:
+                        sx0 = cdx0 - dst_x0
+                        sy0 = cdy0 - dst_y0
+                        sx1 = sx0 + (cdx1 - cdx0)
+                        sy1 = sy0 + (cdy1 - cdy0)
+
+                        frame[cdy0:cdy1, cdx0:cdx1] = cached[sy0:sy1, sx0:sx1]
 
                     # Draw play icon overlay for videos
                     center_x = x + thumb_w // 2
                     center_y = y + thumb_h // 2
                     play_size = 30
 
-                    if center_y - play_size >= 0 and center_y + play_size <= frame.shape[0]:
-                        # Semi-transparent circle
-                        overlay_roi = frame[center_y-play_size:center_y+play_size,
-                                           center_x-play_size:center_x+play_size].copy()
-                        cv2.circle(overlay_roi, (play_size, play_size), play_size, (0, 0, 0), -1)
-                        cv2.addWeighted(overlay_roi, 0.6,
-                                      frame[center_y-play_size:center_y+play_size,
-                                           center_x-play_size:center_x+play_size], 0.4, 0,
-                                      frame[center_y-play_size:center_y+play_size,
-                                           center_x-play_size:center_x+play_size])
+                    # Overlay ROI bounds in screen coords
+                    ox0 = center_x - play_size
+                    oy0 = center_y - play_size
+                    ox1 = center_x + play_size
+                    oy1 = center_y + play_size
 
-                        # White play triangle
+                    # Clip to frame + visible area (vis_top..vis_bot)
+                    cox0 = max(ox0, 0)
+                    cox1 = min(ox1, frame.shape[1])
+                    coy0 = max(oy0, vis_top)
+                    coy1 = min(oy1, vis_bot)
+
+                    if cox1 > cox0 and coy1 > coy0:
+                        roi = frame[coy0:coy1, cox0:cox1]
+                        overlay_roi = roi.copy()
+
+                        # Circle center in ROI coords
+                        ccx = center_x - cox0
+                        ccy = center_y - coy0
+
+                        cv2.circle(overlay_roi, (ccx, ccy), play_size, (0, 0, 0), -1, cv2.LINE_AA)
+                        cv2.addWeighted(overlay_roi, 0.6, roi, 0.4, 0.0, dst=roi)
+
+                        # Only draw triangle if it's fully inside the visible region
                         pts = np.array([
                             [center_x - 10, center_y - 15],
                             [center_x - 10, center_y + 15],
                             [center_x + 15, center_y]
                         ], np.int32)
-                        cv2.fillPoly(frame, [pts], (255, 255, 255), cv2.LINE_AA)
+
+                        if (pts[:, 0].min() >= 0 and pts[:, 0].max() < frame.shape[1] and
+                            pts[:, 1].min() >= vis_top and pts[:, 1].max() < vis_bot):
+                            cv2.fillPoly(frame, [pts], (255, 255, 255), cv2.LINE_AA)
         except Exception as e:
             # Draw error placeholder
             cv2.putText(frame, "Error", (x + 10, y + thumb_h // 2),
@@ -1832,3 +1946,70 @@ def handle_button_click(
         return video_recorder
 
     return video_recorder
+
+
+def handle_gallery_mouse(event, x, y, flags, output_dir) -> bool:
+    if not button_state.gallery_open or button_state.gallery_viewer_mode != "grid":
+        return False
+
+    now = time.perf_counter()
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        button_state.gallery_dragging = True
+        button_state.gallery_drag_start_y = y
+        button_state.gallery_drag_start_x = x
+        button_state.gallery_drag_start_scroll = button_state.gallery_scroll_offset
+        button_state.gallery_drag_moved = False
+
+        # velocity tracking init
+        button_state.gallery_scroll_velocity = 0.0
+        button_state.gallery_last_drag_t = now
+        button_state.gallery_last_drag_y = y
+        button_state.gallery_inertia_active = False
+        return True
+
+    if event == cv2.EVENT_MOUSEMOVE and button_state.gallery_dragging:
+        dy = y - button_state.gallery_drag_start_y
+        dx = x - button_state.gallery_drag_start_x
+
+        if (abs(dy) > DRAG_PX) or (abs(dx) > DRAG_PX):
+            button_state.gallery_drag_moved = True
+
+        # Update scroll (drag up => scroll down)
+        if button_state.gallery_drag_moved:
+            new_scroll = button_state.gallery_drag_start_scroll - dy
+            max_scroll = int(getattr(button_state, "gallery_max_scroll", 0))
+            button_state.gallery_scroll_offset = max(0, min(int(new_scroll), max_scroll))
+
+            # Estimate velocity (px/s) from last move sample
+            dt = max(1e-6, now - button_state.gallery_last_drag_t)
+            FLING_GAIN = 2     # 1.1–2.0
+            EMA_ALPHA  = 0.6     # 0.25–0.6 (higher = more responsive)
+
+            inst_v = (button_state.gallery_last_drag_y - y) / dt
+            inst_v *= FLING_GAIN
+
+            button_state.gallery_scroll_velocity = (1.0 - EMA_ALPHA) * button_state.gallery_scroll_velocity + EMA_ALPHA * inst_v
+            button_state.gallery_last_drag_t = now
+            button_state.gallery_last_drag_y = y
+
+        return True
+
+    if event == cv2.EVENT_LBUTTONUP and button_state.gallery_dragging:
+        button_state.gallery_dragging = False
+
+        # If it was a click (no drag), treat as click
+        if not button_state.gallery_drag_moved:
+            return handle_gallery_click(x, y, output_dir)
+
+        # Kick inertia if velocity is meaningful
+        if abs(button_state.gallery_scroll_velocity) > 50.0:
+            button_state.gallery_inertia_active = True
+            button_state.gallery_last_inertia_t = now
+        else:
+            button_state.gallery_inertia_active = False
+            button_state.gallery_scroll_velocity = 0.0
+
+        return True
+
+    return False

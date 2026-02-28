@@ -80,6 +80,7 @@ from acoustic_imager.ui.ui_components import (
     get_recording_timestamp_rect,
     handle_button_click,
     handle_gallery_click,
+    handle_gallery_mouse,
     draw_gallery_view,
     FPS_MODE_TO_TARGET,
 )
@@ -155,32 +156,24 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     state.CURSOR_POS = (mx, my)
     update_button_states(mx, my)
 
+    # Always give gallery first dibs on all mouse events (down/move/up)
+    if button_state.gallery_open:
+        # Grid mode handles drag + click-in-up
+        if button_state.gallery_viewer_mode == "grid":
+            if handle_gallery_mouse(event, mx, my, flags, state.OUTPUT_DIR):
+                return
+        else:
+            # Viewer modes (image/video): just handle clicks
+            if event == cv2.EVENT_LBUTTONDOWN:
+                if handle_gallery_click(mx, my, state.OUTPUT_DIR):
+                    return
+
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
         # Check if we're in gallery grid view for drag scrolling
-        if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
-            # Check if click is not on back button or thumbnail
-            back_button_clicked = "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(mx, my)
-
-            if not back_button_clicked:
-                # Check if clicking on a thumbnail
-                thumbnail_clicked = False
-                if hasattr(button_state, 'gallery_thumbnail_rects'):
-                    for thumb in button_state.gallery_thumbnail_rects:
-                        if (thumb['x'] <= mx <= thumb['x'] + thumb['w'] and
-                            thumb['y'] <= my <= thumb['y'] + thumb['h']):
-                            thumbnail_clicked = True
-                            break
-
-                # If not clicking button or thumbnail, start drag
-                if not thumbnail_clicked:
-                    button_state.gallery_drag_active = True
-                    button_state.gallery_drag_start_y = my
-                    button_state.gallery_drag_start_offset = button_state.gallery_scroll_offset
-                    return
 
         # Check gallery view first (if open)
-        if handle_gallery_click(mx, my, state.OUTPUT_DIR):
+        if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
 
         # Check recording timestamp bar click (for pause/resume) - works when menu is open or closed
@@ -281,14 +274,6 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
-        # Handle gallery drag scrolling
-        if button_state.gallery_drag_active:
-            drag_distance = my - button_state.gallery_drag_start_y
-            # Drag down = positive distance = scroll up (decrease offset)
-            # Drag up = negative distance = scroll down (increase offset)
-            button_state.gallery_scroll_offset = button_state.gallery_drag_start_offset - drag_distance
-            # Clamping is done in draw function
-            return
 
         # Handle frequency bar dragging
         bar_left = left_width
@@ -324,10 +309,6 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
-        # End gallery drag
-        if button_state.gallery_drag_active:
-            button_state.gallery_drag_active = False
-            return
 
         # End frequency bar drag
         state.DRAG_ACTIVE = False
@@ -643,7 +624,7 @@ def main() -> None:
                     f"Source: {source_label}",
                 ]
 
-                if source_label.startswith("SPI"):
+                if source_label in ("HW", "LOOP"):
                     mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
                     bytes_per_s = config.FRAME_BYTES * fps_ema
                     mbps_bytes = bytes_per_s / 1e6

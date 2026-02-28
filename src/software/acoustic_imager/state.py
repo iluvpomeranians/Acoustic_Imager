@@ -8,7 +8,7 @@ from the original monolithic script.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple, Any
 
@@ -49,17 +49,24 @@ class ButtonState:
     gallery_viewer_mode: str = "grid"  # "grid" | "image" | "video"
     gallery_video_playing: bool = False
     gallery_video_frame_idx: int = 0
-    gallery_drag_active: bool = False
+    gallery_dragging = False
     gallery_drag_start_y: int = 0
-    gallery_drag_start_offset: int = 0
+    gallery_drag_start_scroll: int = 0
+    gallery_drag_moved = False
+    gallery_drag_start_x = 0
     gallery_select_mode: bool = False  # Whether we're in select mode for multi-select
-    gallery_selected_items: set = None  # Multi-select for deletion
+    gallery_selected_items: set[int] = field(default_factory=set)  # Multi-select for deletion
     gallery_delete_confirm: bool = False  # Confirmation state for delete
     gallery_delete_modal_open: bool = False  # Whether delete confirmation modal is open
-    
+    gallery_scroll_velocity: float = 0.0   # px/s
+    gallery_last_drag_t: float = 0.0
+    gallery_last_drag_y: int = 0
+    gallery_inertia_active: bool = False
+    gallery_last_inertia_t: float = 0.0
+
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
-    
+
     def __post_init__(self):
         if self.gallery_selected_items is None:
             self.gallery_selected_items = set()
