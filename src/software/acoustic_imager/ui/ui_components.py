@@ -103,33 +103,33 @@ def draw_screenshot_flash(frame: np.ndarray) -> None:
     Flash lasts for 0.3 seconds with fade out.
     """
     from ..state import button_state
-    
+
     if button_state.screenshot_flash_time is None:
         return
-    
+
     elapsed = time.time() - button_state.screenshot_flash_time
     flash_duration = 0.3
-    
+
     if elapsed > flash_duration:
         button_state.screenshot_flash_time = None
         return
-    
+
     # Calculate fade (1.0 at start, 0.0 at end)
     fade = 1.0 - (elapsed / flash_duration)
-    
+
     # Green flash overlay
     overlay = frame.copy()
     overlay[:] = (40, 255, 60)  # Bright green
-    
+
     # Apply with fading alpha
     alpha = 0.15 * fade
     cv2.addWeighted(overlay, alpha, frame, 1.0 - alpha, 0, frame)
-    
+
     # Add white border flash
     border_alpha = 0.8 * fade
     if border_alpha > 0.1:
         border_thickness = int(8 * fade) + 2
-        cv2.rectangle(frame, (0, 0), (frame.shape[1]-1, frame.shape[0]-1), 
+        cv2.rectangle(frame, (0, 0), (frame.shape[1]-1, frame.shape[0]-1),
                      (255, 255, 255), border_thickness, cv2.LINE_AA)
 
 
@@ -202,7 +202,7 @@ def _draw_back_arrow_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
         [cx - size//2, cy],             # Left point
         [cx + size//2, cy + size]       # Bottom right
     ], np.int32)
-    
+
     # Draw filled arrow
     cv2.fillPoly(frame, [arrow_pts], (255, 255, 255), cv2.LINE_AA)
     # Draw outline
@@ -216,27 +216,27 @@ def _draw_trash_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
     body_h = int(size * 1.4)
     top_y = cy - body_h//2
     bottom_y = cy + body_h//2
-    
+
     # Body
     cv2.rectangle(frame,
                  (cx - body_w//2, top_y + 3),
                  (cx + body_w//2, bottom_y),
                  (255, 255, 255), -1, cv2.LINE_AA)
-    
+
     # Lid (wider rectangle on top)
     lid_w = int(body_w * 1.3)
     cv2.rectangle(frame,
                  (cx - lid_w//2, top_y),
                  (cx + lid_w//2, top_y + 3),
                  (255, 255, 255), -1, cv2.LINE_AA)
-    
+
     # Handle on lid
     handle_w = body_w // 3
     cv2.rectangle(frame,
                  (cx - handle_w//2, top_y - 3),
                  (cx + handle_w//2, top_y),
                  (255, 255, 255), -1, cv2.LINE_AA)
-    
+
     # Vertical lines inside (trash details)
     line_gap = body_w // 4
     for i in range(-1, 2):
@@ -262,7 +262,7 @@ class Button:
         base = (60, 60, 60)
         hover = (85, 85, 85)
         active = active_color if active_color is not None else (40, 200, 60)
-        
+
         color = active if self.is_active else (hover if self.is_hovered else base)
 
         x, y, w, h = self.x, self.y, self.w, self.h
@@ -273,7 +273,7 @@ class Button:
             y0 = max(0, y)
             x1 = min(frame.shape[1], x + w)
             y1 = min(frame.shape[0], y + h)
-            
+
             if x1 > x0 and y1 > y0:
                 roi = frame[y0:y1, x0:x1]
                 overlay = np.empty_like(roi)
@@ -307,7 +307,7 @@ class Button:
         if icon_type:
             cx = x + w // 2
             cy = y + h // 2
-            
+
             if icon_type == "camera":
                 _draw_camera_icon(frame, cx, cy, size=10)
             elif icon_type == "rec":
@@ -321,8 +321,8 @@ class Button:
         else:
             # ---- text (AA is surprisingly expensive; use LINE_8) ----
             font = cv2.FONT_HERSHEY_SIMPLEX
-            # Use smaller text for SPI_LOOPBACK to fit better
-            if "SPI_LOOPBACK" in self.text or "SPI_HW" in self.text:
+
+            if "LOOP" in self.text in self.text:
                 scale = 0.42
             else:
                 scale = 0.52
@@ -332,8 +332,12 @@ class Button:
             ty = y + (h + th) // 2
 
             cv2.putText(frame, self.text, (tx, ty),
+                        font, scale, (0, 0, 0),
+                        thick + 1, cv2.LINE_AA)
+
+            cv2.putText(frame, self.text, (tx, ty),
                         font, scale, (255, 255, 255),
-                        thick, cv2.LINE_8)
+                        thick, cv2.LINE_AA)
 
 
 def init_buttons(left_width: int, camera_available: bool) -> None:
@@ -343,14 +347,14 @@ def init_buttons(left_width: int, camera_available: bool) -> None:
 
 def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     menu_buttons.clear()
-    
+
     # Use actual frame height if provided, otherwise fall back to config HEIGHT
     actual_height = frame_height if frame_height is not None else HEIGHT
-    
+
     menu_w = 180
     menu_h = 50
     menu_margin_x = 15
-    menu_margin_bottom = 5  
+    menu_margin_bottom = 5
     menu_x = left_width - menu_w - menu_margin_x
     menu_y = actual_height - menu_h - menu_margin_bottom
 
@@ -358,11 +362,11 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
 
     item_h = 40
     gap = 8
-    
+
     # Calculate total dropdown height to position it above the menu button
-    total_items = 8  # FPS row + GAIN + COLORMAP + CAM + SOURCE + DEBUG + SHOT/REC row + GALLERY
+    total_items = 7  # FPS row + GAIN + COLORMAP + CAM + SOURCE + DEBUG + SHOT/REC row + GALLERY
     dropdown_h = total_items * (item_h + gap) + gap
-    
+
     # Position dropdown above menu button
     dropdown_y = menu_y - dropdown_h - gap
     y0 = dropdown_y
@@ -370,8 +374,8 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     # Segmented FPS buttons (30 | 60 | MAX)
     seg_gap = 6
     seg_w = (menu_w - 2 * seg_gap) // 3
-    menu_buttons["fps30"] = Button(menu_x + 0 * (seg_w + seg_gap), y0, seg_w, item_h, "30FPS")
-    menu_buttons["fps60"] = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "60FPS")
+    menu_buttons["fps30"]  = Button(menu_x + 0 * (seg_w + seg_gap), y0, seg_w, item_h, "30FPS")
+    menu_buttons["fps60"]  = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "60FPS")
     menu_buttons["fpsmax"] = Button(menu_x + 2 * (seg_w + seg_gap), y0, seg_w, item_h, "MAX")
 
     # Gain toggle (full width)
@@ -380,7 +384,7 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
 
     # Colormap cycle (full width)
     colormap_y = gain_y + (item_h + gap)
-    menu_buttons["colormap"] = Button(menu_x, colormap_y, menu_w, item_h, f"MAP: {button_state.colormap_mode}")
+    menu_buttons["colormap"] = Button(menu_x, colormap_y, menu_w, item_h, f"COLOUR: {button_state.colormap_mode}")
 
     # Camera toggle (full width)
     cam_y = colormap_y + (item_h + gap)
@@ -389,22 +393,12 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
         "CAMERA: ON" if button_state.camera_enabled else "CAMERA: OFF"
     )
 
-    # Source cycle (full width)
     src_y = cam_y + (item_h + gap)
-    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SOURCE: {button_state.source_mode}")
-
-    # Debug toggle (full width)
-    dbg_y = src_y + (item_h + gap)
-    menu_buttons["debug"] = Button(
-        menu_x, dbg_y, menu_w, item_h,
-        "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
-    )
-
-    # Segmented tools under DEBUG (SHOT | REC)
-    tools_y = dbg_y + (item_h + gap)
+    tools_y = src_y + (item_h + gap)
     tool_gap = 6
     tool_w = (menu_w - tool_gap) // 2  # Only 2 buttons now
-
+    menu_buttons["source"] = Button(menu_x + 0 * (tool_w + tool_gap), src_y, tool_w, item_h, f"SRC: {button_state.source_mode}")
+    menu_buttons["debug"] = Button(menu_x + 1 * (tool_w + tool_gap), src_y, tool_w, item_h,"DEBUG")
     menu_buttons["shot"]  = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
     menu_buttons["rec"]   = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
 
@@ -429,7 +423,7 @@ def update_button_states(mx: int, my: int) -> None:
         for k in keys:
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = False
-    
+
     # Update gallery button hover states
     if button_state.gallery_open:
         gallery_keys = ("gallery_back", "gallery_select_mode", "gallery_select_all", "gallery_delete_selected",
@@ -437,7 +431,7 @@ def update_button_states(mx: int, my: int) -> None:
         for k in gallery_keys:
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
-    
+
     # Update modal button hover states
     if button_state.gallery_delete_modal_open:
         for k in ("modal_yes", "modal_no"):
@@ -455,15 +449,15 @@ def draw_menu(frame: np.ndarray) -> None:
         return
 
     menu_buttons["menu"].is_active = button_state.menu_open
-    
+
     # Dynamically position menu button at bottom of actual frame
     menu_btn = menu_buttons["menu"]
     actual_frame_height = frame.shape[0]
     menu_btn.y = actual_frame_height - menu_btn.h - 5  # 5px from bottom
-    
+
     # Draw transparent menu button (similar to HUD pills)
     x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
-    
+
     # Semi-transparent background (matching HUD/debug transparency)
     roi = frame[y:y+h, x:x+w]
     overlay = np.empty_like(roi)
@@ -472,11 +466,11 @@ def draw_menu(frame: np.ndarray) -> None:
     # Use HUD-style transparency (0.35 like HUD pills)
     alpha = 0.35
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
-    
+
     # Border - white initially, green when active
     border_color = (80, 255, 100) if menu_btn.is_active else (255, 255, 255)
     cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_AA)
-    
+
     # Text
     font = cv2.FONT_HERSHEY_SIMPLEX
     scale = 0.52
@@ -484,7 +478,9 @@ def draw_menu(frame: np.ndarray) -> None:
     tw, th = cv2.getTextSize(menu_btn.text, font, scale, thick)[0]
     tx = x + (w - tw) // 2
     ty = y + (h + th) // 2
-    cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (255, 255, 255), thick, cv2.LINE_8)
+    cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (0, 0, 0), thick + 1, cv2.LINE_AA)
+    cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (255, 255, 255), thick, cv2.LINE_AA)
+
 
     if not button_state.menu_open:
         return
@@ -496,15 +492,15 @@ def draw_menu(frame: np.ndarray) -> None:
 
     # GAIN: always active, but LOW=dark green, HIGH=bright green
     menu_buttons["gain"].is_active = True
-    
+
     # MAP: always active (always green)
     menu_buttons["colormap"].is_active = True
 
     menu_buttons["cam"].is_active = button_state.camera_enabled
-    
+
     # SOURCE: always active (always green)
     menu_buttons["source"].is_active = True
-    
+
     menu_buttons["debug"].is_active = button_state.debug_enabled
 
     # Tool button actives reflect current state
@@ -516,11 +512,12 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["fps30"].draw(frame, transparent=True)
     menu_buttons["fps60"].draw(frame, transparent=True)
     menu_buttons["fpsmax"].draw(frame, transparent=True)
-    
+
     # GAIN: dark green for LOW, bright green for HIGH
-    gain_color = (30, 100, 40) if button_state.gain_mode == "LOW" else (40, 200, 60)
+    # gain_color = (30, 100, 40) if button_state.gain_mode == "LOW" else (40, 200, 60)
+    gain_color = (40, 200, 60)
     menu_buttons["gain"].draw(frame, transparent=True, active_color=gain_color)
-    
+
     menu_buttons["colormap"].draw(frame, transparent=True)
     menu_buttons["cam"].draw(frame, transparent=True)
     menu_buttons["source"].draw(frame, transparent=True)
@@ -528,7 +525,7 @@ def draw_menu(frame: np.ndarray) -> None:
 
     menu_buttons["shot"].draw(frame, transparent=True, icon_type="camera")
     menu_buttons["rec"].draw(frame, transparent=True, icon_type="rec")
-    
+
     # Don't draw gallery button if recording (replaced by timestamp)
     if not button_state.is_recording:
         menu_buttons["gallery"].draw(frame, transparent=True)
@@ -541,13 +538,13 @@ def get_recording_timestamp_rect() -> Optional[Tuple[int, int, int, int]]:
     """
     if not button_state.is_recording:
         return None
-    
+
     if "menu" not in menu_buttons or "gallery" not in menu_buttons:
         return None
-    
+
     # Taller height for easier clicking (50px instead of default button height)
     RECORDING_BAR_HEIGHT = 50
-    
+
     # Position at GALLERY button location (replaces it during recording)
     if button_state.menu_open:
         gallery_btn = menu_buttons["gallery"]
@@ -561,7 +558,7 @@ def get_recording_timestamp_rect() -> Optional[Tuple[int, int, int, int]]:
         menu_w = menu_buttons["menu"].w
         timestamp_h = RECORDING_BAR_HEIGHT
         timestamp_y = menu_buttons["menu"].y - timestamp_h - 10
-    
+
     return (menu_x, timestamp_y, menu_w, timestamp_h)
 
 
@@ -576,7 +573,7 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     rect = get_recording_timestamp_rect()
     if rect is None:
         return
-    
+
     menu_x, timestamp_y, menu_w, timestamp_h = rect
 
     # Get elapsed time
@@ -706,18 +703,18 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     """
     # Black background
     frame[:] = (0, 0, 0)
-    
+
     if button_state.gallery_selected_item is None or button_state.gallery_selected_item >= len(items):
         return
-    
+
     filepath, item_type, mtime = items[button_state.gallery_selected_item]
-    
+
     font = cv2.FONT_HERSHEY_SIMPLEX
-    
+
     # Control panel at bottom (same as video viewer)
     controls_y = frame.shape[0] - 90
     cv2.rectangle(frame, (0, controls_y), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
-    
+
     # Load image
     img = cv2.imread(str(filepath))
     if img is None:
@@ -731,29 +728,29 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         h, w = img.shape[:2]
         frame_h, frame_w = frame.shape[:2]
         available_h = controls_y  # Only use space above control dock
-        
+
         # Calculate scaling factor
         scale = min(frame_w / w, available_h / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
-        
+
         # Resize image
         img_resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        
+
         # Center image in available space (above control dock)
         x_offset = (frame_w - new_w) // 2
         y_offset = (available_h - new_h) // 2
-        
+
         frame[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = img_resized
-    
+
     # Draw controls overlay
-    
+
     # Back button (narrow, just fits the arrow)
     back_btn_x = 20
     back_btn_y = 20
     back_btn_w = 50  # Narrower button
     back_btn_h = 40
-    
+
     if "gallery_back" not in menu_buttons:
         menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
     else:
@@ -771,7 +768,7 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         prev_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
         prev_btn_w = 60
         prev_btn_h = 60
-        
+
         if "gallery_prev" not in menu_buttons:
             menu_buttons["gallery_prev"] = Button(prev_btn_x, prev_btn_y, prev_btn_w, prev_btn_h, "<")
         else:
@@ -779,16 +776,16 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_prev"].y = prev_btn_y
             menu_buttons["gallery_prev"].w = prev_btn_w
             menu_buttons["gallery_prev"].h = prev_btn_h
-        
+
         menu_buttons["gallery_prev"].draw(frame, transparent=True)
-    
+
     if button_state.gallery_selected_item < len(items) - 1:
         # Next button
         next_btn_x = frame.shape[1] - 80
         next_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
         next_btn_w = 60
         next_btn_h = 60
-        
+
         if "gallery_next" not in menu_buttons:
             menu_buttons["gallery_next"] = Button(next_btn_x, next_btn_y, next_btn_w, next_btn_h, ">")
         else:
@@ -796,7 +793,7 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_next"].y = next_btn_y
             menu_buttons["gallery_next"].w = next_btn_w
             menu_buttons["gallery_next"].h = next_btn_h
-        
+
         menu_buttons["gallery_next"].draw(frame, transparent=True)
 
     # Filename in control dock (bottom left)
@@ -831,15 +828,15 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     """
     # Black background
     frame[:] = (0, 0, 0)
-    
+
     if button_state.gallery_selected_item is None or button_state.gallery_selected_item >= len(items):
         return
-    
+
     filepath, item_type, mtime = items[button_state.gallery_selected_item]
-    
+
     # Open video
     cap = cv2.VideoCapture(str(filepath))
-    
+
     if not cap.isOpened():
         # Error message
         font = cv2.FONT_HERSHEY_SIMPLEX
@@ -848,49 +845,49 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         cv2.putText(frame, msg, ((frame.shape[1] - msg_w) // 2, frame.shape[0] // 2),
                    font, 0.7, (150, 150, 150), 1, cv2.LINE_AA)
         return
-    
+
     # Get video properties
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-    
+
     # Handle auto-play
     if button_state.gallery_video_playing:
         button_state.gallery_video_frame_idx += 1
         if button_state.gallery_video_frame_idx >= total_frames:
             button_state.gallery_video_frame_idx = 0  # Loop
-    
+
     # Clamp frame index
     button_state.gallery_video_frame_idx = max(0, min(button_state.gallery_video_frame_idx, total_frames - 1))
-    
+
     # Seek to current frame
     cap.set(cv2.CAP_PROP_POS_FRAMES, button_state.gallery_video_frame_idx)
     ret, vid_frame = cap.read()
     cap.release()
-    
+
     if ret and vid_frame is not None:
         # Scale video to fit screen
         h, w = vid_frame.shape[:2]
         frame_h, frame_w = frame.shape[:2]
-        
+
         # Leave space for controls at bottom
         controls_h = 100
         available_h = frame_h - controls_h
-        
+
         scale = min(frame_w / w, available_h / h)
         new_w = int(w * scale)
         new_h = int(h * scale)
-        
+
         vid_resized = cv2.resize(vid_frame, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
-        
+
         # Center video
         x_offset = (frame_w - new_w) // 2
         y_offset = (available_h - new_h) // 2
-        
+
         frame[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = vid_resized
-    
+
     # Draw controls
     font = cv2.FONT_HERSHEY_SIMPLEX
-    
+
     # Back button (narrow, just fits the arrow)
     back_btn_x = 20
     back_btn_y = 20
@@ -910,14 +907,14 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     # Control panel at bottom
     controls_y = frame.shape[0] - 90
     cv2.rectangle(frame, (0, controls_y), (frame.shape[1], frame.shape[0]), (30, 30, 30), -1)
-    
+
     # Play/Pause button (centered, wider but original height)
     play_btn_w = 100
     play_btn_h = 40
     play_btn_x = frame.shape[1] // 2 - (play_btn_w // 2)
     play_btn_y = controls_y + 15
     play_text = "PAUSE" if button_state.gallery_video_playing else "PLAY"
-    
+
     if "gallery_play" not in menu_buttons:
         menu_buttons["gallery_play"] = Button(play_btn_x, play_btn_y, play_btn_w, play_btn_h, play_text)
     else:
@@ -926,25 +923,25 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_play"].w = play_btn_w
         menu_buttons["gallery_play"].h = play_btn_h
         menu_buttons["gallery_play"].text = play_text
-    
+
     menu_buttons["gallery_play"].draw(frame, transparent=True)
-    
+
     # Progress bar
     progress_x = 50
     progress_y = controls_y + 60
     progress_w = frame.shape[1] - 100
     progress_h = 10
-    
+
     cv2.rectangle(frame, (progress_x, progress_y), (progress_x + progress_w, progress_y + progress_h),
                  (60, 60, 60), -1)
-    
+
     # Progress fill
     if total_frames > 0:
         progress = button_state.gallery_video_frame_idx / total_frames
         fill_w = int(progress_w * progress)
         cv2.rectangle(frame, (progress_x, progress_y), (progress_x + fill_w, progress_y + progress_h),
                      (100, 200, 255), -1)
-    
+
     # Store progress bar for click detection
     if "gallery_progress" not in menu_buttons:
         menu_buttons["gallery_progress"] = Button(progress_x, progress_y, progress_w, progress_h, "")
@@ -953,25 +950,25 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_progress"].y = progress_y
         menu_buttons["gallery_progress"].w = progress_w
         menu_buttons["gallery_progress"].h = progress_h
-    
+
     # Filename in control dock (bottom left)
     filename = filepath.name
     (filename_w, filename_h), _ = cv2.getTextSize(filename, font, 0.5, 1)
     filename_x = 20
     filename_y = controls_y + 45
     cv2.putText(frame, filename, (filename_x, filename_y), font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
-    
+
     # Delete button - positioned next to filename (wider but original height)
     delete_btn_w = 80
     delete_btn_h = 40
     delete_btn_x = filename_x + filename_w + 20  # To the right of filename
     delete_btn_y = controls_y + 15
-    
+
     # Time display (bottom right)
     current_time = button_state.gallery_video_frame_idx / fps if fps > 0 else 0
     total_time = total_frames / fps if fps > 0 else 0
     time_text = f"{int(current_time // 60):02d}:{int(current_time % 60):02d} / {int(total_time // 60):02d}:{int(total_time % 60):02d}"
-    
+
     (time_w, time_h), _ = cv2.getTextSize(time_text, font, 0.5, 1)
     time_x = frame.shape[1] - time_w - 20
     time_y = controls_y + 45
@@ -988,7 +985,7 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     # Draw delete button with red color and trash icon (BGR: 0,0,200 = RED)
     menu_buttons["gallery_delete"].is_active = True
     menu_buttons["gallery_delete"].draw(frame, transparent=True, active_color=(0, 0, 200), icon_type="trash")
-    
+
     # Navigation arrows (work for all media types)
     if button_state.gallery_selected_item > 0:
         # Previous button
@@ -996,7 +993,7 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         prev_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
         prev_btn_w = 60
         prev_btn_h = 60
-        
+
         if "gallery_prev" not in menu_buttons:
             menu_buttons["gallery_prev"] = Button(prev_btn_x, prev_btn_y, prev_btn_w, prev_btn_h, "<")
         else:
@@ -1004,16 +1001,16 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_prev"].y = prev_btn_y
             menu_buttons["gallery_prev"].w = prev_btn_w
             menu_buttons["gallery_prev"].h = prev_btn_h
-        
+
         menu_buttons["gallery_prev"].draw(frame, transparent=True)
-    
+
     if button_state.gallery_selected_item < len(items) - 1:
         # Next button
         next_btn_x = frame.shape[1] - 80
         next_btn_y = (controls_y) // 2 - 30  # Centered in viewing area
         next_btn_w = 60
         next_btn_h = 60
-        
+
         if "gallery_next" not in menu_buttons:
             menu_buttons["gallery_next"] = Button(next_btn_x, next_btn_y, next_btn_w, next_btn_h, ">")
         else:
@@ -1021,7 +1018,7 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             menu_buttons["gallery_next"].y = next_btn_y
             menu_buttons["gallery_next"].w = next_btn_w
             menu_buttons["gallery_next"].h = next_btn_h
-        
+
         menu_buttons["gallery_next"].draw(frame, transparent=True)
 
 
@@ -1035,16 +1032,16 @@ def draw_delete_modal(frame: np.ndarray) -> None:
     modal_h = 180
     modal_x = (frame.shape[1] - modal_w) // 2
     modal_y = (frame.shape[0] - modal_h) // 2
-    
+
     # Draw semi-transparent overlay over entire screen
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
-    
+
     # Draw modal box with dark background
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
-    
+
     # Draw title text
     font = cv2.FONT_HERSHEY_SIMPLEX
     title = "Delete this item?"
@@ -1053,7 +1050,7 @@ def draw_delete_modal(frame: np.ndarray) -> None:
     title_x = modal_x + (modal_w - title_w) // 2
     title_y = modal_y + 50
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), 2, cv2.LINE_AA)
-    
+
     # Draw warning message
     msg = "This action cannot be undone."
     msg_scale = 0.5
@@ -1061,13 +1058,13 @@ def draw_delete_modal(frame: np.ndarray) -> None:
     msg_x = modal_x + (modal_w - msg_w) // 2
     msg_y = modal_y + 85
     cv2.putText(frame, msg, (msg_x, msg_y), font, msg_scale, (200, 200, 200), 1, cv2.LINE_AA)
-    
+
     # YES button (red)
     yes_btn_w = 120
     yes_btn_h = 45
     yes_btn_x = modal_x + (modal_w // 2) - yes_btn_w - 15
     yes_btn_y = modal_y + modal_h - yes_btn_h - 25
-    
+
     if "modal_yes" not in menu_buttons:
         menu_buttons["modal_yes"] = Button(yes_btn_x, yes_btn_y, yes_btn_w, yes_btn_h, "YES, DELETE")
     else:
@@ -1075,16 +1072,16 @@ def draw_delete_modal(frame: np.ndarray) -> None:
         menu_buttons["modal_yes"].y = yes_btn_y
         menu_buttons["modal_yes"].w = yes_btn_w
         menu_buttons["modal_yes"].h = yes_btn_h
-    
+
     menu_buttons["modal_yes"].is_active = True
     menu_buttons["modal_yes"].draw(frame, transparent=True, active_color=(0, 0, 220))
-    
+
     # NO button (grey)
     no_btn_w = 120
     no_btn_h = 45
     no_btn_x = modal_x + (modal_w // 2) + 15
     no_btn_y = modal_y + modal_h - no_btn_h - 25
-    
+
     if "modal_no" not in menu_buttons:
         menu_buttons["modal_no"] = Button(no_btn_x, no_btn_y, no_btn_w, no_btn_h, "CANCEL")
     else:
@@ -1092,7 +1089,7 @@ def draw_delete_modal(frame: np.ndarray) -> None:
         menu_buttons["modal_no"].y = no_btn_y
         menu_buttons["modal_no"].w = no_btn_w
         menu_buttons["modal_no"].h = no_btn_h
-    
+
     menu_buttons["modal_no"].draw(frame, transparent=True)
 
 
@@ -1107,7 +1104,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
     # Get all gallery items
     items = get_gallery_items(output_dir)
-    
+
     # Check if we're in viewer mode
     if button_state.gallery_viewer_mode == "image":
         draw_image_viewer(frame, items, output_dir)
@@ -1164,16 +1161,16 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     if items:
         btn_gap = 10
         btn_h = 40
-        
+
         # Calculate button positions from right to left
         right_margin = 20
         current_x = frame.shape[1] - right_margin
-        
+
         # 1. SELECT/DONE button (always visible)
         select_mode_btn_w = 100
         select_mode_btn_x = current_x - select_mode_btn_w
         select_mode_btn_y = 20
-        
+
         if "gallery_select_mode" not in menu_buttons:
             menu_buttons["gallery_select_mode"] = Button(select_mode_btn_x, select_mode_btn_y, select_mode_btn_w, btn_h, "SELECT")
         else:
@@ -1182,25 +1179,25 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_select_mode"].w = select_mode_btn_w
             menu_buttons["gallery_select_mode"].h = btn_h
             menu_buttons["gallery_select_mode"].text = "DONE" if button_state.gallery_select_mode else "SELECT"
-        
+
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
-        
+
         print(f"DEBUG DRAW: SELECT button at ({select_mode_btn_x}, {select_mode_btn_y}, {select_mode_btn_w}, {btn_h}), active={button_state.gallery_select_mode}")
-        
+
         # Use blue color when select mode is active
         if button_state.gallery_select_mode:
             menu_buttons["gallery_select_mode"].draw(frame, transparent=True, active_color=(200, 100, 40))  # Blue
         else:
             menu_buttons["gallery_select_mode"].draw(frame, transparent=True)
-        
+
         current_x = select_mode_btn_x - btn_gap
-        
+
         # 2. SELECT ALL button (only in select mode)
         if button_state.gallery_select_mode:
             select_all_btn_w = 120
             select_all_btn_x = current_x - select_all_btn_w
             select_all_btn_y = 20
-            
+
             if "gallery_select_all" not in menu_buttons:
                 menu_buttons["gallery_select_all"] = Button(select_all_btn_x, select_all_btn_y, select_all_btn_w, btn_h, "SELECT ALL")
             else:
@@ -1211,19 +1208,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 # Update text based on state
                 all_selected = len(button_state.gallery_selected_items) == len(items)
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
-            
+
             menu_buttons["gallery_select_all"].draw(frame, transparent=True)
-            
+
             current_x = select_all_btn_x - btn_gap
-            
+
             # 3. DELETE button (only when items are selected in select mode)
             if button_state.gallery_selected_items:
                 selected_count = len(button_state.gallery_selected_items)
-                
+
                 delete_btn_w = 180
                 delete_btn_x = current_x - delete_btn_w
                 delete_btn_y = 20
-                
+
                 # Update button text based on confirmation state
                 if button_state.gallery_delete_confirm:
                     delete_text = "CONFIRM DELETE?"
@@ -1231,7 +1228,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 else:
                     delete_text = f"DELETE ({selected_count})"
                     delete_color = (0, 0, 200)  # Normal red (BGR)
-                
+
                 if "gallery_delete_selected" not in menu_buttons:
                     menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, btn_h, delete_text)
                 else:
@@ -1240,7 +1237,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                     menu_buttons["gallery_delete_selected"].w = delete_btn_w
                     menu_buttons["gallery_delete_selected"].h = btn_h
                     menu_buttons["gallery_delete_selected"].text = delete_text
-                
+
                 # Draw delete button with red color
                 menu_buttons["gallery_delete_selected"].is_active = True
                 menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
@@ -1267,20 +1264,20 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
     cols = (frame.shape[1] - 2 * margin + gap) // (thumb_w + gap)
     cols = max(1, cols)
-    
+
     # Calculate total content height
     total_rows = (len(items) + cols - 1) // cols  # Ceiling division
     item_height = thumb_h + gap + 50  # Thumbnail + gap + label space
     total_content_height = grid_start_y + (total_rows * item_height)
     footer_space = 40
-    
+
     # Calculate max scroll (how much content extends beyond visible area)
     visible_height = frame.shape[0] - header_h - footer_space
     max_scroll = max(0, total_content_height - frame.shape[0] + footer_space)
-    
+
     # Clamp scroll offset to valid range
     button_state.gallery_scroll_offset = max(0, min(button_state.gallery_scroll_offset, max_scroll))
-    
+
     # Create a clipping mask to prevent thumbnails from drawing over the header
     clip_y_start = header_h
 
@@ -1318,27 +1315,27 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         # Skip drawing if thumbnail would overlap header
         if y < clip_y_start:
             continue
-        
+
         # Check if this item is selected (only matters in select mode)
         is_selected = button_state.gallery_select_mode and idx in button_state.gallery_selected_items
-        
+
         # Draw thumbnail background
         cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), (40, 40, 40), -1)
-        
+
         # Draw border - green if selected, gray if not
         border_color = (80, 255, 100) if is_selected else (100, 100, 100)
         border_thickness = 4 if is_selected else 2
         cv2.rectangle(frame, (x, y), (x + thumb_w, y + thumb_h), border_color, border_thickness, cv2.LINE_AA)
-        
+
         # Draw selection indicator (checkmark) if selected (only in select mode)
         if is_selected:
             check_size = 25
             check_x = x + thumb_w - check_size - 10
             check_y = y + 10
-            
+
             # Green circle background
             cv2.circle(frame, (check_x + check_size//2, check_y + check_size//2), check_size//2, (80, 255, 100), -1, cv2.LINE_AA)
-            
+
             # White checkmark
             check_pts = np.array([
                 [check_x + 6, check_y + check_size//2],
@@ -1456,7 +1453,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_video_frame_idx = 0
             button_state.gallery_delete_confirm = False  # Reset confirmation
         return True
-    
+
     # Check modal buttons (if modal is open)
     if button_state.gallery_delete_modal_open:
         # YES button - confirm deletion
@@ -1468,7 +1465,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     # Delete the file
                     filepath.unlink()
                     print(f"✓ Deleted: {filepath}")
-                    
+
                     # Update selection
                     if len(items) <= 1:
                         # No more items, go back to grid
@@ -1478,29 +1475,29 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         # Move to previous item if we deleted the last one
                         if button_state.gallery_selected_item >= len(items) - 1:
                             button_state.gallery_selected_item = len(items) - 2
-                    
+
                     button_state.gallery_delete_modal_open = False
                 except Exception as e:
                     print(f"Failed to delete {filepath}: {e}")
                     button_state.gallery_delete_modal_open = False
             return True
-        
+
         # NO button - cancel deletion
         if "modal_no" in menu_buttons and menu_buttons["modal_no"].contains(x, y):
             button_state.gallery_delete_modal_open = False
             print("Deletion cancelled")
             return True
-        
+
         # Click outside modal - cancel
         return True
-    
+
     # Check delete button (works in both image and video viewer) - opens modal
     if button_state.gallery_viewer_mode in ("image", "video"):
         if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
             button_state.gallery_delete_modal_open = True
             print("Delete modal opened")
             return True
-    
+
     # Handle viewer mode clicks (navigation works for both image and video)
     if button_state.gallery_viewer_mode in ("image", "video"):
         # Previous button
@@ -1508,42 +1505,42 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             if button_state.gallery_selected_item > 0:
                 button_state.gallery_selected_item -= 1
                 items = get_gallery_items(output_dir) if output_dir else []
-                
+
                 # Update viewer mode based on new item type
                 if button_state.gallery_selected_item < len(items):
                     new_item_type = items[button_state.gallery_selected_item][1]
                     button_state.gallery_viewer_mode = new_item_type
-                    
+
                     # Reset video state when switching to video
                     if new_item_type == "video":
                         button_state.gallery_video_playing = False
                         button_state.gallery_video_frame_idx = 0
             return True
-        
+
         # Next button
         if "gallery_next" in menu_buttons and menu_buttons["gallery_next"].contains(x, y):
             items = get_gallery_items(output_dir) if output_dir else []
             if button_state.gallery_selected_item < len(items) - 1:
                 button_state.gallery_selected_item += 1
-                
+
                 # Update viewer mode based on new item type
                 if button_state.gallery_selected_item < len(items):
                     new_item_type = items[button_state.gallery_selected_item][1]
                     button_state.gallery_viewer_mode = new_item_type
-                    
+
                     # Reset video state when switching to video
                     if new_item_type == "video":
                         button_state.gallery_video_playing = False
                         button_state.gallery_video_frame_idx = 0
             return True
-    
+
     # Video-specific controls (Play/Pause, Progress bar)
     if button_state.gallery_viewer_mode == "video":
         # Play/Pause button
         if "gallery_play" in menu_buttons and menu_buttons["gallery_play"].contains(x, y):
             button_state.gallery_video_playing = not button_state.gallery_video_playing
             return True
-        
+
         # Progress bar click (seek)
         if "gallery_progress" in menu_buttons and menu_buttons["gallery_progress"].contains(x, y):
             items = get_gallery_items(output_dir) if output_dir else []
@@ -1553,20 +1550,20 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 if cap.isOpened():
                     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
                     cap.release()
-                    
+
                     # Calculate clicked position
                     progress_btn = menu_buttons["gallery_progress"]
                     click_pos = (x - progress_btn.x) / progress_btn.w
                     click_pos = max(0.0, min(1.0, click_pos))
-                    
+
                     button_state.gallery_video_frame_idx = int(total_frames * click_pos)
                     button_state.gallery_video_playing = False  # Pause on seek
             return True
-    
+
     # Handle grid view clicks
     if button_state.gallery_viewer_mode == "grid":
         print(f"DEBUG: Grid view click at ({x}, {y})")
-        
+
         # Priority 1: Check select mode toggle button FIRST (before thumbnails)
         if "gallery_select_mode" in menu_buttons:
             btn = menu_buttons["gallery_select_mode"]
@@ -1579,7 +1576,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     button_state.gallery_selected_items.clear()
                     button_state.gallery_delete_confirm = False
                 return True
-        
+
         # Priority 2: Check select all button
         if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons:
             if menu_buttons["gallery_select_all"].contains(x, y):
@@ -1596,7 +1593,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         print(f"✓ Selected all {len(items)} items")
                 button_state.gallery_delete_confirm = False
                 return True
-        
+
         # Priority 3: Check delete button
         if button_state.gallery_select_mode and "gallery_delete_selected" in menu_buttons:
             if menu_buttons["gallery_delete_selected"].contains(x, y):
@@ -1607,7 +1604,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         button_state.gallery_delete_confirm = True
                         print("⚠ Delete confirmation requested - click DELETE again to confirm")
                         return True
-                    
+
                     # Second click: perform deletion
                     try:
                         # Delete selected files
@@ -1621,7 +1618,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                                 except Exception as e:
                                     print(f"Failed to delete {filepath}: {e}")
                         print(f"✓ Deleted {deleted_count} selected files")
-                        
+
                         # Clear selection and reset confirmation
                         button_state.gallery_selected_items.clear()
                         button_state.gallery_delete_confirm = False
@@ -1629,14 +1626,14 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         print(f"Error during deletion: {e}")
                         button_state.gallery_delete_confirm = False
                 return True
-        
+
         # Priority 4: Check thumbnail clicks (LAST)
         if hasattr(button_state, 'gallery_thumbnail_rects'):
             for thumb in button_state.gallery_thumbnail_rects:
                 if (thumb['x'] <= x <= thumb['x'] + thumb['w'] and
                     thumb['y'] <= y <= thumb['y'] + thumb['h']):
                     idx = thumb['idx']
-                    
+
                     if button_state.gallery_select_mode:
                         # In select mode: toggle selection
                         if idx in button_state.gallery_selected_items:
@@ -1724,7 +1721,7 @@ def handle_menu_click(
         except ValueError:
             i = 0
         button_state.colormap_mode = colormaps[(i + 1) % len(colormaps)]
-        menu_buttons["colormap"].text = f"MAP: {button_state.colormap_mode}"
+        menu_buttons["colormap"].text = f"COLOUR: {button_state.colormap_mode}"
         return video_recorder
 
     # CAMERA toggle
@@ -1742,13 +1739,13 @@ def handle_menu_click(
         except ValueError:
             i = modes.index(SOURCE_DEFAULT)
         button_state.source_mode = modes[(i + 1) % len(modes)]
-        menu_buttons["source"].text = f"SOURCE: {button_state.source_mode}"
+        menu_buttons["source"].text = f"SRC: {button_state.source_mode}"
         return video_recorder
 
     # DEBUG toggle
     if "debug" in menu_buttons and menu_buttons["debug"].contains(x, y):
         button_state.debug_enabled = not button_state.debug_enabled
-        menu_buttons["debug"].text = "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
+        # menu_buttons["debug"].text = "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
         return video_recorder
 
     # SHOT
@@ -1816,7 +1813,7 @@ def handle_button_click(
     )
 
     if "source" in buttons and buttons["source"].contains(x, y):
-        modes = list(SOURCE_MODES)  # ("SIM", "SPI_LOOPBACK", "SPI_HW")
+        modes = list(SOURCE_MODES)  # ("SIM", "LOOP", "HW")
         cur = button_state.source_mode
         try:
             i = modes.index(cur)

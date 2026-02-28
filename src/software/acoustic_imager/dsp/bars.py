@@ -224,7 +224,7 @@ def draw_frequency_bar(
         cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), (0, 255, 0), -1)
         # Blend with low alpha for subtle effect
         cv2.addWeighted(overlay, 0.08, bar, 0.92, 0, bar)
-    
+
     cv2.putText(bar, f"{fmin_khz:5.1f} kHz", (label_x, y_min_txt),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
     cv2.putText(bar, f"{fmax_khz:5.1f} kHz", (label_x, y_max_txt),
@@ -287,21 +287,23 @@ def draw_db_colorbar(
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.5
         font_thickness = 1
-        
+
         # Top label (db_max)
         top_text = f"{float(db_max):.0f} dB"
         (top_w, top_h), _ = cv2.getTextSize(top_text, font, font_scale, font_thickness)
         top_x = (width - top_w) // 2  # Center horizontally
         top_y = 20
-        cv2.putText(frame, top_text, (top_x, top_y), font, font_scale, (0, 0, 0), font_thickness, cv2.LINE_8)
-        
+        #cv2.putText(frame, top_text, (top_x, top_y), font, font_scale, (255, 255, 255), font_thickness + 1, cv2.LINE_AA)
+        cv2.putText(frame, top_text, (top_x, top_y), font, font_scale, (0, 0, 0), font_thickness, cv2.LINE_AA)
+
         # Bottom label (db_min)
         bottom_text = f"{float(db_min):.0f} dB"
         (bottom_w, bottom_h), _ = cv2.getTextSize(bottom_text, font, font_scale, font_thickness)
         bottom_x = (width - bottom_w) // 2  # Center horizontally
         bottom_y = h - 10
-        cv2.putText(frame, bottom_text, (bottom_x, bottom_y), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_8)
-        
+        # cv2.putText(frame, bottom_text, (bottom_x, bottom_y), font, font_scale, (0, 0, 0), font_thickness + 1, cv2.LINE_AA)
+        cv2.putText(frame, bottom_text, (bottom_x, bottom_y), font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+
         return float(db_min), float(db_max)
 
     # ---- slider-controlled scaling ----

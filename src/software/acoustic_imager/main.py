@@ -161,7 +161,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if button_state.gallery_open and button_state.gallery_viewer_mode == "grid":
             # Check if click is not on back button or thumbnail
             back_button_clicked = "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(mx, my)
-            
+
             if not back_button_clicked:
                 # Check if clicking on a thumbnail
                 thumbnail_clicked = False
@@ -171,14 +171,14 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                             thumb['y'] <= my <= thumb['y'] + thumb['h']):
                             thumbnail_clicked = True
                             break
-                
+
                 # If not clicking button or thumbnail, start drag
                 if not thumbnail_clicked:
                     button_state.gallery_drag_active = True
                     button_state.gallery_drag_start_y = my
                     button_state.gallery_drag_start_offset = button_state.gallery_scroll_offset
                     return
-        
+
         # Check gallery view first (if open)
         if handle_gallery_click(mx, my, state.OUTPUT_DIR):
             return
@@ -289,21 +289,21 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             button_state.gallery_scroll_offset = button_state.gallery_drag_start_offset - drag_distance
             # Clamping is done in draw function
             return
-        
+
         # Handle frequency bar dragging
         bar_left = left_width
         if state.DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
             if state.DRAG_TARGET == "box":
                 # Drag the entire box - maintain the frequency range
                 freq_range = state.DRAG_START_F_MAX - state.DRAG_START_F_MIN
-                
+
                 # Convert y offset to frequency offset (swap order to fix inverse scrolling)
                 freq_offset = y_to_freq(my, h, config.F_DISPLAY_MAX) - y_to_freq(state.DRAG_START_Y, h, config.F_DISPLAY_MAX)
-                
+
                 # Move both frequencies
                 new_f_min = state.DRAG_START_F_MIN + freq_offset
                 new_f_max = state.DRAG_START_F_MAX + freq_offset
-                
+
                 # Clamp to valid range while maintaining the box size
                 if new_f_min < 0:
                     new_f_min = 0
@@ -311,7 +311,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 elif new_f_max > config.F_DISPLAY_MAX:
                     new_f_max = config.F_DISPLAY_MAX
                     new_f_min = config.F_DISPLAY_MAX - freq_range
-                
+
                 state.F_MIN_HZ = new_f_min
                 state.F_MAX_HZ = new_f_max
             else:
@@ -328,7 +328,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if button_state.gallery_drag_active:
             button_state.gallery_drag_active = False
             return
-        
+
         # End frequency bar drag
         state.DRAG_ACTIVE = False
         state.DRAG_TARGET = None
@@ -392,9 +392,9 @@ def main() -> None:
     prev_mode = button_state.source_mode
 
     # Start the selected SPI provider (if any)
-    if button_state.source_mode == "SPI_LOOPBACK":
+    if button_state.source_mode == "LOOP":
         spi_loopback.start()
-    elif button_state.source_mode == "SPI_HW":
+    elif button_state.source_mode == "HW":
         spi_hw.start()
 
     # ---- Initialize camera ----
@@ -487,9 +487,9 @@ def main() -> None:
                 last_spi_fft_data = None
 
                 # start whichever is selected
-                if mode == "SPI_LOOPBACK":
+                if mode == "LOOP":
                     spi_loopback.start()
-                elif mode == "SPI_HW":
+                elif mode == "HW":
                     spi_hw.start()
 
                 prev_mode = mode
@@ -504,12 +504,12 @@ def main() -> None:
             if mode == "SIM":
                 latest_frame = sim_source.read_frame()
                 source_label = "SIM"
-            elif mode == "SPI_LOOPBACK":
+            elif mode == "LOOP":
                 latest_frame = spi_loopback.get_latest()
-                source_label = "SPI_LOOPBACK"
+                source_label = "LOOP"
             else:  # "SPI_HW"
                 latest_frame = spi_hw.get_latest()
-                source_label = "SPI_HW"
+                source_label = "HW"
 
             source_stats = latest_frame.stats
             fft_data = latest_frame.fft_data if latest_frame.ok else None
@@ -663,33 +663,33 @@ def main() -> None:
                 font_thickness = 1
                 line_height = 18
                 padding = 12
-                
+
                 # Calculate max available width (don't extend beyond menu button)
                 # Menu is at: left_width - 100 - 15
                 max_available_width = left_width - config.DB_BAR_WIDTH - 135
-                
+
                 # Measure max text width
                 max_text_width = 0
                 for line in debug_lines:
                     (text_w, text_h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
                     max_text_width = max(max_text_width, text_w)
-                
+
                 # Constrain to max available width
                 box_w = min(max_text_width + 2 * padding, max_available_width)
                 box_h = len(debug_lines) * line_height + 2 * padding
-                
+
                 # Position at bottom left of camera/heatmap area (after dB bar)
                 box_x = config.DB_BAR_WIDTH + 10
-                box_y = config.HEIGHT - box_h - 10
-                
+                box_y = config.HEIGHT - box_h - 5
+
                 # Draw semi-transparent grey background box
                 overlay = output_frame.copy()
                 cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (40, 40, 40), -1)
                 cv2.addWeighted(overlay, 0.7, output_frame, 0.3, 0, output_frame)
-                
+
                 # Draw border
                 cv2.rectangle(output_frame, (box_x, box_y), (box_x + box_w, box_y + box_h), (100, 100, 100), 2, cv2.LINE_AA)
-                
+
                 # Draw text lines
                 text_x = box_x + padding
                 text_y = box_y + padding + 13

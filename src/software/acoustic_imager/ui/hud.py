@@ -108,7 +108,7 @@ def draw_hud(
     net_w  = 165
     fps_w  = 165
     time_w = 170
-    
+
     # Calculate total width and center horizontally
     total_width = net_w + gap + fps_w + gap + time_w
     start_x = (w - total_width) // 2
@@ -133,6 +133,17 @@ def draw_hud(
         (x_net + 40, text_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.55,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA
+    )
+
+    cv2.putText(
+        frame,
+        f"{net_txt} Mb/s",
+        (x_net + 40, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
         (255, 255, 255),
         1,
         cv2.LINE_AA
@@ -146,6 +157,16 @@ def draw_hud(
         (x_fps + 40, text_y),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.55,
+        (0, 0, 0),
+        2,
+        cv2.LINE_AA
+    )
+    cv2.putText(
+        frame,
+        f"{fps_txt} FPS",
+        (x_fps + 40, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
         (255, 255, 255),
         1,
         cv2.LINE_AA
@@ -153,6 +174,16 @@ def draw_hud(
 
     # --- TIME ---
     draw_clock_icon(x_time + 18, cy)
+    cv2.putText(
+        frame,
+        time_txt,
+        (x_time + 40, text_y),   # text positioned after icon
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.55,
+        (0, 0, 0),         # WHITE text
+        2,
+        cv2.LINE_AA
+    )
     cv2.putText(
         frame,
         time_txt,
