@@ -64,6 +64,24 @@ class ButtonState:
     gallery_inertia_active: bool = False
     gallery_last_inertia_t: float = 0.0
 
+    # Viewer (image/video) horizontal swipe with inertia
+    gallery_viewer_swipe_dragging: bool = False
+    gallery_viewer_swipe_start_x: int = 0
+    gallery_viewer_swipe_offset: float = 0.0   # px, positive = dragged left (toward next)
+    gallery_viewer_swipe_velocity: float = 0.0  # px/s
+    gallery_viewer_swipe_last_t: float = 0.0
+    gallery_viewer_swipe_last_x: int = 0
+    gallery_viewer_swipe_drag_moved: bool = False
+    gallery_viewer_swipe_inertia_active: bool = False
+    gallery_viewer_swipe_last_inertia_t: float = 0.0
+
+    # Video progress bar scrub (set by draw, read by handler)
+    gallery_progress_dragging: bool = False
+
+    # Viewer dock: green click feedback (button key + time)
+    viewer_dock_feedback_button: str = ""
+    viewer_dock_feedback_time: float = 0.0
+
     gallery_delete_modal_open: bool = False
     gallery_delete_modal_kind: str = "single"
     gallery_delete_modal_title: str = "Delete this item?"

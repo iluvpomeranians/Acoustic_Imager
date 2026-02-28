@@ -65,24 +65,29 @@ from acoustic_imager.state import HUD
 # I/O managers
 from acoustic_imager.io.camera_manager import CameraManager
 
-# UI components
-from acoustic_imager.ui.ui_components import (
-    button_state,
+# UI components (flat modules alongside hud and video_recorder)
+from acoustic_imager.state import button_state
+from acoustic_imager.ui.button import (
     buttons,
     menu_buttons,
     init_buttons,
     init_menu_buttons,
     update_button_states,
     draw_buttons,
+    FPS_MODE_TO_TARGET,
+)
+from acoustic_imager.ui.screenshot import save_screenshot, draw_screenshot_flash
+from acoustic_imager.ui.menu import (
     draw_menu,
-    draw_recording_timestamp,
-    draw_screenshot_flash,
     get_recording_timestamp_rect,
+    draw_recording_timestamp,
+)
+from acoustic_imager.ui.gallery import draw_gallery_view, get_gallery_items
+from acoustic_imager.ui.handlers import (
     handle_button_click,
     handle_gallery_click,
     handle_gallery_mouse,
-    draw_gallery_view,
-    FPS_MODE_TO_TARGET,
+    handle_gallery_viewer_mouse,
 )
 from acoustic_imager.ui.video_recorder import VideoRecorder
 
@@ -158,15 +163,13 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Always give gallery first dibs on all mouse events (down/move/up)
     if button_state.gallery_open:
-        # Grid mode handles drag + click-in-up
         if button_state.gallery_viewer_mode == "grid":
             if handle_gallery_mouse(event, mx, my, flags, state.OUTPUT_DIR):
                 return
         else:
-            # Viewer modes (image/video): just handle clicks
-            if event == cv2.EVENT_LBUTTONDOWN:
-                if handle_gallery_click(mx, my, state.OUTPUT_DIR):
-                    return
+            # Viewer (image/video): horizontal swipe with inertia + clicks
+            if handle_gallery_viewer_mouse(event, mx, my, flags, state.OUTPUT_DIR):
+                return
 
     # Handle left button down
     if event == cv2.EVENT_LBUTTONDOWN:
