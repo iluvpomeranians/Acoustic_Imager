@@ -12,6 +12,7 @@ from . import ui_cache
 from .button import menu_buttons
 from ..state import button_state
 from .video_recorder import VideoRecorder
+from ..config import BUTTON_ALPHA
 
 
 def draw_menu(frame: np.ndarray) -> None:
@@ -30,7 +31,7 @@ def draw_menu(frame: np.ndarray) -> None:
     overlay = np.empty_like(roi)
     bg_color = (40, 200, 60) if menu_btn.is_active else (40, 40, 40)
     overlay[:] = bg_color
-    alpha = 0.35
+    alpha = BUTTON_ALPHA
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
 
     border_color = (80, 255, 100) if menu_btn.is_active else (255, 255, 255)
@@ -42,7 +43,7 @@ def draw_menu(frame: np.ndarray) -> None:
     tw, th = cv2.getTextSize(menu_btn.text, font, scale, thick)[0]
     tx = x + (w - tw) // 2
     ty = y + (h + th) // 2
-    cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (0, 0, 0), thick + 1, cv2.LINE_AA)
+    # cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (0, 0, 0), thick + 1, cv2.LINE_AA)
     cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (255, 255, 255), thick, cv2.LINE_AA)
 
     if not button_state.menu_open:
@@ -136,7 +137,8 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         band_h = 10
         band = hud.copy()
         band[:band_h] = np.clip(band[:band_h].astype(np.int16) + 15, 0, 255).astype(np.uint8)
-        cv2.addWeighted(band, 0.35, hud, 0.65, 0.0, hud)
+        alpha = BUTTON_ALPHA
+        cv2.addWeighted(band, alpha, hud, 1- alpha, 0.0, hud)
 
         border_color = (200, 200, 200) if not paused else (100, 100, 200)
         cv2.rectangle(hud, (0, 0), (menu_w - 1, timestamp_h - 1), border_color, 1, cv2.LINE_8)
@@ -146,7 +148,8 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     overlay = np.empty_like(roi)
     bg_color = (100, 0, 0) if not paused else (0, 100, 150)
     overlay[:] = bg_color
-    cv2.addWeighted(overlay, 0.25, roi, 0.75, 0.0, dst=roi)
+    alpha = BUTTON_ALPHA
+    cv2.addWeighted(overlay, alpha, roi, 1-alpha, 0.0, dst=roi)
 
     border_color = (255, 50, 50) if not paused else (0, 165, 255)
     cv2.rectangle(frame, (menu_x, timestamp_y), (menu_x + menu_w, timestamp_y + timestamp_h),

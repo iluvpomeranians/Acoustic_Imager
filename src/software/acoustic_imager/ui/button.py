@@ -13,7 +13,7 @@ from . import ui_cache
 from ..state import button_state
 
 try:
-    from ..config import BUTTON_HITPAD_PX
+    from ..config import BUTTON_HITPAD_PX, BUTTON_ALPHA
 except Exception:
     BUTTON_HITPAD_PX = ui_cache.BUTTON_HITPAD_PX
 
@@ -138,7 +138,7 @@ class Button:
                 roi = frame[y0:y1, x0:x1]
                 overlay = np.empty_like(roi)
                 overlay[:] = color
-                alpha = 0.35
+                alpha = BUTTON_ALPHA
                 cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
         else:
             x0 = max(0, x)
@@ -180,9 +180,9 @@ class Button:
             tx = x + (w - tw) // 2
             ty = y + (h + th) // 2
 
-            cv2.putText(frame, self.text, (tx, ty),
-                        font, scale, (0, 0, 0),
-                        thick + 1, cv2.LINE_AA)
+            # cv2.putText(frame, self.text, (tx, ty),
+            #             font, scale, (0, 0, 0),
+            #             thick + 1, cv2.LINE_AA)
 
             cv2.putText(frame, self.text, (tx, ty),
                         font, scale, (255, 255, 255),
