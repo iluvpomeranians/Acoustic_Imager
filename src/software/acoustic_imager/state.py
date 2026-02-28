@@ -64,6 +64,11 @@ class ButtonState:
     gallery_inertia_active: bool = False
     gallery_last_inertia_t: float = 0.0
 
+    gallery_delete_modal_open: bool = False
+    gallery_delete_modal_kind: str = "single"
+    gallery_delete_modal_title: str = "Delete this item?"
+    gallery_delete_modal_subtitle: str = "This action cannot be undone."
+
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
 

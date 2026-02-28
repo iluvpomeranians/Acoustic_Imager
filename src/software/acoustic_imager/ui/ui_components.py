@@ -93,12 +93,10 @@ def save_screenshot(frame: np.ndarray, output_dir: Path) -> Optional[str]:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filepath = output_dir / f"screenshot_{timestamp}.png"
     if cv2.imwrite(str(filepath), frame):
-        print(f"Screenshot saved: {filepath}")
         # Trigger screenshot flash feedback
         from ..state import button_state
         button_state.screenshot_flash_time = time.time()
         return str(filepath)
-    print(f"Failed to save screenshot: {filepath}")
     return None
 
 
@@ -369,7 +367,7 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     gap = 8
 
     # Calculate total dropdown height to position it above the menu button
-    total_items = 7  # FPS row + GAIN + COLORMAP + CAM + SOURCE + DEBUG + SHOT/REC row + GALLERY
+    total_items = 7  # FPS row + GAIN + COLORMAP + CAM + SRC/DEBUG + SHOT/REC row + GALLERY
     dropdown_h = total_items * (item_h + gap) + gap
 
     # Position dropdown above menu button
@@ -1027,73 +1025,63 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         menu_buttons["gallery_next"].draw(frame, transparent=True)
 
 
-def draw_delete_modal(frame: np.ndarray) -> None:
-    """
-    Draw a confirmation modal for deleting items.
-    Shows "Are you sure?" with YES/NO buttons.
-    """
-    # Modal dimensions
+def draw_delete_modal(
+    frame: np.ndarray,
+    title: str = "Delete this item?",
+    subtitle: str = "This action cannot be undone.",
+    yes_text: str = "YES, DELETE",
+    no_text: str = "CANCEL",
+) -> None:
     modal_w = 400
     modal_h = 180
     modal_x = (frame.shape[1] - modal_w) // 2
     modal_y = (frame.shape[0] - modal_h) // 2
 
-    # Draw semi-transparent overlay over entire screen
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-    # Draw modal box with dark background
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
 
-    # Draw title text
     font = cv2.FONT_HERSHEY_SIMPLEX
-    title = "Delete this item?"
+
     title_scale = 0.7
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, 2)
     title_x = modal_x + (modal_w - title_w) // 2
     title_y = modal_y + 50
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), 2, cv2.LINE_AA)
 
-    # Draw warning message
-    msg = "This action cannot be undone."
     msg_scale = 0.5
-    (msg_w, msg_h), _ = cv2.getTextSize(msg, font, msg_scale, 1)
+    (msg_w, msg_h), _ = cv2.getTextSize(subtitle, font, msg_scale, 1)
     msg_x = modal_x + (modal_w - msg_w) // 2
     msg_y = modal_y + 85
-    cv2.putText(frame, msg, (msg_x, msg_y), font, msg_scale, (200, 200, 200), 1, cv2.LINE_AA)
+    cv2.putText(frame, subtitle, (msg_x, msg_y), font, msg_scale, (200, 200, 200), 1, cv2.LINE_AA)
 
-    # YES button (red)
-    yes_btn_w = 120
+    yes_btn_w = 160
     yes_btn_h = 45
     yes_btn_x = modal_x + (modal_w // 2) - yes_btn_w - 15
     yes_btn_y = modal_y + modal_h - yes_btn_h - 25
 
     if "modal_yes" not in menu_buttons:
-        menu_buttons["modal_yes"] = Button(yes_btn_x, yes_btn_y, yes_btn_w, yes_btn_h, "YES, DELETE")
+        menu_buttons["modal_yes"] = Button(yes_btn_x, yes_btn_y, yes_btn_w, yes_btn_h, yes_text)
     else:
-        menu_buttons["modal_yes"].x = yes_btn_x
-        menu_buttons["modal_yes"].y = yes_btn_y
-        menu_buttons["modal_yes"].w = yes_btn_w
-        menu_buttons["modal_yes"].h = yes_btn_h
+        b = menu_buttons["modal_yes"]
+        b.x, b.y, b.w, b.h, b.text = yes_btn_x, yes_btn_y, yes_btn_w, yes_btn_h, yes_text
 
     menu_buttons["modal_yes"].is_active = True
     menu_buttons["modal_yes"].draw(frame, transparent=True, active_color=(0, 0, 220))
 
-    # NO button (grey)
-    no_btn_w = 120
+    no_btn_w = 140
     no_btn_h = 45
     no_btn_x = modal_x + (modal_w // 2) + 15
     no_btn_y = modal_y + modal_h - no_btn_h - 25
 
     if "modal_no" not in menu_buttons:
-        menu_buttons["modal_no"] = Button(no_btn_x, no_btn_y, no_btn_w, no_btn_h, "CANCEL")
+        menu_buttons["modal_no"] = Button(no_btn_x, no_btn_y, no_btn_w, no_btn_h, no_text)
     else:
-        menu_buttons["modal_no"].x = no_btn_x
-        menu_buttons["modal_no"].y = no_btn_y
-        menu_buttons["modal_no"].w = no_btn_w
-        menu_buttons["modal_no"].h = no_btn_h
+        b = menu_buttons["modal_no"]
+        b.x, b.y, b.w, b.h, b.text = no_btn_x, no_btn_y, no_btn_w, no_btn_h, no_text
 
     menu_buttons["modal_no"].draw(frame, transparent=True)
 
@@ -1143,12 +1131,12 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
     title_y = (header_h + title_h) // 2 + 5
-    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
+    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_8)
 
     # Back button (narrow, just fits the arrow)
-    back_btn_x = 20
+    back_btn_x = 10
     back_btn_y = 20
-    back_btn_w = 50  # Narrower button
+    back_btn_w = 75  # Narrower button
     back_btn_h = 40
 
     # Store back button for click detection
@@ -1187,8 +1175,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
 
-        print(f"DEBUG DRAW: SELECT button at ({select_mode_btn_x}, {select_mode_btn_y}, {select_mode_btn_w}, {btn_h}), active={button_state.gallery_select_mode}")
-
         # Use blue color when select mode is active
         if button_state.gallery_select_mode:
             menu_buttons["gallery_select_mode"].draw(frame, transparent=True, active_color=(200, 100, 40))  # Blue
@@ -1222,17 +1208,12 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             if button_state.gallery_selected_items:
                 selected_count = len(button_state.gallery_selected_items)
 
-                delete_btn_w = 180
+                delete_btn_w = 140
                 delete_btn_x = current_x - delete_btn_w
                 delete_btn_y = 20
 
-                # Update button text based on confirmation state
-                if button_state.gallery_delete_confirm:
-                    delete_text = "CONFIRM DELETE?"
-                    delete_color = (0, 0, 255)  # Brighter red for confirmation (BGR)
-                else:
-                    delete_text = f"DELETE ({selected_count})"
-                    delete_color = (0, 0, 200)  # Normal red (BGR)
+                delete_text = f"DELETE ({selected_count})"
+                delete_color = (0, 0, 220)  # BGR red-ish
 
                 if "gallery_delete_selected" not in menu_buttons:
                     menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, btn_h, delete_text)
@@ -1246,6 +1227,8 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 # Draw delete button with red color
                 menu_buttons["gallery_delete_selected"].is_active = True
                 menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
+
+                #button_state.gallery_delete_modal_open = True
 
     if not items:
         # No items message
@@ -1313,14 +1296,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         button_state.gallery_scroll_offset = int(new_scroll)
 
     button_state.gallery_max_scroll = int(max_scroll)
-
-    # Clamp scroll offset to valid range
     button_state.gallery_scroll_offset = max(0, min(button_state.gallery_scroll_offset, max_scroll))
 
-    # Create a clipping mask to prevent thumbnails from drawing over the header
     clip_y_start = header_h
 
-    # Store thumbnail positions for click detection
     if not hasattr(button_state, 'gallery_thumbnail_rects'):
         button_state.gallery_thumbnail_rects = []
     button_state.gallery_thumbnail_rects.clear()
@@ -1536,7 +1515,20 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     else:
         footer_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos) | Click to view | Swipe to scroll"
     footer_y = frame.shape[0] - 15
-    cv2.putText(frame, footer_text, (margin, footer_y), font, 0.5, (150, 150, 150), 1, cv2.LINE_AA)
+    cv2.putText(frame, footer_text, (margin, footer_y), font, 0.5, (150, 150, 150), 1, cv2.LINE_8)
+
+    if button_state.gallery_delete_modal_open:
+        if button_state.gallery_delete_modal_kind == "batch":
+            n = len(button_state.gallery_selected_items)
+            draw_delete_modal(
+                frame,
+                title=f"Delete {n} item(s)?",
+                subtitle="This action cannot be undone.",
+                yes_text="YES, DELETE",
+                no_text="CANCEL",
+            )
+        else:
+            draw_delete_modal(frame)
 
 
 # ===============================================================
@@ -1559,57 +1551,71 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_selected_item = None
             button_state.gallery_select_mode = False  # Exit select mode
             button_state.gallery_selected_items.clear()  # Clear selections
-            button_state.gallery_delete_confirm = False  # Reset confirmation
+
         else:
             # Return to grid view
             button_state.gallery_viewer_mode = "grid"
             button_state.gallery_video_playing = False
             button_state.gallery_video_frame_idx = 0
-            button_state.gallery_delete_confirm = False  # Reset confirmation
+
         return True
 
     # Check modal buttons (if modal is open)
     if button_state.gallery_delete_modal_open:
-        # YES button - confirm deletion
+    # YES
         if "modal_yes" in menu_buttons and menu_buttons["modal_yes"].contains(x, y):
             items = get_gallery_items(output_dir) if output_dir else []
-            if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
-                filepath = items[button_state.gallery_selected_item][0]
-                try:
-                    # Delete the file
-                    filepath.unlink()
-                    print(f"✓ Deleted: {filepath}")
 
-                    # Update selection
+            try:
+                if button_state.gallery_delete_modal_kind == "batch":
+                    # delete selected indices (careful: items is sorted newest first)
+                    deleted = 0
+                    for idx in sorted(button_state.gallery_selected_items, reverse=True):
+                        if 0 <= idx < len(items):
+                            path = items[idx][0]
+                            try:
+                                path.unlink()
+                                deleted += 1
+                            except Exception as e:
+                                print(f"Failed to delete {path}: {e}")
+
+                    button_state.gallery_selected_items.clear()
+                    button_state.gallery_select_mode = False  # optional: exit select mode after delete
+                    button_state.gallery_delete_modal_open = False
+                    button_state.gallery_delete_modal_kind = "single"
+                    return True
+
+                # else: single delete (viewer OR grid-single)
+                if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
+                    filepath = items[button_state.gallery_selected_item][0]
+                    filepath.unlink()
+
                     if len(items) <= 1:
-                        # No more items, go back to grid
                         button_state.gallery_viewer_mode = "grid"
                         button_state.gallery_selected_item = None
                     else:
-                        # Move to previous item if we deleted the last one
                         if button_state.gallery_selected_item >= len(items) - 1:
                             button_state.gallery_selected_item = len(items) - 2
 
-                    button_state.gallery_delete_modal_open = False
-                except Exception as e:
-                    print(f"Failed to delete {filepath}: {e}")
-                    button_state.gallery_delete_modal_open = False
+                button_state.gallery_delete_modal_open = False
+                button_state.gallery_delete_modal_kind = "single"
+            except Exception as e:
+                button_state.gallery_delete_modal_open = False
+                button_state.gallery_delete_modal_kind = "single"
             return True
 
-        # NO button - cancel deletion
+        # NO
         if "modal_no" in menu_buttons and menu_buttons["modal_no"].contains(x, y):
             button_state.gallery_delete_modal_open = False
-            print("Deletion cancelled")
+            button_state.gallery_delete_modal_kind = "single"
             return True
 
-        # Click outside modal - cancel
         return True
 
     # Check delete button (works in both image and video viewer) - opens modal
-    if button_state.gallery_viewer_mode in ("image", "video"):
+    if button_state.gallery_viewer_mode in ("image", "video", "grid"):
         if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
             button_state.gallery_delete_modal_open = True
-            print("Delete modal opened")
             return True
 
     # Handle viewer mode clicks (navigation works for both image and video)
@@ -1676,19 +1682,16 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
     # Handle grid view clicks
     if button_state.gallery_viewer_mode == "grid":
-        print(f"DEBUG: Grid view click at ({x}, {y})")
 
         # Priority 1: Check select mode toggle button FIRST (before thumbnails)
         if "gallery_select_mode" in menu_buttons:
             btn = menu_buttons["gallery_select_mode"]
-            print(f"DEBUG: SELECT button exists at ({btn.x}, {btn.y}, w={btn.w}, h={btn.h})")
             if btn.contains(x, y):
                 button_state.gallery_select_mode = not button_state.gallery_select_mode
-                print(f"✓ SELECT mode toggled: {'ON (BLUE)' if button_state.gallery_select_mode else 'OFF'}")
                 if not button_state.gallery_select_mode:
                     # Exiting select mode - clear selections
                     button_state.gallery_selected_items.clear()
-                    button_state.gallery_delete_confirm = False
+
                 return True
 
         # Priority 2: Check select all button
@@ -1700,45 +1703,18 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     if all_selected:
                         # Deselect all
                         button_state.gallery_selected_items.clear()
-                        print("✓ Deselected all items")
                     else:
                         # Select all
                         button_state.gallery_selected_items = set(range(len(items)))
-                        print(f"✓ Selected all {len(items)} items")
-                button_state.gallery_delete_confirm = False
+
                 return True
 
         # Priority 3: Check delete button
         if button_state.gallery_select_mode and "gallery_delete_selected" in menu_buttons:
             if menu_buttons["gallery_delete_selected"].contains(x, y):
-                items = get_gallery_items(output_dir) if output_dir else []
                 if button_state.gallery_selected_items:
-                    # First click: request confirmation
-                    if not button_state.gallery_delete_confirm:
-                        button_state.gallery_delete_confirm = True
-                        print("⚠ Delete confirmation requested - click DELETE again to confirm")
-                        return True
-
-                    # Second click: perform deletion
-                    try:
-                        # Delete selected files
-                        deleted_count = 0
-                        for idx in sorted(button_state.gallery_selected_items, reverse=True):
-                            if idx < len(items):
-                                filepath = items[idx][0]
-                                try:
-                                    filepath.unlink()
-                                    deleted_count += 1
-                                except Exception as e:
-                                    print(f"Failed to delete {filepath}: {e}")
-                        print(f"✓ Deleted {deleted_count} selected files")
-
-                        # Clear selection and reset confirmation
-                        button_state.gallery_selected_items.clear()
-                        button_state.gallery_delete_confirm = False
-                    except Exception as e:
-                        print(f"Error during deletion: {e}")
-                        button_state.gallery_delete_confirm = False
+                    button_state.gallery_delete_modal_open = True
+                    button_state.gallery_delete_modal_kind = "batch"
                 return True
 
         # Priority 4: Check thumbnail clicks (LAST)
@@ -1752,14 +1728,10 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         # In select mode: toggle selection
                         if idx in button_state.gallery_selected_items:
                             button_state.gallery_selected_items.remove(idx)
-                            print(f"✓ Deselected item {idx}, total: {len(button_state.gallery_selected_items)}")
                         else:
                             button_state.gallery_selected_items.add(idx)
-                            print(f"✓ Selected item {idx}, total: {len(button_state.gallery_selected_items)}")
-                        button_state.gallery_delete_confirm = False
                     else:
                         # Not in select mode: open viewer directly
-                        print(f"✓ Opening viewer for item {idx}")
                         button_state.gallery_selected_item = idx
                         item_type = thumb['type']
                         if item_type == "image":
