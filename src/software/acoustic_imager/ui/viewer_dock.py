@@ -328,16 +328,9 @@ def draw_storage_bar(
     used_y = percent_y + 15
     cv2.putText(frame, used_text, (used_x, used_y), font, used_scale, (180, 180, 180), 1, cv2.LINE_AA)
     
-    free_text = format_size(free_space)
+    free_text = format_size(total_space)
     free_scale = 0.3
     (free_w, free_h), _ = cv2.getTextSize(free_text, font, free_scale, 1)
     free_x = bar_x + (bar_w - free_w) // 2
     free_y = used_y + 13
     cv2.putText(frame, free_text, (free_x, free_y), font, free_scale, (150, 150, 150), 1, cv2.LINE_AA)
-    
-    cap_text = format_size(total_space)
-    cap_scale = 0.3
-    (cap_w, cap_h), _ = cv2.getTextSize(cap_text, font, cap_scale, 1)
-    cap_x = bar_x + (bar_w - cap_w) // 2
-    cap_y = free_y + 13
-    cv2.putText(frame, cap_text, (cap_x, cap_y), font, cap_scale, (130, 130, 130), 1, cv2.LINE_AA)
