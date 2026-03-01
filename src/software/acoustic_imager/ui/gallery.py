@@ -539,7 +539,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_thick = 2
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
-    title_y = (header_h + title_h) // 2 + 5 - 8
+    title_y = (header_h + title_h) // 2 + 5 - 12
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_8)
     
     if button_state.gallery_select_mode:
@@ -657,8 +657,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             used_space = total_media_size
             free_space = total_space - used_space
         
-        usage_percent = (total_media_size / total_space * 100) if total_space > 0 else 0
-        
         def format_size(size_bytes):
             for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
                 if size_bytes < 1024.0:
@@ -679,38 +677,53 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, (200, 200, 200), 1, cv2.LINE_AA)
         
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
+        
+        disk_usage_percent = (used_space / total_space * 100) if total_space > 0 else 0
+        used_h = int(bar_h * min(disk_usage_percent / 100.0, 1.0))
+        
+        if used_h > 0:
+            used_color = (80, 200, 80) if disk_usage_percent < 75 else (80, 180, 220) if disk_usage_percent < 90 else (80, 80, 220)
+            used_y = bar_y + bar_h - used_h
+            cv2.rectangle(frame, (bar_x, used_y), (bar_x + bar_w, bar_y + bar_h), used_color, -1)
+        
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 2, cv2.LINE_AA)
         
-        filled_h = int(bar_h * min(usage_percent / 100.0, 1.0))
-        if total_media_size > 0 and filled_h < 3:
-            filled_h = 3
-        if filled_h > 0:
-            bar_color = (80, 200, 80) if usage_percent < 75 else (80, 180, 220) if usage_percent < 90 else (80, 80, 220)
-            fill_y = bar_y + bar_h - filled_h
-            cv2.rectangle(frame, (bar_x, fill_y), (bar_x + bar_w, bar_y + bar_h), bar_color, -1)
-        
-        if usage_percent < 0.1:
-            percent_text = f"{usage_percent:.2f}%"
+        if disk_usage_percent < 0.1:
+            percent_text = f"{disk_usage_percent:.2f}%"
         else:
-            percent_text = f"{usage_percent:.1f}%"
+            percent_text = f"{disk_usage_percent:.1f}%"
         percent_scale = 0.35
         (percent_w, percent_h), _ = cv2.getTextSize(percent_text, font, percent_scale, 1)
         percent_x = bar_x + (bar_w - percent_w) // 2
         percent_y = bar_y + bar_h + 15
         cv2.putText(frame, percent_text, (percent_x, percent_y), font, percent_scale, (200, 200, 200), 1, cv2.LINE_AA)
         
-        media_text = format_size(total_media_size)
-        media_scale = 0.32
-        (media_w, media_h), _ = cv2.getTextSize(media_text, font, media_scale, 1)
-        media_x = bar_x + (bar_w - media_w) // 2
-        media_y = percent_y + 15
-        cv2.putText(frame, media_text, (media_x, media_y), font, media_scale, (180, 180, 180), 1, cv2.LINE_AA)
+        used_text = format_size(used_space)
+        used_scale = 0.32
+        (used_w, used_h), _ = cv2.getTextSize(used_text, font, used_scale, 1)
+        used_x = bar_x + (bar_w - used_w) // 2
+        used_y = percent_y + 15
+        cv2.putText(frame, used_text, (used_x, used_y), font, used_scale, (180, 180, 180), 1, cv2.LINE_AA)
+        
+        legend_box_size = 8
+        legend_box_x = bar_x + (bar_w - legend_box_size) // 2
+        legend_box_y = used_y + 14
+        legend_color = (80, 200, 80) if disk_usage_percent < 75 else (80, 180, 220) if disk_usage_percent < 90 else (80, 80, 220)
+        cv2.rectangle(frame, (legend_box_x, legend_box_y), (legend_box_x + legend_box_size, legend_box_y + legend_box_size), legend_color, -1)
+        cv2.rectangle(frame, (legend_box_x, legend_box_y), (legend_box_x + legend_box_size, legend_box_y + legend_box_size), (120, 120, 120), 1, cv2.LINE_AA)
+        
+        legend_text = "Used"
+        legend_scale = 0.28
+        (legend_w, legend_h), _ = cv2.getTextSize(legend_text, font, legend_scale, 1)
+        legend_text_x = bar_x + (bar_w - legend_w) // 2
+        legend_text_y = legend_box_y + legend_box_size + 10
+        cv2.putText(frame, legend_text, (legend_text_x, legend_text_y), font, legend_scale, (150, 150, 150), 1, cv2.LINE_AA)
         
         total_text = format_size(total_space)
         total_scale = 0.3
         (total_w, total_h), _ = cv2.getTextSize(total_text, font, total_scale, 1)
         total_x = bar_x + (bar_w - total_w) // 2
-        total_y = media_y + 13
+        total_y = legend_text_y + 13
         cv2.putText(frame, total_text, (total_x, total_y), font, total_scale, (150, 150, 150), 1, cv2.LINE_AA)
 
     if not items:
