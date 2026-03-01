@@ -537,8 +537,23 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_thick = 2
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
-    title_y = (header_h + title_h) // 2 + 5
+    title_y = (header_h + title_h) // 2 + 5 - 8
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_8)
+    
+    if button_state.gallery_select_mode:
+        selected_count = len(button_state.gallery_selected_items)
+        if selected_count > 0:
+            info_text = f"Total: {len(items)} items | Selected: {selected_count} | Click to select/deselect | Swipe to scroll"
+        else:
+            info_text = f"Total: {len(items)} items | Click to select/deselect | Swipe to scroll"
+    else:
+        info_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos) | Click to view | Swipe to scroll"
+    
+    info_scale = 0.45
+    (info_w, info_h), _ = cv2.getTextSize(info_text, font, info_scale, 1)
+    info_x = (frame.shape[1] - info_w) // 2
+    info_y = title_y + 22
+    cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (150, 150, 150), 1, cv2.LINE_AA)
 
     back_btn_x = 10
     back_btn_y = 20
@@ -865,17 +880,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
 
             cv2.putText(frame, filename, (x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
-
-    if button_state.gallery_select_mode:
-        selected_count = len(button_state.gallery_selected_items)
-        if selected_count > 0:
-            footer_text = f"Total: {len(items)} items | Selected: {selected_count} | Click to select/deselect | Swipe to scroll"
-        else:
-            footer_text = f"Total: {len(items)} items | Click to select/deselect | Swipe to scroll"
-    else:
-        footer_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos) | Click to view | Swipe to scroll"
-    footer_y = frame.shape[0] - 15
-    cv2.putText(frame, footer_text, (margin, footer_y), font, 0.5, (150, 150, 150), 1, cv2.LINE_8)
 
     if button_state.gallery_delete_modal_open:
         if button_state.gallery_delete_modal_kind == "batch":
