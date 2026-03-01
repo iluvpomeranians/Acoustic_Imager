@@ -682,12 +682,17 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 2, cv2.LINE_AA)
         
         filled_h = int(bar_h * min(usage_percent / 100.0, 1.0))
+        if total_media_size > 0 and filled_h < 3:
+            filled_h = 3
         if filled_h > 0:
             bar_color = (80, 200, 80) if usage_percent < 75 else (80, 180, 220) if usage_percent < 90 else (80, 80, 220)
             fill_y = bar_y + bar_h - filled_h
             cv2.rectangle(frame, (bar_x, fill_y), (bar_x + bar_w, bar_y + bar_h), bar_color, -1)
         
-        percent_text = f"{usage_percent:.1f}%"
+        if usage_percent < 0.1:
+            percent_text = f"{usage_percent:.2f}%"
+        else:
+            percent_text = f"{usage_percent:.1f}%"
         percent_scale = 0.35
         (percent_w, percent_h), _ = cv2.getTextSize(percent_text, font, percent_scale, 1)
         percent_x = bar_x + (bar_w - percent_w) // 2
