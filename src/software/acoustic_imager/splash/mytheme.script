@@ -1,18 +1,10 @@
-// Get screen size
+img = Image("splash.png");
+sprite = Sprite(img);
+
 screen_width = Window.GetWidth();
 screen_height = Window.GetHeight();
 
-// Load image
-img = Image("splash.png");
-
-// Create sprite
-sprite = Sprite(img);
-
-// Center image
 x = (screen_width - img.GetWidth()) / 2;
 y = (screen_height - img.GetHeight()) / 2;
 
 sprite.SetPosition(x, y);
-
-// Keep splash visible until boot finishes
-Plymouth.SetBootProgressFunction(function() {});
