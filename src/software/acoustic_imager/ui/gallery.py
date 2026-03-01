@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 import time
+import os
+import shutil
 
 import cv2
 import numpy as np
@@ -636,6 +638,60 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
 
             menu_buttons["gallery_select_all"].draw(frame, transparent=True)
+
+    if items:
+        total_media_size = sum(filepath.stat().st_size for filepath, _, _ in items)
+        
+        if output_dir and output_dir.exists():
+            try:
+                disk_usage = shutil.disk_usage(str(output_dir))
+                total_space = disk_usage.total
+                used_space = disk_usage.used
+                free_space = disk_usage.free
+            except:
+                total_space = 128 * 1024 * 1024 * 1024
+                used_space = total_media_size
+                free_space = total_space - used_space
+        else:
+            total_space = 128 * 1024 * 1024 * 1024
+            used_space = total_media_size
+            free_space = total_space - used_space
+        
+        usage_percent = (total_media_size / total_space * 100) if total_space > 0 else 0
+        
+        def format_size(size_bytes):
+            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+                if size_bytes < 1024.0:
+                    return f"{size_bytes:.1f} {unit}"
+                size_bytes /= 1024.0
+            return f"{size_bytes:.1f} PB"
+        
+        bar_x = frame.shape[1] - 220
+        bar_y = header_h + 15
+        bar_w = 200
+        bar_h = 20
+        
+        label_text = "Storage Usage"
+        label_scale = 0.45
+        (label_w, label_h), _ = cv2.getTextSize(label_text, font, label_scale, 1)
+        label_x = bar_x + (bar_w - label_w) // 2
+        label_y = bar_y - 5
+        cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, (200, 200, 200), 1, cv2.LINE_AA)
+        
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 1, cv2.LINE_AA)
+        
+        filled_w = int(bar_w * min(usage_percent / 100.0, 1.0))
+        if filled_w > 0:
+            bar_color = (80, 200, 80) if usage_percent < 75 else (80, 180, 220) if usage_percent < 90 else (80, 80, 220)
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled_w, bar_y + bar_h), bar_color, -1)
+        
+        size_text = f"{format_size(total_media_size)} / {format_size(total_space)} ({usage_percent:.1f}%)"
+        size_scale = 0.35
+        (size_w, size_h), _ = cv2.getTextSize(size_text, font, size_scale, 1)
+        size_x = bar_x + (bar_w - size_w) // 2
+        size_y = bar_y + bar_h + 12
+        cv2.putText(frame, size_text, (size_x, size_y), font, size_scale, (180, 180, 180), 1, cv2.LINE_AA)
 
     if not items:
         msg = "No captures yet. Use SHOT or REC to create content."
