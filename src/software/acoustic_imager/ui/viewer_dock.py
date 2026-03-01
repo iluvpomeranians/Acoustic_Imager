@@ -7,8 +7,9 @@ Taller dock with optional green click feedback for nav/play buttons.
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple
 import time
+import shutil
 
 import cv2
 import numpy as np
@@ -245,3 +246,98 @@ def draw_viewer_chrome(
             menu_buttons["gallery_progress"].h = progress_h_hit
 
     return controls_y
+
+
+def draw_storage_bar(
+    frame: np.ndarray,
+    items: List[Tuple[Path, str, datetime]],
+    output_dir: Optional[Path],
+    header_h: int
+) -> None:
+    """
+    Draw vertical storage bar showing disk usage (Windows-style).
+    Shows total disk used space vs free space with color-coded indicator.
+    """
+    if not items:
+        return
+    
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    total_media_size = sum(filepath.stat().st_size for filepath, _, _ in items)
+    
+    if output_dir and output_dir.exists():
+        try:
+            disk_usage = shutil.disk_usage(str(output_dir))
+            total_space = disk_usage.total
+            used_space = disk_usage.used
+            free_space = disk_usage.free
+        except:
+            total_space = 128 * 1024 * 1024 * 1024
+            used_space = total_media_size
+            free_space = total_space - used_space
+    else:
+        total_space = 128 * 1024 * 1024 * 1024
+        used_space = total_media_size
+        free_space = total_space - used_space
+    
+    def format_size(size_bytes):
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024.0
+        return f"{size_bytes:.1f} PB"
+    
+    bar_w = 25
+    bar_h = 300
+    bar_x = frame.shape[1] - 50
+    bar_y = header_h + 80
+    
+    label_text = "STORAGE"
+    label_scale = 0.4
+    (label_w, label_h), _ = cv2.getTextSize(label_text, font, label_scale, 1)
+    label_x = bar_x + (bar_w - label_w) // 2
+    label_y = bar_y - 10
+    cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, (200, 200, 200), 1, cv2.LINE_AA)
+    
+    used_percent = (used_space / total_space * 100) if total_space > 0 else 0
+    
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (80, 80, 80), -1)
+    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 2, cv2.LINE_AA)
+    
+    filled_h = int(bar_h * min(used_percent / 100.0, 1.0))
+    if used_space > 0 and filled_h < 2:
+        filled_h = 2
+    if filled_h > 0:
+        bar_color = (80, 200, 80) if used_percent < 75 else (80, 180, 220) if used_percent < 90 else (80, 80, 220)
+        fill_y = bar_y + bar_h - filled_h
+        cv2.rectangle(frame, (bar_x, fill_y), (bar_x + bar_w, bar_y + bar_h), bar_color, -1)
+    
+    if used_percent < 0.1:
+        percent_text = f"{used_percent:.2f}%"
+    else:
+        percent_text = f"{used_percent:.1f}%"
+    percent_scale = 0.35
+    (percent_w, percent_h), _ = cv2.getTextSize(percent_text, font, percent_scale, 1)
+    percent_x = bar_x + (bar_w - percent_w) // 2
+    percent_y = bar_y + bar_h + 15
+    cv2.putText(frame, percent_text, (percent_x, percent_y), font, percent_scale, (200, 200, 200), 1, cv2.LINE_AA)
+    
+    used_text = format_size(used_space)
+    used_scale = 0.32
+    (used_w, used_h), _ = cv2.getTextSize(used_text, font, used_scale, 1)
+    used_x = bar_x + (bar_w - used_w) // 2
+    used_y = percent_y + 15
+    cv2.putText(frame, used_text, (used_x, used_y), font, used_scale, (180, 180, 180), 1, cv2.LINE_AA)
+    
+    free_text = format_size(free_space)
+    free_scale = 0.3
+    (free_w, free_h), _ = cv2.getTextSize(free_text, font, free_scale, 1)
+    free_x = bar_x + (bar_w - free_w) // 2
+    free_y = used_y + 13
+    cv2.putText(frame, free_text, (free_x, free_y), font, free_scale, (150, 150, 150), 1, cv2.LINE_AA)
+    
+    cap_text = format_size(total_space)
+    cap_scale = 0.3
+    (cap_w, cap_h), _ = cv2.getTextSize(cap_text, font, cap_scale, 1)
+    cap_x = bar_x + (bar_w - cap_w) // 2
+    cap_y = free_y + 13
+    cv2.putText(frame, cap_text, (cap_x, cap_y), font, cap_scale, (130, 130, 130), 1, cv2.LINE_AA)

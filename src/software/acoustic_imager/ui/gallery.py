@@ -6,8 +6,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict
 import time
-import os
-import shutil
 
 import cv2
 import numpy as np
@@ -18,6 +16,7 @@ from .viewer_dock import (
     draw_viewer_chrome,
     draw_viewer_back_button_on_top,
     draw_viewer_button_feedback,
+    draw_storage_bar,
     VIEWER_DOCK_HEIGHT as VIEWER_DOCK_H,
 )
 from ..state import button_state
@@ -639,79 +638,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
             menu_buttons["gallery_select_all"].draw(frame, transparent=True)
 
-    if items:
-        total_media_size = sum(filepath.stat().st_size for filepath, _, _ in items)
-        
-        if output_dir and output_dir.exists():
-            try:
-                disk_usage = shutil.disk_usage(str(output_dir))
-                total_space = disk_usage.total
-                used_space = disk_usage.used
-                free_space = disk_usage.free
-            except:
-                total_space = 128 * 1024 * 1024 * 1024
-                used_space = total_media_size
-                free_space = total_space - used_space
-        else:
-            total_space = 128 * 1024 * 1024 * 1024
-            used_space = total_media_size
-            free_space = total_space - used_space
-        
-        usage_percent = (total_media_size / total_space * 100) if total_space > 0 else 0
-        
-        def format_size(size_bytes):
-            for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-                if size_bytes < 1024.0:
-                    return f"{size_bytes:.1f} {unit}"
-                size_bytes /= 1024.0
-            return f"{size_bytes:.1f} PB"
-        
-        bar_w = 25
-        bar_h = 300
-        bar_x = frame.shape[1] - 50
-        bar_y = header_h + 80
-        
-        label_text = "STORAGE"
-        label_scale = 0.4
-        (label_w, label_h), _ = cv2.getTextSize(label_text, font, label_scale, 1)
-        label_x = bar_x + (bar_w - label_w) // 2
-        label_y = bar_y - 10
-        cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, (200, 200, 200), 1, cv2.LINE_AA)
-        
-        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
-        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 2, cv2.LINE_AA)
-        
-        filled_h = int(bar_h * min(usage_percent / 100.0, 1.0))
-        if total_media_size > 0 and filled_h < 3:
-            filled_h = 3
-        if filled_h > 0:
-            bar_color = (80, 200, 80) if usage_percent < 75 else (80, 180, 220) if usage_percent < 90 else (80, 80, 220)
-            fill_y = bar_y + bar_h - filled_h
-            cv2.rectangle(frame, (bar_x, fill_y), (bar_x + bar_w, bar_y + bar_h), bar_color, -1)
-        
-        if usage_percent < 0.1:
-            percent_text = f"{usage_percent:.2f}%"
-        else:
-            percent_text = f"{usage_percent:.1f}%"
-        percent_scale = 0.35
-        (percent_w, percent_h), _ = cv2.getTextSize(percent_text, font, percent_scale, 1)
-        percent_x = bar_x + (bar_w - percent_w) // 2
-        percent_y = bar_y + bar_h + 15
-        cv2.putText(frame, percent_text, (percent_x, percent_y), font, percent_scale, (200, 200, 200), 1, cv2.LINE_AA)
-        
-        media_text = format_size(total_media_size)
-        media_scale = 0.32
-        (media_w, media_h), _ = cv2.getTextSize(media_text, font, media_scale, 1)
-        media_x = bar_x + (bar_w - media_w) // 2
-        media_y = percent_y + 15
-        cv2.putText(frame, media_text, (media_x, media_y), font, media_scale, (180, 180, 180), 1, cv2.LINE_AA)
-        
-        total_text = format_size(total_space)
-        total_scale = 0.3
-        (total_w, total_h), _ = cv2.getTextSize(total_text, font, total_scale, 1)
-        total_x = bar_x + (bar_w - total_w) // 2
-        total_y = media_y + 13
-        cv2.putText(frame, total_text, (total_x, total_y), font, total_scale, (150, 150, 150), 1, cv2.LINE_AA)
+    draw_storage_bar(frame, items, output_dir, header_h)
 
     if not items:
         msg = "No captures yet. Use SHOT or REC to create content."
