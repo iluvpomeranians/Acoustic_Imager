@@ -666,32 +666,47 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 size_bytes /= 1024.0
             return f"{size_bytes:.1f} PB"
         
-        bar_x = frame.shape[1] - 220
-        bar_y = header_h + 15
-        bar_w = 200
-        bar_h = 20
+        bar_w = 25
+        bar_h = 300
+        bar_x = frame.shape[1] - 50
+        bar_y = header_h + 80
         
-        label_text = "Storage Usage"
-        label_scale = 0.45
+        label_text = "STORAGE"
+        label_scale = 0.4
         (label_w, label_h), _ = cv2.getTextSize(label_text, font, label_scale, 1)
         label_x = bar_x + (bar_w - label_w) // 2
-        label_y = bar_y - 5
+        label_y = bar_y - 10
         cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, (200, 200, 200), 1, cv2.LINE_AA)
         
         cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
-        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 1, cv2.LINE_AA)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 2, cv2.LINE_AA)
         
-        filled_w = int(bar_w * min(usage_percent / 100.0, 1.0))
-        if filled_w > 0:
+        filled_h = int(bar_h * min(usage_percent / 100.0, 1.0))
+        if filled_h > 0:
             bar_color = (80, 200, 80) if usage_percent < 75 else (80, 180, 220) if usage_percent < 90 else (80, 80, 220)
-            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + filled_w, bar_y + bar_h), bar_color, -1)
+            fill_y = bar_y + bar_h - filled_h
+            cv2.rectangle(frame, (bar_x, fill_y), (bar_x + bar_w, bar_y + bar_h), bar_color, -1)
         
-        size_text = f"{format_size(total_media_size)} / {format_size(total_space)} ({usage_percent:.1f}%)"
-        size_scale = 0.35
-        (size_w, size_h), _ = cv2.getTextSize(size_text, font, size_scale, 1)
-        size_x = bar_x + (bar_w - size_w) // 2
-        size_y = bar_y + bar_h + 12
-        cv2.putText(frame, size_text, (size_x, size_y), font, size_scale, (180, 180, 180), 1, cv2.LINE_AA)
+        percent_text = f"{usage_percent:.1f}%"
+        percent_scale = 0.35
+        (percent_w, percent_h), _ = cv2.getTextSize(percent_text, font, percent_scale, 1)
+        percent_x = bar_x + (bar_w - percent_w) // 2
+        percent_y = bar_y + bar_h + 15
+        cv2.putText(frame, percent_text, (percent_x, percent_y), font, percent_scale, (200, 200, 200), 1, cv2.LINE_AA)
+        
+        media_text = format_size(total_media_size)
+        media_scale = 0.32
+        (media_w, media_h), _ = cv2.getTextSize(media_text, font, media_scale, 1)
+        media_x = bar_x + (bar_w - media_w) // 2
+        media_y = percent_y + 15
+        cv2.putText(frame, media_text, (media_x, media_y), font, media_scale, (180, 180, 180), 1, cv2.LINE_AA)
+        
+        total_text = format_size(total_space)
+        total_scale = 0.3
+        (total_w, total_h), _ = cv2.getTextSize(total_text, font, total_scale, 1)
+        total_x = bar_x + (bar_w - total_w) // 2
+        total_y = media_y + 13
+        cv2.putText(frame, total_text, (total_x, total_y), font, total_scale, (150, 150, 150), 1, cv2.LINE_AA)
 
     if not items:
         msg = "No captures yet. Use SHOT or REC to create content."
