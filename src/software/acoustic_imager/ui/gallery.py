@@ -569,6 +569,27 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_back"].h = back_btn_h
 
     menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
+    
+    if button_state.gallery_select_mode and button_state.gallery_selected_items:
+        selected_count = len(button_state.gallery_selected_items)
+        delete_btn_w = 140
+        delete_btn_x = back_btn_x + back_btn_w + 10
+        delete_btn_y = 20
+        
+        delete_text = f"DELETE ({selected_count})"
+        delete_color = (0, 0, 220)
+        
+        if "gallery_delete_selected" not in menu_buttons:
+            menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, back_btn_h, delete_text)
+        else:
+            menu_buttons["gallery_delete_selected"].x = delete_btn_x
+            menu_buttons["gallery_delete_selected"].y = delete_btn_y
+            menu_buttons["gallery_delete_selected"].w = delete_btn_w
+            menu_buttons["gallery_delete_selected"].h = back_btn_h
+            menu_buttons["gallery_delete_selected"].text = delete_text
+        
+        menu_buttons["gallery_delete_selected"].is_active = True
+        menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
 
     if items:
         btn_gap = 10
@@ -615,30 +636,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
 
             menu_buttons["gallery_select_all"].draw(frame, transparent=True)
-
-            current_x = select_all_btn_x - btn_gap
-
-            if button_state.gallery_selected_items:
-                selected_count = len(button_state.gallery_selected_items)
-
-                delete_btn_w = 140
-                delete_btn_x = current_x - delete_btn_w
-                delete_btn_y = 20
-
-                delete_text = f"DELETE ({selected_count})"
-                delete_color = (0, 0, 220)
-
-                if "gallery_delete_selected" not in menu_buttons:
-                    menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, btn_h, delete_text)
-                else:
-                    menu_buttons["gallery_delete_selected"].x = delete_btn_x
-                    menu_buttons["gallery_delete_selected"].y = delete_btn_y
-                    menu_buttons["gallery_delete_selected"].w = delete_btn_w
-                    menu_buttons["gallery_delete_selected"].h = btn_h
-                    menu_buttons["gallery_delete_selected"].text = delete_text
-
-                menu_buttons["gallery_delete_selected"].is_active = True
-                menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
 
     if not items:
         msg = "No captures yet. Use SHOT or REC to create content."
