@@ -237,4 +237,4 @@ testing/heatmap/heatmap_captures/
 data/models/*.tflite
 
 # Allow splash screen asset
-!src/software/acoustic_imager/splash/splash.png
+!/deploy/splash/splash.png
