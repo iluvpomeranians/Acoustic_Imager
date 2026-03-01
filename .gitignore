@@ -235,3 +235,6 @@ testing/heatmap/heatmap_captures/
 
 # TensorFlow Lite model files
 data/models/*.tflite
+
+# Allow splash screen asset
+!src/software/acoustic_imager/splash/splash.png
