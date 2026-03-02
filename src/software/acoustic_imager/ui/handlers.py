@@ -25,6 +25,9 @@ def _close_select_mode_modals() -> None:
     button_state.gallery_priority_modal_open = False
     button_state.gallery_tags_modal_open = False
     button_state.gallery_rename_modal_open = False
+    button_state.gallery_tag_modal_open = False
+    button_state.gallery_tag_keyboard_open = False
+    button_state.gallery_tag_active_field = ""
 
 
 def _apply_rename(output_dir: Optional[Path]) -> None:
@@ -66,6 +69,85 @@ def _apply_rename(output_dir: Optional[Path]) -> None:
     button_state.gallery_storage_dirty = True
 
 
+def _open_tag_modal(output_dir: Optional[Path]) -> None:
+    """Pre-fill tag field values from the first selected file and open the tag modal."""
+    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+    sel_paths = [r['filepath'] for r in rects if r['idx'] in button_state.gallery_selected_items]
+    first_path = sel_paths[0] if sel_paths else None
+
+    tag_data = getattr(button_state, 'gallery_tag_data', {})
+    existing = tag_data.get(first_path.name, {}) if first_path else {}
+
+    button_state.gallery_tag_field_values = {
+        "asset_name": first_path.stem if first_path else "",
+        "asset_type": existing.get("asset_type", ""),
+        "leak_type":  existing.get("leak_type",  ""),
+    }
+    button_state.gallery_tag_active_field = ""
+    button_state.gallery_tag_keyboard_open = False
+    button_state.gallery_tag_keyboard_query = ""
+    button_state.gallery_tag_modal_open = True
+    button_state.gallery_priority_modal_open = False
+    button_state.gallery_rename_modal_open = False
+
+
+def _apply_tag_save(output_dir: Optional[Path]) -> None:
+    """Commit tag modal values: rename file (Asset Name) + store Asset Type/Leak Type."""
+    if not output_dir:
+        return
+    # Commit any open keyboard field first
+    if button_state.gallery_tag_keyboard_open and button_state.gallery_tag_active_field:
+        button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
+            button_state.gallery_tag_keyboard_query
+        )
+        button_state.gallery_tag_keyboard_open = False
+        button_state.gallery_tag_active_field = ""
+
+    field_vals = getattr(button_state, 'gallery_tag_field_values', {})
+    new_asset_name = field_vals.get("asset_name", "").strip()
+    new_asset_type = field_vals.get("asset_type", "").strip()
+    new_leak_type  = field_vals.get("leak_type",  "").strip()
+
+    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+    sel_rects = [r for r in rects if r['idx'] in button_state.gallery_selected_items]
+    if not sel_rects:
+        return
+
+    tag_data = getattr(button_state, 'gallery_tag_data', {})
+    first_path: Optional[Path] = sel_rects[0]['filepath']
+    effective_name = first_path.name
+
+    # Rename first selected file if Asset Name changed
+    if new_asset_name and new_asset_name != first_path.stem:
+        new_file = first_path.parent / (new_asset_name + first_path.suffix)
+        if not (new_file.exists() and new_file != first_path):
+            try:
+                first_path.rename(new_file)
+                # Transfer data to new key
+                if first_path.name in tag_data:
+                    tag_data[new_file.name] = tag_data.pop(first_path.name)
+                prios = getattr(button_state, 'gallery_file_priorities', {})
+                if first_path.name in prios:
+                    prios[new_file.name] = prios.pop(first_path.name)
+                ui_cache._THUMB_CACHE.pop(first_path, None)
+                ui_cache._THUMB_CACHE_MTIME.pop(first_path, None)
+                effective_name = new_file.name
+            except Exception as e:
+                print(f"Tag save rename failed: {e}")
+
+    # Save asset_type + leak_type for ALL selected files
+    for rect in sel_rects:
+        fp: Path = rect['filepath']
+        fname = effective_name if fp == first_path else fp.name
+        entry = tag_data.get(fname, {})
+        entry["asset_type"] = new_asset_type
+        entry["leak_type"]  = new_leak_type
+        tag_data[fname] = entry
+
+    button_state.gallery_tag_data = tag_data
+    button_state.gallery_storage_dirty = True
+
+
 def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     """
     Handle clicks in gallery view.
@@ -88,6 +170,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_viewer_mode = "grid"
             button_state.gallery_video_playing = False
             button_state.gallery_video_frame_idx = 0
+            button_state.gallery_tag_info_open = False
 
         return True
 
@@ -146,7 +229,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     # In normal mode: Search / Filter / Sort
     if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
         if "gallery_dock_tags" in menu_buttons and menu_buttons["gallery_dock_tags"].contains(x, y):
-            # Tags button is a placeholder — no action yet
+            _open_tag_modal(output_dir)
             return True
         if "gallery_dock_priority" in menu_buttons and menu_buttons["gallery_dock_priority"].contains(x, y):
             button_state.gallery_priority_modal_open = not button_state.gallery_priority_modal_open
@@ -211,6 +294,89 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             return True
         button_state.gallery_rename_modal_open = False
         return True
+
+    # ── Tag edit modal ────────────────────────────────────────────────────────
+    if button_state.gallery_tag_modal_open:
+        # Field clicks → open keyboard for that field
+        for fkey, flabel, _ in [("asset_name", "Asset Name", ""), ("asset_type", "Asset Type", ""), ("leak_type", "Leak Type", "")]:
+            btn_key = f"tag_field_{fkey}"
+            if btn_key in menu_buttons and menu_buttons[btn_key].contains(x, y):
+                # Commit current keyboard field before switching
+                if button_state.gallery_tag_keyboard_open and button_state.gallery_tag_active_field:
+                    button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
+                        button_state.gallery_tag_keyboard_query
+                    )
+                # Pre-fill from saved values
+                if fkey == "asset_name":
+                    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+                    sel_paths = [r['filepath'] for r in rects if r['idx'] in button_state.gallery_selected_items]
+                    default_stem = sel_paths[0].stem if sel_paths else ""
+                    prefill = button_state.gallery_tag_field_values.get("asset_name", default_stem)
+                else:
+                    prefill = button_state.gallery_tag_field_values.get(fkey, "")
+                button_state.gallery_tag_active_field = fkey
+                button_state.gallery_tag_keyboard_query = prefill
+                button_state.gallery_tag_keyboard_open = True
+                return True
+
+        # Tag keyboard keys
+        if button_state.gallery_tag_keyboard_open:
+            for c in "abcdefghijklmnopqrstuvwxyz0123456789":
+                bk = f"tag_key_{c}"
+                if bk in menu_buttons and menu_buttons[bk].contains(x, y):
+                    button_state.gallery_tag_keyboard_query = (
+                        button_state.gallery_tag_keyboard_query or "") + c
+                    return True
+            if "tag_key_backspace" in menu_buttons and menu_buttons["tag_key_backspace"].contains(x, y):
+                button_state.gallery_tag_keyboard_query = (
+                    button_state.gallery_tag_keyboard_query or "")[:-1]
+                return True
+            if "tag_key_clear" in menu_buttons and menu_buttons["tag_key_clear"].contains(x, y):
+                button_state.gallery_tag_keyboard_query = ""
+                return True
+            if "tag_key_done" in menu_buttons and menu_buttons["tag_key_done"].contains(x, y):
+                # Commit field + close keyboard
+                if button_state.gallery_tag_active_field:
+                    button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
+                        button_state.gallery_tag_keyboard_query
+                    )
+                button_state.gallery_tag_keyboard_open = False
+                button_state.gallery_tag_active_field = ""
+                return True
+            if "tag_keyboard_panel" in menu_buttons and menu_buttons["tag_keyboard_panel"].contains(x, y):
+                return True
+
+        # Save / Cancel
+        if "tag_save" in menu_buttons and menu_buttons["tag_save"].contains(x, y):
+            _apply_tag_save(output_dir)
+            button_state.gallery_tag_modal_open = False
+            button_state.gallery_tag_keyboard_open = False
+            button_state.gallery_tag_active_field = ""
+            return True
+        if "tag_cancel" in menu_buttons and menu_buttons["tag_cancel"].contains(x, y):
+            button_state.gallery_tag_modal_open = False
+            button_state.gallery_tag_keyboard_open = False
+            button_state.gallery_tag_active_field = ""
+            return True
+        # Absorb clicks on modal panel
+        if "tag_modal_panel" in menu_buttons and menu_buttons["tag_modal_panel"].contains(x, y):
+            return True
+        # Click outside modal closes it
+        button_state.gallery_tag_modal_open = False
+        button_state.gallery_tag_keyboard_open = False
+        button_state.gallery_tag_active_field = ""
+        return True
+
+    # ── Viewer tag info panel ─────────────────────────────────────────────────
+    if button_state.gallery_viewer_mode in ("image", "video"):
+        if "tag_info_close" in menu_buttons and menu_buttons["tag_info_close"].contains(x, y):
+            button_state.gallery_tag_info_open = False
+            return True
+        if "tag_info_panel" in menu_buttons and menu_buttons["tag_info_panel"].contains(x, y):
+            return True
+        if "viewer_tag_btn" in menu_buttons and menu_buttons["viewer_tag_btn"].contains(x, y):
+            button_state.gallery_tag_info_open = not button_state.gallery_tag_info_open
+            return True
 
     # Search / Filter / Sort (only in normal grid mode, not select mode)
     if button_state.gallery_viewer_mode == "grid" and not button_state.gallery_select_mode:

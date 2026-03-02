@@ -284,7 +284,7 @@ SORT_OPTIONS = [
     ("Date (newest)", "date"),
     ("Name (A to Z)", "name"),
     ("Size (largest)", "size"),
-    ("Priority (H to L)", "priority"),
+    ("Priority (Highest)", "priority"),
 ]
 
 MODAL_PANEL_W = 320
@@ -376,20 +376,10 @@ def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
         if active:
             cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
         cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-        # For "priority" option, draw a small priority dot in front of the label
-        if value == "priority":
-            dot_cx = ox + 16
-            dot_cy = oy + btn_h // 2
-            cv2.circle(frame, (dot_cx, dot_cy), 5, PRIORITY_COLORS["high"], -1, cv2.LINE_AA)
-            (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
-            text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
-            cv2.putText(frame, label, (ox + 30, oy + btn_h // 2 + 6),
-                        font, 0.5, text_color, 1, cv2.LINE_AA)
-        else:
-            (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
-            text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
-            cv2.putText(frame, label, (ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6),
-                        font, 0.5, text_color, 1, cv2.LINE_AA)
+        (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
+        text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
+        cv2.putText(frame, label, (ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6),
+                    font, 0.5, text_color, 1, cv2.LINE_AA)
         key = f"gallery_sort_opt_{value}"
         if key not in menu_buttons:
             menu_buttons[key] = Button(ox, oy, btn_w, btn_h, label)

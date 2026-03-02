@@ -104,6 +104,15 @@ class ButtonState:
     gallery_file_priorities: dict = field(default_factory=dict)  # filename → "high"|"medium"|"low"
     gallery_file_tags: dict = field(default_factory=dict)        # filename → list[str]
 
+    # Tag edit modal (grid select-mode Tags button)
+    gallery_tag_modal_open: bool = False
+    gallery_tag_active_field: str = ""        # "asset_name" | "asset_type" | "leak_type"
+    gallery_tag_keyboard_open: bool = False
+    gallery_tag_keyboard_query: str = ""
+    gallery_tag_field_values: dict = field(default_factory=dict)  # live values during edit session
+    gallery_tag_data: dict = field(default_factory=dict)          # filename → {"asset_type": str, "leak_type": str}
+    gallery_tag_info_open: bool = False                           # viewer: read-only info panel
+
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
 
@@ -114,6 +123,10 @@ class ButtonState:
             self.gallery_file_priorities = {}
         if self.gallery_file_tags is None:
             self.gallery_file_tags = {}
+        if self.gallery_tag_field_values is None:
+            self.gallery_tag_field_values = {}
+        if self.gallery_tag_data is None:
+            self.gallery_tag_data = {}
 
 
 # A single shared instance (matches original `button_state = ButtonState()`)

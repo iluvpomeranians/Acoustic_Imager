@@ -20,6 +20,7 @@ from .viewer_dock import (
 )
 from .grid_side_dock import draw_grid_side_dock, GRID_SIDE_DOCK_WIDTH, PRIORITY_COLORS
 from ..state import button_state
+from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
 # Rubber band at first/last item: stiff so no ghost card appears beyond the end
 VIEWER_RUBBER_BAND_FACTOR = 0.35
@@ -34,6 +35,310 @@ VIEWER_EDGE_PEEK_THRESHOLD_PX = 18
 
 # Cache first frame of videos for carousel peek (path -> BGR frame)
 _video_first_frame_cache: Dict[Path, np.ndarray] = {}
+
+# ── Tag modal / keyboard dimensions ────────────────────────────────────────────
+_TK_SCALE = 1.3
+_TK_W = int(28 * _TK_SCALE)         # key width  (36 px)
+_TK_H = int(28 * _TK_SCALE)         # key height (36 px)
+_TK_GAP = int(4 * _TK_SCALE)        # key gap    (5 px)
+_TK_BAR_H = int(36 * _TK_SCALE)     # active-field bar height (46 px)
+_TK_SP_W = _TK_W * 2                # special key width
+_TK_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
+_TK_NUMS = "1234567890"
+_TK_SPECIAL = [("Back", "backspace"), ("Clear", "clear"), ("Done", "done")]
+
+_TAG_FIELDS = [
+    ("asset_name", "Asset Name", ""),
+    ("asset_type", "Asset Type", "Ex. Pipe, Bolt, etc..."),
+    ("leak_type",  "Leak Type",  "Ex. Gas, Air, etc..."),
+]
+
+
+def _tk_vgrad(h: int, w: int, top: tuple, bot: tuple) -> np.ndarray:
+    """Vertical gradient helper for tag keyboard keys."""
+    out = np.zeros((h, w, 3), dtype=np.uint8)
+    for c in range(3):
+        out[:, :, c] = np.linspace(top[c], bot[c], h, dtype=np.uint8).reshape(-1, 1)
+    return out
+
+
+def _draw_tag_icon_small(frame: np.ndarray, cx: int, cy: int,
+                          color: tuple = (200, 200, 200)) -> None:
+    """Draw a small tag/label pentagon icon centered at (cx, cy)."""
+    pts = np.array([
+        [cx - 7, cy - 5], [cx + 2, cy - 5],
+        [cx + 7, cy],
+        [cx + 2, cy + 5], [cx - 7, cy + 5],
+    ], dtype=np.int32)
+    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=1, lineType=cv2.LINE_AA)
+    cv2.circle(frame, (cx - 3, cy), 2, color, -1, cv2.LINE_AA)
+
+
+def _draw_viewer_tag_button(frame: np.ndarray, filepath: Path) -> None:
+    """Tag-icon button in the top-right of the viewer content area."""
+    fw = frame.shape[1]
+    btn_x, btn_y, btn_w, btn_h = fw - 60, 15, 44, 36
+    tag_data = getattr(button_state, 'gallery_tag_data', {})
+    has_tags = bool(tag_data.get(filepath.name))
+    bg = (50, 85, 50) if has_tags else (35, 35, 42)
+    border = (85, 165, 85) if has_tags else (70, 70, 82)
+    cv2.rectangle(frame, (btn_x, btn_y), (btn_x + btn_w, btn_y + btn_h), bg, -1)
+    cv2.rectangle(frame, (btn_x, btn_y), (btn_x + btn_w, btn_y + btn_h), border, 1, cv2.LINE_AA)
+    _draw_tag_icon_small(frame, btn_x + btn_w // 2, btn_y + btn_h // 2)
+    if "viewer_tag_btn" not in menu_buttons:
+        menu_buttons["viewer_tag_btn"] = Button(btn_x, btn_y, btn_w, btn_h, "")
+    else:
+        b = menu_buttons["viewer_tag_btn"]
+        b.x, b.y, b.w, b.h = btn_x, btn_y, btn_w, btn_h
+
+
+def draw_tag_info_panel(frame: np.ndarray, filepath: Path) -> None:
+    """Read-only info panel (top-right) showing tag data for the current viewer file."""
+    fw = frame.shape[1]
+    panel_w, panel_h = 265, 115
+    panel_x = fw - panel_w - 8
+    panel_y = 58
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (28, 28, 34), -1)
+    cv2.rectangle(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (90, 90, 102), 2, cv2.LINE_AA)
+    cv2.line(frame, (panel_x, panel_y), (panel_x + panel_w, panel_y), (130, 110, 80), 2, cv2.LINE_AA)
+
+    tag_data = getattr(button_state, 'gallery_tag_data', {})
+    data = tag_data.get(filepath.name, {})
+
+    lines = [
+        ("Asset Name", filepath.stem),
+        ("Asset Type", data.get("asset_type", "") or "—"),
+        ("Leak Type",  data.get("leak_type",  "") or "—"),
+    ]
+    y = panel_y + 24
+    for label, value in lines:
+        cv2.putText(frame, label + ":", (panel_x + 10, y),
+                    font, 0.42, (160, 160, 175), 1, cv2.LINE_AA)
+        val_disp = value[:26] if len(value) > 26 else value
+        cv2.putText(frame, val_disp, (panel_x + 110, y),
+                    font, 0.42, (230, 230, 235), 1, cv2.LINE_AA)
+        y += 28
+
+    # Close [x] button
+    cx_btn = panel_x + panel_w - 20
+    cy_btn = panel_y + 6
+    cv2.putText(frame, "x", (cx_btn, cy_btn + 13), font, 0.48, (170, 170, 180), 1, cv2.LINE_AA)
+    if "tag_info_close" not in menu_buttons:
+        menu_buttons["tag_info_close"] = Button(cx_btn - 4, cy_btn, 22, 20, "x")
+    else:
+        b = menu_buttons["tag_info_close"]
+        b.x, b.y, b.w, b.h = cx_btn - 4, cy_btn, 22, 20
+
+    if "tag_info_panel" not in menu_buttons:
+        menu_buttons["tag_info_panel"] = Button(panel_x, panel_y, panel_w, panel_h, "")
+    else:
+        b = menu_buttons["tag_info_panel"]
+        b.x, b.y, b.w, b.h = panel_x, panel_y, panel_w, panel_h
+
+
+def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
+    """Compact QWERTY keyboard for tag field editing. Appears below the tag form."""
+    fh, fw = frame.shape[:2]
+    # Compute panel dimensions
+    max_row_w = max(len(r) for r in _TK_ROWS + [_TK_NUMS]) * (_TK_W + _TK_GAP) - _TK_GAP
+    special_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
+    panel_w = max(max_row_w, special_row_w) + 22
+    n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
+    panel_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
+    px = (fw - panel_w) // 2
+    py = min(y_top, fh - panel_h - 4)
+
+    roi = frame[py: py + panel_h, px: px + panel_w]
+    roi[:] = _tk_vgrad(panel_h, panel_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), (100, 100, 110), 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + panel_w, py), (130, 110, 80), 2, cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    field_key = button_state.gallery_tag_active_field
+    query = button_state.gallery_tag_keyboard_query
+    # Active field label in the bar
+    field_label = next((lbl for k, lbl, _ in _TAG_FIELDS if k == field_key), "")
+    bar_text = f"{field_label}: {query[:30]}" if field_label else query[:35]
+    cv2.putText(frame, bar_text, (px + 8, py + _TK_BAR_H - 10),
+                font, 0.48, (240, 240, 240), 1, cv2.LINE_AA)
+
+    key_y = py + _TK_BAR_H + _TK_GAP
+    # Letter rows
+    for row in _TK_ROWS:
+        row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
+        key_x = px + (panel_w - row_w) // 2
+        for c in row:
+            kx, ky = key_x, key_y
+            frame[ky: ky + _TK_H, kx: kx + _TK_W] = _tk_vgrad(
+                _TK_H, _TK_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), (100, 100, 110), 1, cv2.LINE_AA)
+            (cw, ch), _ = cv2.getTextSize(c.upper(), font, 0.5, 1)
+            cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
+                        font, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
+            bkey = f"tag_key_{c}"
+            if bkey not in menu_buttons:
+                menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
+            else:
+                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+            key_x += _TK_W + _TK_GAP
+        key_y += _TK_H + _TK_GAP
+    # Number row
+    row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
+    key_x = px + (panel_w - row_w) // 2
+    for c in _TK_NUMS:
+        kx, ky = key_x, key_y
+        frame[ky: ky + _TK_H, kx: kx + _TK_W] = _tk_vgrad(
+            _TK_H, _TK_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), (100, 100, 110), 1, cv2.LINE_AA)
+        (cw, ch), _ = cv2.getTextSize(c, font, 0.5, 1)
+        cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
+                    font, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
+        bkey = f"tag_key_{c}"
+        if bkey not in menu_buttons:
+            menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
+        else:
+            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+        key_x += _TK_W + _TK_GAP
+    key_y += _TK_H + _TK_GAP
+    # Special row
+    sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
+    key_x = px + (panel_w - sp_row_w) // 2
+    for label, val in _TK_SPECIAL:
+        kx, ky = key_x, key_y
+        frame[ky: ky + _TK_H, kx: kx + _TK_SP_W] = _tk_vgrad(
+            _TK_H, _TK_SP_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), (100, 100, 110), 1, cv2.LINE_AA)
+        (tw, _), _ = cv2.getTextSize(label, font, 0.44, 1)
+        cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
+                    font, 0.44, (240, 240, 240), 1, cv2.LINE_AA)
+        bkey = f"tag_key_{val}"
+        if bkey not in menu_buttons:
+            menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
+        else:
+            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+            menu_buttons[bkey].w = _TK_SP_W
+        key_x += _TK_SP_W + _TK_GAP
+
+    if "tag_keyboard_panel" not in menu_buttons:
+        menu_buttons["tag_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
+    else:
+        b = menu_buttons["tag_keyboard_panel"]
+        b.x, b.y, b.w, b.h = px, py, panel_w, panel_h
+
+
+def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
+    """Centered tag edit modal with 3 input fields + QWERTY keyboard."""
+    fh, fw = frame.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # Dim background
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+
+    # ── Form panel ──────────────────────────────────────────────────────────────
+    form_w, form_h = 590, 280
+    form_x = (fw - form_w) // 2
+    form_y = 8
+    cv2.rectangle(frame, (form_x, form_y), (form_x + form_w, form_y + form_h), (38, 38, 44), -1)
+    cv2.rectangle(frame, (form_x, form_y), (form_x + form_w, form_y + form_h), (90, 90, 102), 2, cv2.LINE_AA)
+    cv2.line(frame, (form_x, form_y), (form_x + form_w, form_y), (130, 110, 80), 2, cv2.LINE_AA)
+
+    title = "Edit Tags"
+    (tw, th), _ = cv2.getTextSize(title, font, 0.72, 2)
+    cv2.putText(frame, title, (form_x + (form_w - tw) // 2, form_y + 34),
+                font, 0.72, (255, 255, 255), 2, cv2.LINE_AA)
+
+    # Determine which file is being edited (first selected in grid)
+    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+    sel_paths = [r['filepath'] for r in rects if r['idx'] in button_state.gallery_selected_items]
+    first_path: Optional[Path] = sel_paths[0] if sel_paths else None
+
+    field_vals = getattr(button_state, 'gallery_tag_field_values', {})
+    lbl_w = 108
+    input_x = form_x + lbl_w + 20
+    input_w = form_w - lbl_w - 36
+    input_h = 40
+    row_start_y = form_y + 56
+    row_gap = 58
+
+    for fi, (fkey, flabel, placeholder) in enumerate(_TAG_FIELDS):
+        ry = row_start_y + fi * row_gap
+
+        # Row label
+        (lw, lh), _ = cv2.getTextSize(flabel, font, 0.48, 1)
+        cv2.putText(frame, flabel, (form_x + 14, ry + input_h // 2 + lh // 2),
+                    font, 0.48, (200, 200, 200), 1, cv2.LINE_AA)
+
+        is_active = (button_state.gallery_tag_active_field == fkey
+                     and button_state.gallery_tag_keyboard_open)
+        border = (80, 155, 255) if is_active else (85, 85, 98)
+        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), (22, 22, 26), -1)
+        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h),
+                      border, 2 if is_active else 1, cv2.LINE_AA)
+
+        if is_active:
+            display = button_state.gallery_tag_keyboard_query
+        else:
+            if fkey == "asset_name":
+                display = field_vals.get("asset_name", first_path.stem if first_path else "")
+            else:
+                display = field_vals.get(fkey, "")
+
+        if display:
+            cv2.putText(frame, display[:40], (input_x + 9, ry + input_h // 2 + 7),
+                        font, 0.48, (245, 245, 245), 1, cv2.LINE_AA)
+        elif placeholder:
+            cv2.putText(frame, placeholder, (input_x + 9, ry + input_h // 2 + 7),
+                        font, 0.45, (95, 95, 108), 1, cv2.LINE_AA)
+
+        bkey = f"tag_field_{fkey}"
+        if bkey not in menu_buttons:
+            menu_buttons[bkey] = Button(input_x, ry, input_w, input_h, flabel)
+        else:
+            b = menu_buttons[bkey]
+            b.x, b.y, b.w, b.h = input_x, ry, input_w, input_h
+
+    # ── Buttons (Cancel / Save) ──────────────────────────────────────────────────
+    btn_y = form_y + form_h - 54
+    btn_h = 40
+    cancel_w, save_w = 130, 130
+    cancel_x = form_x + form_w // 2 - cancel_w - 12
+    save_x   = form_x + form_w // 2 + 12
+
+    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (55, 55, 62), -1)
+    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (100, 100, 112), 1, cv2.LINE_AA)
+    (cw, _), _ = cv2.getTextSize("CANCEL", font, 0.5, 1)
+    cv2.putText(frame, "CANCEL", (cancel_x + (cancel_w - cw) // 2, btn_y + btn_h // 2 + 7),
+                font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+    if "tag_cancel" not in menu_buttons:
+        menu_buttons["tag_cancel"] = Button(cancel_x, btn_y, cancel_w, btn_h, "CANCEL")
+    else:
+        b = menu_buttons["tag_cancel"]
+        b.x, b.y, b.w, b.h = cancel_x, btn_y, cancel_w, btn_h
+
+    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h), (25, 95, 25), -1)
+    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h), (55, 175, 55), 1, cv2.LINE_AA)
+    (sw, _), _ = cv2.getTextSize("SAVE", font, 0.5, 1)
+    cv2.putText(frame, "SAVE", (save_x + (save_w - sw) // 2, btn_y + btn_h // 2 + 7),
+                font, 0.5, (195, 240, 195), 1, cv2.LINE_AA)
+    if "tag_save" not in menu_buttons:
+        menu_buttons["tag_save"] = Button(save_x, btn_y, save_w, btn_h, "SAVE")
+    else:
+        b = menu_buttons["tag_save"]
+        b.x, b.y, b.w, b.h = save_x, btn_y, save_w, btn_h
+
+    if "tag_modal_panel" not in menu_buttons:
+        menu_buttons["tag_modal_panel"] = Button(form_x, form_y, form_w, form_h, "")
+    else:
+        b = menu_buttons["tag_modal_panel"]
+        b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h
+
+    # ── Keyboard (below form) ────────────────────────────────────────────────────
+    if button_state.gallery_tag_keyboard_open:
+        _draw_tag_keyboard(frame, form_y + form_h + 6)
 
 
 def _viewer_rubber_band_offset(offset: float, idx: int, n: int) -> float:
@@ -349,6 +654,9 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         draw_viewer_button_feedback(frame, "gallery_prev", prev_btn_x, arrow_y, prev_btn_w, prev_btn_h)
 
     draw_viewer_back_button_on_top(frame)
+    _draw_viewer_tag_button(frame, filepath)
+    if button_state.gallery_tag_info_open:
+        draw_tag_info_panel(frame, filepath)
 
 
 def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]], output_dir: Optional[Path]) -> None:
@@ -483,6 +791,9 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         draw_viewer_button_feedback(frame, "gallery_prev", prev_btn_x, arrow_y, prev_btn_w, prev_btn_h)
 
     draw_viewer_back_button_on_top(frame)
+    _draw_viewer_tag_button(frame, filepath)
+    if button_state.gallery_tag_info_open:
+        draw_tag_info_panel(frame, filepath)
 
 
 def draw_delete_modal(
@@ -913,17 +1224,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         label_y = y + thumb_h + 20
         if label_y >= header_h and label_y <= frame.shape[0]:
-            filename = filepath.name
-
-            if len(filename) > 30:
-                filename = filename[:27] + "..."
-
             type_icon = "[IMG]" if item_type == "image" else "[VID]"
             type_color = (100, 200, 100) if item_type == "image" else (100, 150, 255)
 
             cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
 
-            # Priority dot: small filled circle to the left of the filename
+            # Small tag icon after [IMG]/[VID] badge if the file has tag data
+            tag_data_map = getattr(button_state, 'gallery_tag_data', {})
+            has_tag = bool(tag_data_map.get(filepath.name))
+            if has_tag:
+                (badge_w, _), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
+                _draw_tag_icon_small(frame, x + badge_w + 12, label_y - 4, (160, 200, 160))
+
+            # Priority dot + filename/asset-name display
             file_priorities = getattr(button_state, 'gallery_file_priorities', {})
             priority = file_priorities.get(filepath.name, "")
             filename_x = x
@@ -935,7 +1248,16 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 cv2.circle(frame, (dot_cx, dot_cy), 5, (220, 220, 220), 1, cv2.LINE_AA)
                 filename_x = x + 15
 
-            cv2.putText(frame, filename, (filename_x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+            # Display: asset name (stem) for tagged files, full filename for untagged
+            if has_tag:
+                display_name = filepath.stem
+            else:
+                display_name = filepath.name
+            if len(display_name) > 30:
+                display_name = display_name[:27] + "..."
+
+            cv2.putText(frame, display_name, (filename_x, label_y + 20),
+                        font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
 
     # Side dock on top so it's clearly delimited; storage bar floats with viewport as you scroll
     draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
@@ -952,3 +1274,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             )
         else:
             draw_delete_modal(frame)
+
+    if button_state.gallery_tag_modal_open:
+        draw_tag_modal(frame, output_dir)
