@@ -128,11 +128,11 @@ def get_gallery_items(output_dir: Path) -> List[Tuple[Path, str, datetime]]:
     if not output_dir.exists():
         return items
 
-    for img_file in output_dir.glob("screenshot_*.png"):
+    for img_file in output_dir.glob("*.png"):
         mtime = datetime.fromtimestamp(img_file.stat().st_mtime)
         items.append((img_file, "image", mtime))
 
-    for vid_file in output_dir.glob("recording_*.mp4"):
+    for vid_file in output_dir.glob("*.mp4"):
         mtime = datetime.fromtimestamp(vid_file.stat().st_mtime)
         items.append((vid_file, "video", mtime))
 
@@ -171,6 +171,10 @@ def apply_gallery_filter_sort_search(
             except OSError:
                 return 0.0
         out.sort(key=_size_key)
+    elif sort_by == "priority":
+        _priority_order = {"high": 0, "medium": 1, "low": 2, "": 3}
+        _prios = getattr(button_state, "gallery_file_priorities", {})
+        out.sort(key=lambda x: _priority_order.get(_prios.get(x[0].name, ""), 3))
     return out
 
 

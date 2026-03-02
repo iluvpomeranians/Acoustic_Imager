@@ -280,10 +280,15 @@ def _draw_select_mode_rows(frame: np.ndarray, dock_x: int, dock_y: int, dock_w: 
 # Filter modal: option labels and state values
 FILTER_OPTIONS = [("All", "all"), ("Images", "image"), ("Videos", "video")]
 # Sort modal: option labels and state values
-SORT_OPTIONS = [("Date (newest)", "date"), ("Name (A to Z)", "name"), ("Size (largest)", "size")]
+SORT_OPTIONS = [
+    ("Date (newest)", "date"),
+    ("Name (A to Z)", "name"),
+    ("Size (largest)", "size"),
+    ("Priority (H to L)", "priority"),
+]
 
 MODAL_PANEL_W = 320
-MODAL_PANEL_H = 200
+MODAL_PANEL_H = 200  # used for filter modal (3 options)
 MODAL_OPTION_H = 44
 MODAL_TITLE_H = 50
 
@@ -347,17 +352,18 @@ def _draw_filter_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
 
 
 def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
-    """Draw sort panel aligned with top of Sort button; no screen dim."""
+    """Draw sort panel aligned with top of Sort button; height scales with number of options."""
     fh, fw = frame.shape[:2]
     row_h = DOCK_ROW_HEIGHT
     sort_row_top_y = dock_y + DOCK_TOP_INSET_Y + 2 * (row_h + DOCK_DIVIDER_THICKNESS)
+    panel_h = MODAL_TITLE_H + len(SORT_OPTIONS) * MODAL_OPTION_H + 10
     px = dock_x - MODAL_GAP_WEST - MODAL_PANEL_W
     py = sort_row_top_y
-    py = max(10, min(py, fh - MODAL_PANEL_H - 10))
-    roi = frame[py : py + MODAL_PANEL_H, px : px + MODAL_PANEL_W]
-    grad = _vertical_gradient(MODAL_PANEL_H, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    py = max(10, min(py, fh - panel_h - 10))
+    roi = frame[py : py + panel_h, px : px + MODAL_PANEL_W]
+    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
     roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + MODAL_PANEL_H - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
     cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Sort by", (px + (MODAL_PANEL_W - 80) // 2, py + 32),
@@ -370,10 +376,20 @@ def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
         if active:
             cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
         cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
-        text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
-        cv2.putText(frame, label, (ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6),
-                    font, 0.5, text_color, 1, cv2.LINE_AA)
+        # For "priority" option, draw a small priority dot in front of the label
+        if value == "priority":
+            dot_cx = ox + 16
+            dot_cy = oy + btn_h // 2
+            cv2.circle(frame, (dot_cx, dot_cy), 5, PRIORITY_COLORS["high"], -1, cv2.LINE_AA)
+            (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
+            text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
+            cv2.putText(frame, label, (ox + 30, oy + btn_h // 2 + 6),
+                        font, 0.5, text_color, 1, cv2.LINE_AA)
+        else:
+            (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
+            text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
+            cv2.putText(frame, label, (ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6),
+                        font, 0.5, text_color, 1, cv2.LINE_AA)
         key = f"gallery_sort_opt_{value}"
         if key not in menu_buttons:
             menu_buttons[key] = Button(ox, oy, btn_w, btn_h, label)
@@ -381,10 +397,10 @@ def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             menu_buttons[key].x, menu_buttons[key].y = ox, oy
             menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
     if "gallery_sort_modal_panel" not in menu_buttons:
-        menu_buttons["gallery_sort_modal_panel"] = Button(px, py, MODAL_PANEL_W, MODAL_PANEL_H, "")
+        menu_buttons["gallery_sort_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
     else:
         menu_buttons["gallery_sort_modal_panel"].x, menu_buttons["gallery_sort_modal_panel"].y = px, py
-        menu_buttons["gallery_sort_modal_panel"].w, menu_buttons["gallery_sort_modal_panel"].h = MODAL_PANEL_W, MODAL_PANEL_H
+        menu_buttons["gallery_sort_modal_panel"].w, menu_buttons["gallery_sort_modal_panel"].h = MODAL_PANEL_W, panel_h
 
 
 def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -409,9 +425,15 @@ def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     cv2.putText(frame, "Set Priority", (px + (MODAL_PANEL_W - 130) // 2, py + 32),
                 font, 0.7, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
 
-    # Determine current priorities of selected items to show active state
+    # Determine which priority value is held by ALL currently selected items.
+    # Use gallery_thumbnail_rects (populated each frame by gallery.py) so we
+    # know the filenames of selected items without a circular import.
+    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+    sel_names = [r['filepath'].name for r in rects if r['idx'] in button_state.gallery_selected_items]
+    priorities_map = getattr(button_state, 'gallery_file_priorities', {})
     selected_priorities: set = set()
-    for fname, pval in button_state.gallery_file_priorities.items():
+    for fname in sel_names:
+        pval = priorities_map.get(fname, "")
         if pval:
             selected_priorities.add(pval)
 
@@ -917,8 +939,6 @@ def draw_grid_side_dock(
     if button_state.gallery_select_mode:
         if button_state.gallery_priority_modal_open:
             _draw_priority_modal(frame, dock_x, dock_y)
-        if button_state.gallery_tags_modal_open:
-            _draw_tags_modal(frame, dock_x, dock_y)
         if button_state.gallery_rename_modal_open:
             _draw_rename_keyboard(frame, dock_x, dock_y)
     else:

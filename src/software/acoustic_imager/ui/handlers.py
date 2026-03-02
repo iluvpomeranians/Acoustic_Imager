@@ -12,7 +12,6 @@ import time
 from . import ui_cache
 from .button import buttons, menu_buttons
 from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset
-from .grid_side_dock import PRESET_TAGS
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
@@ -147,10 +146,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     # In normal mode: Search / Filter / Sort
     if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
         if "gallery_dock_tags" in menu_buttons and menu_buttons["gallery_dock_tags"].contains(x, y):
-            button_state.gallery_tags_modal_open = not button_state.gallery_tags_modal_open
-            if button_state.gallery_tags_modal_open:
-                button_state.gallery_priority_modal_open = False
-                button_state.gallery_rename_modal_open = False
+            # Tags button is a placeholder — no action yet
             return True
         if "gallery_dock_priority" in menu_buttons and menu_buttons["gallery_dock_priority"].contains(x, y):
             button_state.gallery_priority_modal_open = not button_state.gallery_priority_modal_open
@@ -193,30 +189,6 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         if "gallery_priority_modal_panel" in menu_buttons and menu_buttons["gallery_priority_modal_panel"].contains(x, y):
             return True
         button_state.gallery_priority_modal_open = False
-
-    # Tags modal option clicks
-    if button_state.gallery_tags_modal_open:
-        for tag in PRESET_TAGS:
-            key = f"gallery_tag_opt_{tag.lower().replace('-', '_').replace(' ', '_')}"
-            if key in menu_buttons and menu_buttons[key].contains(x, y):
-                items = get_displayed_gallery_items(output_dir)
-                file_tags = getattr(button_state, 'gallery_file_tags', {})
-                sel_names = [items[idx][0].name for idx in button_state.gallery_selected_items if idx < len(items)]
-                all_have = all(tag in file_tags.get(n, []) for n in sel_names) if sel_names else False
-                for name in sel_names:
-                    tags = list(file_tags.get(name, []))
-                    if all_have:
-                        if tag in tags:
-                            tags.remove(tag)
-                    else:
-                        if tag not in tags:
-                            tags.append(tag)
-                    file_tags[name] = tags
-                button_state.gallery_file_tags = file_tags
-                return True
-        if "gallery_tags_modal_panel" in menu_buttons and menu_buttons["gallery_tags_modal_panel"].contains(x, y):
-            return True
-        button_state.gallery_tags_modal_open = False
 
     # Rename keyboard clicks
     if button_state.gallery_rename_modal_open:
@@ -275,7 +247,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
     # Sort modal: option click only sets sort (modal stays open); click outside closes and fall through
     if button_state.gallery_sort_modal_open:
-        for value in ("date", "name", "size"):
+        for value in ("date", "name", "size", "priority"):
             key = f"gallery_sort_opt_{value}"
             if key in menu_buttons and menu_buttons[key].contains(x, y):
                 button_state.gallery_sort_by = value
