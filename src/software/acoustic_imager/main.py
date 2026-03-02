@@ -64,6 +64,7 @@ from acoustic_imager.state import HUD
 
 # I/O managers
 from acoustic_imager.io.camera_manager import CameraManager
+from acoustic_imager.io.gallery_metadata import load_metadata
 
 # UI components (flat modules alongside hud and video_recorder)
 from acoustic_imager.state import button_state
@@ -348,6 +349,12 @@ def main() -> None:
     state.OUTPUT_DIR = repo_root / "data" / "heatmap_captures"
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {state.OUTPUT_DIR}")
+
+    # Load persisted gallery metadata (tags, priority, tag_data)
+    prios, file_tags, tag_data = load_metadata(state.OUTPUT_DIR)
+    button_state.gallery_file_priorities = prios
+    button_state.gallery_file_tags = file_tags
+    button_state.gallery_tag_data = tag_data
     print()
 
     # ---- Initialize data sources ----

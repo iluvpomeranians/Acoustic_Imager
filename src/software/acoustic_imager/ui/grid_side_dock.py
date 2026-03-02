@@ -292,22 +292,41 @@ MODAL_PANEL_H = 200  # used for filter modal (3 options)
 MODAL_OPTION_H = 44
 MODAL_TITLE_H = 50
 
-# Search keyboard: QWERTY layout, numbers on own row; compact ~50-60% of screen height from bottom
+# Search & Rename keyboards: identical size; reduced header/footer so they line up with dock rows
 KEYBOARD_ROWS_QWERTY = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
 KEYBOARD_ROW_NUMBERS = "1234567890"
 KEYBOARD_SPECIAL = [("Backspace", "backspace"), ("Clear", "clear"), ("Done", "done")]
 KEY_SCALE = 1.875  # compact + 25% larger (1.5 * 1.25)
 KEY_W, KEY_H = int(28 * KEY_SCALE), int(28 * KEY_SCALE)
 KEY_GAP = int(4 * KEY_SCALE)
-KEYBOARD_BAR_H = int(36 * KEY_SCALE)
+KEYBOARD_BAR_H = int(22 * KEY_SCALE)  # smaller header so Rename can stay aligned
+KEYBOARD_FOOTER_GAP = 0               # minimal footer so it fits without shifting
 KEYBOARD_FONT_BAR = 0.6
 KEYBOARD_FONT_KEY = 0.55
 KEYBOARD_FONT_SPECIAL = 0.5
 KEYBOARD_MARGIN_BOTTOM = 24
 
 
-# Modal as extension of dock: gap west of dock, no overlay
+# Modal as extension of dock: gap west of dock, no overlay.
+# Connector width so modal blue meets the row (continuous from button to modal).
 MODAL_GAP_WEST = 8
+MODAL_CONNECTOR_WIDTH = MODAL_GAP_WEST + DOCK_TOP_INSET_X  # 10px: modal extends to row start
+
+
+def _draw_modal_panel_connected(
+    frame: np.ndarray, px: int, py: int, content_w: int, h: int
+) -> None:
+    """Draw modal panel with gradient; extend right by MODAL_CONNECTOR_WIDTH so blue is continuous
+    with the dock row. No right border so it visually merges with the button."""
+    total_w = content_w + MODAL_CONNECTOR_WIDTH
+    roi = frame[py : py + h, px : px + total_w]
+    grad = _vertical_gradient(h, total_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    roi[:] = grad
+    # Left, top, bottom borders only (no right, so it flows into the row)
+    cv2.line(frame, (px, py), (px, py + h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + total_w, py), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py + h - 1), (px + total_w, py + h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + total_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
 
 
 def _draw_filter_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -318,11 +337,7 @@ def _draw_filter_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     px = dock_x - MODAL_GAP_WEST - MODAL_PANEL_W
     py = filter_row_top_y
     py = max(10, min(py, fh - MODAL_PANEL_H - 10))
-    roi = frame[py : py + MODAL_PANEL_H, px : px + MODAL_PANEL_W]
-    grad = _vertical_gradient(MODAL_PANEL_H, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + MODAL_PANEL_H - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    _draw_modal_panel_connected(frame, px, py, MODAL_PANEL_W, MODAL_PANEL_H)
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Filter by type", (px + (MODAL_PANEL_W - 180) // 2, py + 32),
                 font, 0.7, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
@@ -344,11 +359,12 @@ def _draw_filter_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
         else:
             menu_buttons[key].x, menu_buttons[key].y = ox, oy
             menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
+    total_w = MODAL_PANEL_W + MODAL_CONNECTOR_WIDTH
     if "gallery_filter_modal_panel" not in menu_buttons:
-        menu_buttons["gallery_filter_modal_panel"] = Button(px, py, MODAL_PANEL_W, MODAL_PANEL_H, "")
+        menu_buttons["gallery_filter_modal_panel"] = Button(px, py, total_w, MODAL_PANEL_H, "")
     else:
         menu_buttons["gallery_filter_modal_panel"].x, menu_buttons["gallery_filter_modal_panel"].y = px, py
-        menu_buttons["gallery_filter_modal_panel"].w, menu_buttons["gallery_filter_modal_panel"].h = MODAL_PANEL_W, MODAL_PANEL_H
+        menu_buttons["gallery_filter_modal_panel"].w, menu_buttons["gallery_filter_modal_panel"].h = total_w, MODAL_PANEL_H
 
 
 def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -360,11 +376,7 @@ def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     px = dock_x - MODAL_GAP_WEST - MODAL_PANEL_W
     py = sort_row_top_y
     py = max(10, min(py, fh - panel_h - 10))
-    roi = frame[py : py + panel_h, px : px + MODAL_PANEL_W]
-    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    _draw_modal_panel_connected(frame, px, py, MODAL_PANEL_W, panel_h)
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Sort by", (px + (MODAL_PANEL_W - 80) // 2, py + 32),
                 font, 0.7, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
@@ -386,11 +398,12 @@ def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
         else:
             menu_buttons[key].x, menu_buttons[key].y = ox, oy
             menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
+    total_w = MODAL_PANEL_W + MODAL_CONNECTOR_WIDTH
     if "gallery_sort_modal_panel" not in menu_buttons:
-        menu_buttons["gallery_sort_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
+        menu_buttons["gallery_sort_modal_panel"] = Button(px, py, total_w, panel_h, "")
     else:
         menu_buttons["gallery_sort_modal_panel"].x, menu_buttons["gallery_sort_modal_panel"].y = px, py
-        menu_buttons["gallery_sort_modal_panel"].w, menu_buttons["gallery_sort_modal_panel"].h = MODAL_PANEL_W, panel_h
+        menu_buttons["gallery_sort_modal_panel"].w, menu_buttons["gallery_sort_modal_panel"].h = total_w, panel_h
 
 
 def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -405,11 +418,7 @@ def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     py = row2_top_y
     py = max(10, min(py, fh - panel_h - 10))
 
-    roi = frame[py: py + panel_h, px: px + MODAL_PANEL_W]
-    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    _draw_modal_panel_connected(frame, px, py, MODAL_PANEL_W, panel_h)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Set Priority", (px + (MODAL_PANEL_W - 130) // 2, py + 32),
@@ -455,11 +464,12 @@ def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             menu_buttons[key].x, menu_buttons[key].y = ox, oy
             menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
 
+    total_w = MODAL_PANEL_W + MODAL_CONNECTOR_WIDTH
     if "gallery_priority_modal_panel" not in menu_buttons:
-        menu_buttons["gallery_priority_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
+        menu_buttons["gallery_priority_modal_panel"] = Button(px, py, total_w, panel_h, "")
     else:
         menu_buttons["gallery_priority_modal_panel"].x, menu_buttons["gallery_priority_modal_panel"].y = px, py
-        menu_buttons["gallery_priority_modal_panel"].w, menu_buttons["gallery_priority_modal_panel"].h = MODAL_PANEL_W, panel_h
+        menu_buttons["gallery_priority_modal_panel"].w, menu_buttons["gallery_priority_modal_panel"].h = total_w, panel_h
 
 
 def _draw_tags_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -472,11 +482,7 @@ def _draw_tags_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     py = row1_top_y
     py = max(10, min(py, fh - panel_h - 10))
 
-    roi = frame[py: py + panel_h, px: px + MODAL_PANEL_W]
-    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    _draw_modal_panel_connected(frame, px, py, MODAL_PANEL_W, panel_h)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Tags", (px + (MODAL_PANEL_W - 45) // 2, py + 32),
@@ -514,11 +520,12 @@ def _draw_tags_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             menu_buttons[key].x, menu_buttons[key].y = ox, oy
             menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
 
+    total_w = MODAL_PANEL_W + MODAL_CONNECTOR_WIDTH
     if "gallery_tags_modal_panel" not in menu_buttons:
-        menu_buttons["gallery_tags_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
+        menu_buttons["gallery_tags_modal_panel"] = Button(px, py, total_w, panel_h, "")
     else:
         menu_buttons["gallery_tags_modal_panel"].x, menu_buttons["gallery_tags_modal_panel"].y = px, py
-        menu_buttons["gallery_tags_modal_panel"].w, menu_buttons["gallery_tags_modal_panel"].h = MODAL_PANEL_W, panel_h
+        menu_buttons["gallery_tags_modal_panel"].w, menu_buttons["gallery_tags_modal_panel"].h = total_w, panel_h
 
 
 def _draw_rename_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -532,25 +539,21 @@ def _draw_rename_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     special_w = KEY_W * 2
     special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
     panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
-    panel_h = KEYBOARD_BAR_H + total_key_h + 3 * KEY_GAP
+    panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
 
     row3_top_y = dock_y + DOCK_TOP_INSET_Y + 2 * (DOCK_ROW_HEIGHT + DOCK_DIVIDER_THICKNESS)
     py = row3_top_y
-    if py + panel_h > fh - 10:
-        py = fh - panel_h - 10
+    if py + panel_h > fh - 2:
+        py = fh - panel_h - 2
     px = dock_x - MODAL_GAP_WEST - panel_w
     if px < 10:
         px = 10
 
-    roi = frame[py: py + panel_h, px: px + panel_w]
-    grad = _vertical_gradient(panel_h, panel_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + panel_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    _draw_modal_panel_connected(frame, px, py, panel_w, panel_h)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     display = button_state.gallery_rename_query if button_state.gallery_rename_query else "New name..."
-    cv2.putText(frame, display[:40], (px + 10, py + KEYBOARD_BAR_H - 12),
+    cv2.putText(frame, display[:40], (px + 10, py + KEYBOARD_BAR_H - 10),
                 font, KEYBOARD_FONT_BAR, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
 
     key_y = py + KEYBOARD_BAR_H + KEY_GAP
@@ -603,11 +606,12 @@ def _draw_rename_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             menu_buttons[key].w = special_w
         key_x += special_w + KEY_GAP
 
+    total_w = panel_w + MODAL_CONNECTOR_WIDTH
     if "rename_keyboard_panel" not in menu_buttons:
-        menu_buttons["rename_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
+        menu_buttons["rename_keyboard_panel"] = Button(px, py, total_w, panel_h, "")
     else:
         menu_buttons["rename_keyboard_panel"].x, menu_buttons["rename_keyboard_panel"].y = px, py
-        menu_buttons["rename_keyboard_panel"].w, menu_buttons["rename_keyboard_panel"].h = panel_w, panel_h
+        menu_buttons["rename_keyboard_panel"].w, menu_buttons["rename_keyboard_panel"].h = total_w, panel_h
 
 
 def _draw_search_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -621,22 +625,20 @@ def _draw_search_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
     special_w = KEY_W * 2
     special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
     panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
-    panel_h = KEYBOARD_BAR_H + total_key_h + 3 * KEY_GAP
+    panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
     search_row_top = dock_y + DOCK_TOP_INSET_Y
     py = search_row_top
-    if py + panel_h > fh - 10:
-        py = fh - panel_h - 10
+    if py + panel_h > fh - 2:
+        py = fh - panel_h - 2
     px = dock_x - MODAL_GAP_WEST - panel_w
     if px < 10:
         px = 10
-    roi = frame[py : py + panel_h, px : px + panel_w]
-    grad = _vertical_gradient(panel_h, panel_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + panel_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+
+    _draw_modal_panel_connected(frame, px, py, panel_w, panel_h)
+
     font = cv2.FONT_HERSHEY_SIMPLEX
     display = button_state.gallery_search_query if button_state.gallery_search_query else "Search..."
-    cv2.putText(frame, display[:40], (px + 10, py + KEYBOARD_BAR_H - 12),
+    cv2.putText(frame, display[:40], (px + 10, py + KEYBOARD_BAR_H - 10),
                 font, KEYBOARD_FONT_BAR, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
     key_y = py + KEYBOARD_BAR_H + KEY_GAP
     # QWERTY letter rows
@@ -691,11 +693,12 @@ def _draw_search_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
             menu_buttons[key].w = special_w
         key_x += special_w + KEY_GAP
+    total_w = panel_w + MODAL_CONNECTOR_WIDTH
     if "search_keyboard_panel" not in menu_buttons:
-        menu_buttons["search_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
+        menu_buttons["search_keyboard_panel"] = Button(px, py, total_w, panel_h, "")
     else:
         menu_buttons["search_keyboard_panel"].x, menu_buttons["search_keyboard_panel"].y = px, py
-        menu_buttons["search_keyboard_panel"].w, menu_buttons["search_keyboard_panel"].h = panel_w, panel_h
+        menu_buttons["search_keyboard_panel"].w, menu_buttons["search_keyboard_panel"].h = total_w, panel_h
 
 
 def _format_size(size_bytes: float) -> str:

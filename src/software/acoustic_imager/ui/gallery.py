@@ -18,7 +18,13 @@ from .viewer_dock import (
     draw_viewer_button_feedback,
     VIEWER_DOCK_HEIGHT as VIEWER_DOCK_H,
 )
-from .grid_side_dock import draw_grid_side_dock, GRID_SIDE_DOCK_WIDTH, PRIORITY_COLORS
+from .grid_side_dock import (
+    draw_grid_side_dock,
+    GRID_SIDE_DOCK_WIDTH,
+    PRIORITY_COLORS,
+    DOCK_ROW_BORDER,
+    DOCK_ROW_TOP_HIGHLIGHT,
+)
 from ..state import button_state
 from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
@@ -152,8 +158,8 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
 
     roi = frame[py: py + panel_h, px: px + panel_w]
     roi[:] = _tk_vgrad(panel_h, panel_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), (100, 100, 110), 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + panel_w, py), (130, 110, 80), 2, cv2.LINE_AA)
+    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + panel_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     field_key = button_state.gallery_tag_active_field
@@ -173,7 +179,7 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
             kx, ky = key_x, key_y
             frame[ky: ky + _TK_H, kx: kx + _TK_W] = _tk_vgrad(
                 _TK_H, _TK_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), (100, 100, 110), 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
             (cw, ch), _ = cv2.getTextSize(c.upper(), font, 0.5, 1)
             cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
                         font, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
@@ -191,7 +197,7 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
         kx, ky = key_x, key_y
         frame[ky: ky + _TK_H, kx: kx + _TK_W] = _tk_vgrad(
             _TK_H, _TK_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), (100, 100, 110), 1, cv2.LINE_AA)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
         (cw, ch), _ = cv2.getTextSize(c, font, 0.5, 1)
         cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
                     font, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
@@ -209,7 +215,7 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
         kx, ky = key_x, key_y
         frame[ky: ky + _TK_H, kx: kx + _TK_SP_W] = _tk_vgrad(
             _TK_H, _TK_SP_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), (100, 100, 110), 1, cv2.LINE_AA)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
         (tw, _), _ = cv2.getTextSize(label, font, 0.44, 1)
         cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
                     font, 0.44, (240, 240, 240), 1, cv2.LINE_AA)
@@ -228,23 +234,19 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
         b.x, b.y, b.w, b.h = px, py, panel_w, panel_h
 
 
-def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
-    """Centered tag edit modal with 3 input fields + QWERTY keyboard."""
+def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int) -> None:
+    """Centered tag edit modal with 3 input fields + QWERTY keyboard. Blue styling to match dock modals."""
     fh, fw = frame.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
-
-    # Dim background
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
-
-    # ── Form panel ──────────────────────────────────────────────────────────────
     form_w, form_h = 590, 280
-    form_x = (fw - form_w) // 2
-    form_y = 8
-    cv2.rectangle(frame, (form_x, form_y), (form_x + form_w, form_y + form_h), (38, 38, 44), -1)
-    cv2.rectangle(frame, (form_x, form_y), (form_x + form_w, form_y + form_h), (90, 90, 102), 2, cv2.LINE_AA)
-    cv2.line(frame, (form_x, form_y), (form_x + form_w, form_y), (130, 110, 80), 2, cv2.LINE_AA)
+    dock_x = fw - GRID_SIDE_DOCK_WIDTH
+    form_x = max(10, dock_x - form_w)
+    tags_row_top = header_h + 3
+    form_y = min(tags_row_top, fh - form_h - 4)
+    roi = frame[form_y : form_y + form_h, form_x : form_x + form_w]
+    roi[:] = _tk_vgrad(form_h, form_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    cv2.rectangle(frame, (form_x, form_y), (form_x + form_w - 1, form_y + form_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (form_x, form_y), (form_x + form_w, form_y), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
 
     title = "Edit Tags"
     (tw, th), _ = cv2.getTextSize(title, font, 0.72, 2)
@@ -274,8 +276,8 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         is_active = (button_state.gallery_tag_active_field == fkey
                      and button_state.gallery_tag_keyboard_open)
-        border = (80, 155, 255) if is_active else (85, 85, 98)
-        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), (22, 22, 26), -1)
+        border = (255, 255, 255) if is_active else DOCK_ROW_BORDER
+        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), (28, 28, 34), -1)
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h),
                       border, 2 if is_active else 1, cv2.LINE_AA)
 
@@ -301,29 +303,32 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             b = menu_buttons[bkey]
             b.x, b.y, b.w, b.h = input_x, ry, input_w, input_h
 
-    # ── Buttons (Cancel / Save) ──────────────────────────────────────────────────
+    # ── Buttons (Cancel / Save): blue styling to match dock modals ─────────────────
     btn_y = form_y + form_h - 54
     btn_h = 40
     cancel_w, save_w = 130, 130
     cancel_x = form_x + form_w // 2 - cancel_w - 12
     save_x   = form_x + form_w // 2 + 12
 
-    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (55, 55, 62), -1)
-    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (100, 100, 112), 1, cv2.LINE_AA)
+    # Cancel: subtle dark fill, border consistent with dock
+    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (38, 38, 44), -1)
+    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
     (cw, _), _ = cv2.getTextSize("CANCEL", font, 0.5, 1)
     cv2.putText(frame, "CANCEL", (cancel_x + (cancel_w - cw) // 2, btn_y + btn_h // 2 + 7),
-                font, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
+                font, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
     if "tag_cancel" not in menu_buttons:
         menu_buttons["tag_cancel"] = Button(cancel_x, btn_y, cancel_w, btn_h, "CANCEL")
     else:
         b = menu_buttons["tag_cancel"]
         b.x, b.y, b.w, b.h = cancel_x, btn_y, cancel_w, btn_h
 
-    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h), (25, 95, 25), -1)
-    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h), (55, 175, 55), 1, cv2.LINE_AA)
+    # Save: same blue gradient as menu/dock
+    save_roi = frame[btn_y : btn_y + btn_h, save_x : save_x + save_w]
+    save_roi[:] = _tk_vgrad(btn_h, save_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h), (255, 255, 255), 1, cv2.LINE_AA)
     (sw, _), _ = cv2.getTextSize("SAVE", font, 0.5, 1)
     cv2.putText(frame, "SAVE", (save_x + (save_w - sw) // 2, btn_y + btn_h // 2 + 7),
-                font, 0.5, (195, 240, 195), 1, cv2.LINE_AA)
+                font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
     if "tag_save" not in menu_buttons:
         menu_buttons["tag_save"] = Button(save_x, btn_y, save_w, btn_h, "SAVE")
     else:
@@ -1276,4 +1281,4 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             draw_delete_modal(frame)
 
     if button_state.gallery_tag_modal_open:
-        draw_tag_modal(frame, output_dir)
+        draw_tag_modal(frame, output_dir, header_h)

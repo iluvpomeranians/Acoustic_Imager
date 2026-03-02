@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "priorities": {
+    "testd.mp4": "high",
+    "recording_20260301_220627.mp4": "low"
+  },
+  "file_tags": {},
+  "tag_data": {
+    "testd.mp4": {
+      "asset_type": "can",
+      "leak_type": "uy"
+    },
+    "recording_20260301_220627.mp4": {
+      "asset_type": "dkj",
+      "leak_type": "xz"
+    },
+    "recording_20260301_192008.mp4": {
+      "asset_type": "j",
+      "leak_type": ""
+    }
+  }
+}

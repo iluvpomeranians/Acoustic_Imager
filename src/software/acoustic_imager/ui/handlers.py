@@ -17,7 +17,20 @@ from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
 from ..state import button_state
+from ..io.gallery_metadata import save_metadata
 from .video_recorder import VideoRecorder
+
+
+def _persist_gallery_metadata(output_dir: Optional[Path]) -> None:
+    """Write current tags, priority, and tag_data to gallery_metadata.json."""
+    if not output_dir:
+        return
+    save_metadata(
+        output_dir,
+        getattr(button_state, "gallery_file_priorities", {}),
+        getattr(button_state, "gallery_file_tags", {}),
+        getattr(button_state, "gallery_tag_data", {}),
+    )
 
 
 def _close_select_mode_modals() -> None:
@@ -67,6 +80,7 @@ def _apply_rename(output_dir: Optional[Path]) -> None:
         except Exception as e:
             print(f"Rename failed: {e}")
     button_state.gallery_storage_dirty = True
+    _persist_gallery_metadata(output_dir)
 
 
 def _open_tag_modal(output_dir: Optional[Path]) -> None:
@@ -129,6 +143,9 @@ def _apply_tag_save(output_dir: Optional[Path]) -> None:
                 prios = getattr(button_state, 'gallery_file_priorities', {})
                 if first_path.name in prios:
                     prios[new_file.name] = prios.pop(first_path.name)
+                file_tags = getattr(button_state, "gallery_file_tags", {})
+                if first_path.name in file_tags:
+                    file_tags[new_file.name] = file_tags.pop(first_path.name)
                 ui_cache._THUMB_CACHE.pop(first_path, None)
                 ui_cache._THUMB_CACHE_MTIME.pop(first_path, None)
                 effective_name = new_file.name
@@ -146,6 +163,7 @@ def _apply_tag_save(output_dir: Optional[Path]) -> None:
 
     button_state.gallery_tag_data = tag_data
     button_state.gallery_storage_dirty = True
+    _persist_gallery_metadata(output_dir)
 
 
 def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
@@ -181,12 +199,19 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             try:
                 if button_state.gallery_delete_modal_kind == "batch":
                     deleted = 0
+                    prios = getattr(button_state, "gallery_file_priorities", {})
+                    tags = getattr(button_state, "gallery_file_tags", {})
+                    tag_data = getattr(button_state, "gallery_tag_data", {})
                     for idx in sorted(button_state.gallery_selected_items, reverse=True):
                         if 0 <= idx < len(items):
                             path = items[idx][0]
                             try:
                                 path.unlink()
                                 deleted += 1
+                                fn = path.name
+                                prios.pop(fn, None)
+                                tags.pop(fn, None)
+                                tag_data.pop(fn, None)
                             except Exception as e:
                                 print(f"Failed to delete {path}: {e}")
 
@@ -196,12 +221,21 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     button_state.gallery_delete_modal_kind = "single"
                     if deleted > 0:
                         button_state.gallery_storage_dirty = True
+                        _persist_gallery_metadata(output_dir)
                     return True
 
                 if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
                     filepath = items[button_state.gallery_selected_item][0]
                     filepath.unlink()
+                    fn = filepath.name
+                    prios = getattr(button_state, "gallery_file_priorities", {})
+                    tags = getattr(button_state, "gallery_file_tags", {})
+                    tag_data = getattr(button_state, "gallery_tag_data", {})
+                    prios.pop(fn, None)
+                    tags.pop(fn, None)
+                    tag_data.pop(fn, None)
                     button_state.gallery_storage_dirty = True
+                    _persist_gallery_metadata(output_dir)
 
                     if len(items) <= 1:
                         button_state.gallery_viewer_mode = "grid"
@@ -229,11 +263,16 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     # In normal mode: Search / Filter / Sort
     if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
         if "gallery_dock_tags" in menu_buttons and menu_buttons["gallery_dock_tags"].contains(x, y):
-            _open_tag_modal(output_dir)
+            # Toggle Edit Tags modal; close others when opening (mutual exclusivity like Search/Filter/Sort)
+            if button_state.gallery_tag_modal_open:
+                button_state.gallery_tag_modal_open = False
+            else:
+                _open_tag_modal(output_dir)
             return True
         if "gallery_dock_priority" in menu_buttons and menu_buttons["gallery_dock_priority"].contains(x, y):
             button_state.gallery_priority_modal_open = not button_state.gallery_priority_modal_open
             if button_state.gallery_priority_modal_open:
+                button_state.gallery_tag_modal_open = False
                 button_state.gallery_tags_modal_open = False
                 button_state.gallery_rename_modal_open = False
             return True
@@ -248,6 +287,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.gallery_rename_query = ""
             button_state.gallery_rename_modal_open = not button_state.gallery_rename_modal_open
             if button_state.gallery_rename_modal_open:
+                button_state.gallery_tag_modal_open = False
                 button_state.gallery_tags_modal_open = False
                 button_state.gallery_priority_modal_open = False
             return True
@@ -268,6 +308,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                         else:
                             priorities[fname] = value
                 button_state.gallery_file_priorities = priorities
+                _persist_gallery_metadata(output_dir)
                 return True
         if "gallery_priority_modal_panel" in menu_buttons and menu_buttons["gallery_priority_modal_panel"].contains(x, y):
             return True
