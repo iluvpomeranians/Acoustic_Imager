@@ -119,7 +119,7 @@ class Button:
             (self.y - pad) <= my <= (self.y + self.h + pad)
         )
 
-    def draw(self, frame: np.ndarray, transparent: bool = False, active_color: Optional[tuple] = None, icon_type: Optional[str] = None) -> None:
+    def draw(self, frame: np.ndarray, transparent: bool = False, active_color: Optional[tuple] = None, active_border_color: Optional[tuple] = None, icon_type: Optional[str] = None) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
         active = active_color if active_color is not None else (40, 200, 60)
@@ -150,7 +150,9 @@ class Button:
                 roi[:] = ui_cache.get_grad(roi.shape[1], roi.shape[0], color)
 
         if self.is_active:
-            if active_color is not None:
+            if active_border_color is not None:
+                border_color = active_border_color
+            elif active_color is not None:
                 border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
             else:
                 border_color = (80, 255, 100)
