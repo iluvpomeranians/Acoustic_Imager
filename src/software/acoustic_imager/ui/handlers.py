@@ -12,12 +12,59 @@ import time
 from . import ui_cache
 from .button import buttons, menu_buttons
 from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset
+from .grid_side_dock import PRESET_TAGS
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
 from ..state import button_state
 from .video_recorder import VideoRecorder
+
+
+def _close_select_mode_modals() -> None:
+    """Close all panels that are only visible in select mode."""
+    button_state.gallery_priority_modal_open = False
+    button_state.gallery_tags_modal_open = False
+    button_state.gallery_rename_modal_open = False
+
+
+def _apply_rename(output_dir: Optional[Path]) -> None:
+    """Rename the selected file(s) using gallery_rename_query as the new stem."""
+    if not output_dir:
+        return
+    new_stem = (button_state.gallery_rename_query or "").strip()
+    if not new_stem:
+        return
+    items = get_displayed_gallery_items(output_dir)
+    sel = sorted(button_state.gallery_selected_items)
+    for i, idx in enumerate(sel):
+        if idx >= len(items):
+            continue
+        old_path = items[idx][0]
+        if len(sel) == 1:
+            new_name = new_stem + old_path.suffix
+        else:
+            new_name = f"{new_stem}_{i + 1}{old_path.suffix}"
+        new_path = old_path.parent / new_name
+        if new_path.exists() and new_path != old_path:
+            continue
+        try:
+            old_path.rename(new_path)
+            # Evict old thumbnail from cache
+            ui_cache._THUMB_CACHE.pop(old_path, None)
+            ui_cache._THUMB_CACHE_MTIME.pop(old_path, None)
+            # Transfer priority/tags to new filename
+            old_fn = old_path.name
+            new_fn = new_path.name
+            prios = getattr(button_state, 'gallery_file_priorities', {})
+            if old_fn in prios:
+                prios[new_fn] = prios.pop(old_fn)
+            tags = getattr(button_state, 'gallery_file_tags', {})
+            if old_fn in tags:
+                tags[new_fn] = tags.pop(old_fn)
+        except Exception as e:
+            print(f"Rename failed: {e}")
+    button_state.gallery_storage_dirty = True
 
 
 def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
@@ -36,6 +83,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_selected_item = None
             button_state.gallery_select_mode = False
             button_state.gallery_selected_items.clear()
+            _close_select_mode_modals()
 
         else:
             button_state.gallery_viewer_mode = "grid"
@@ -94,8 +142,106 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         return True
 
-    # Dock row buttons have priority; Search, Filter, Sort are mutually exclusive (one open at a time)
-    if button_state.gallery_viewer_mode == "grid":
+    # Dock row buttons have priority.
+    # In select mode: Tags / Priority / Rename  (Search / Filter / Sort hidden)
+    # In normal mode: Search / Filter / Sort
+    if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
+        if "gallery_dock_tags" in menu_buttons and menu_buttons["gallery_dock_tags"].contains(x, y):
+            button_state.gallery_tags_modal_open = not button_state.gallery_tags_modal_open
+            if button_state.gallery_tags_modal_open:
+                button_state.gallery_priority_modal_open = False
+                button_state.gallery_rename_modal_open = False
+            return True
+        if "gallery_dock_priority" in menu_buttons and menu_buttons["gallery_dock_priority"].contains(x, y):
+            button_state.gallery_priority_modal_open = not button_state.gallery_priority_modal_open
+            if button_state.gallery_priority_modal_open:
+                button_state.gallery_tags_modal_open = False
+                button_state.gallery_rename_modal_open = False
+            return True
+        if "gallery_dock_rename" in menu_buttons and menu_buttons["gallery_dock_rename"].contains(x, y):
+            # Pre-fill rename query with the first selected file's stem (name without extension)
+            items = get_displayed_gallery_items(output_dir)
+            sel = sorted(button_state.gallery_selected_items)
+            if sel and sel[0] < len(items):
+                first_path = items[sel[0]][0]
+                button_state.gallery_rename_query = first_path.stem
+            else:
+                button_state.gallery_rename_query = ""
+            button_state.gallery_rename_modal_open = not button_state.gallery_rename_modal_open
+            if button_state.gallery_rename_modal_open:
+                button_state.gallery_tags_modal_open = False
+                button_state.gallery_priority_modal_open = False
+            return True
+
+    # Priority modal option clicks
+    if button_state.gallery_priority_modal_open:
+        for value in ("high", "medium", "low"):
+            key = f"gallery_priority_opt_{value}"
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                items = get_displayed_gallery_items(output_dir)
+                priorities = getattr(button_state, 'gallery_file_priorities', {})
+                for idx in button_state.gallery_selected_items:
+                    if idx < len(items):
+                        fname = items[idx][0].name
+                        # Toggle: clicking the same priority again removes it
+                        if priorities.get(fname) == value:
+                            priorities[fname] = ""
+                        else:
+                            priorities[fname] = value
+                button_state.gallery_file_priorities = priorities
+                return True
+        if "gallery_priority_modal_panel" in menu_buttons and menu_buttons["gallery_priority_modal_panel"].contains(x, y):
+            return True
+        button_state.gallery_priority_modal_open = False
+
+    # Tags modal option clicks
+    if button_state.gallery_tags_modal_open:
+        for tag in PRESET_TAGS:
+            key = f"gallery_tag_opt_{tag.lower().replace('-', '_').replace(' ', '_')}"
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                items = get_displayed_gallery_items(output_dir)
+                file_tags = getattr(button_state, 'gallery_file_tags', {})
+                sel_names = [items[idx][0].name for idx in button_state.gallery_selected_items if idx < len(items)]
+                all_have = all(tag in file_tags.get(n, []) for n in sel_names) if sel_names else False
+                for name in sel_names:
+                    tags = list(file_tags.get(name, []))
+                    if all_have:
+                        if tag in tags:
+                            tags.remove(tag)
+                    else:
+                        if tag not in tags:
+                            tags.append(tag)
+                    file_tags[name] = tags
+                button_state.gallery_file_tags = file_tags
+                return True
+        if "gallery_tags_modal_panel" in menu_buttons and menu_buttons["gallery_tags_modal_panel"].contains(x, y):
+            return True
+        button_state.gallery_tags_modal_open = False
+
+    # Rename keyboard clicks
+    if button_state.gallery_rename_modal_open:
+        if "rename_key_done" in menu_buttons and menu_buttons["rename_key_done"].contains(x, y):
+            _apply_rename(output_dir)
+            button_state.gallery_rename_modal_open = False
+            return True
+        if "rename_key_clear" in menu_buttons and menu_buttons["rename_key_clear"].contains(x, y):
+            button_state.gallery_rename_query = ""
+            return True
+        if "rename_key_backspace" in menu_buttons and menu_buttons["rename_key_backspace"].contains(x, y):
+            button_state.gallery_rename_query = (button_state.gallery_rename_query or "")[:-1]
+            return True
+        for c in "abcdefghijklmnopqrstuvwxyz0123456789":
+            key = f"rename_key_{c}"
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                button_state.gallery_rename_query = (button_state.gallery_rename_query or "") + c
+                return True
+        if "rename_keyboard_panel" in menu_buttons and menu_buttons["rename_keyboard_panel"].contains(x, y):
+            return True
+        button_state.gallery_rename_modal_open = False
+        return True
+
+    # Search / Filter / Sort (only in normal grid mode, not select mode)
+    if button_state.gallery_viewer_mode == "grid" and not button_state.gallery_select_mode:
         if "gallery_dock_search" in menu_buttons and menu_buttons["gallery_dock_search"].contains(x, y):
             button_state.gallery_search_keyboard_open = not button_state.gallery_search_keyboard_open
             if button_state.gallery_search_keyboard_open:
@@ -234,7 +380,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.gallery_select_mode = not button_state.gallery_select_mode
                 if not button_state.gallery_select_mode:
                     button_state.gallery_selected_items.clear()
-
+                    _close_select_mode_modals()
                 return True
 
         if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons:

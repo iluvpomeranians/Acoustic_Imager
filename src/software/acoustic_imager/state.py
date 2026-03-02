@@ -96,12 +96,24 @@ class ButtonState:
     gallery_sort_modal_open: bool = False
     gallery_search_keyboard_open: bool = False
 
+    # Select-mode tool panels (Tags / Priority / Rename)
+    gallery_priority_modal_open: bool = False
+    gallery_tags_modal_open: bool = False
+    gallery_rename_modal_open: bool = False
+    gallery_rename_query: str = ""
+    gallery_file_priorities: dict = field(default_factory=dict)  # filename → "high"|"medium"|"low"
+    gallery_file_tags: dict = field(default_factory=dict)        # filename → list[str]
+
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
 
     def __post_init__(self):
         if self.gallery_selected_items is None:
             self.gallery_selected_items = set()
+        if self.gallery_file_priorities is None:
+            self.gallery_file_priorities = {}
+        if self.gallery_file_tags is None:
+            self.gallery_file_tags = {}
 
 
 # A single shared instance (matches original `button_state = ButtonState()`)

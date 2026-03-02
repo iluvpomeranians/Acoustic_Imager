@@ -18,7 +18,7 @@ from .viewer_dock import (
     draw_viewer_button_feedback,
     VIEWER_DOCK_HEIGHT as VIEWER_DOCK_H,
 )
-from .grid_side_dock import draw_grid_side_dock, GRID_SIDE_DOCK_WIDTH
+from .grid_side_dock import draw_grid_side_dock, GRID_SIDE_DOCK_WIDTH, PRIORITY_COLORS
 from ..state import button_state
 
 # Rubber band at first/last item: stiff so no ghost card appears beyond the end
@@ -919,7 +919,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
             cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
 
-            cv2.putText(frame, filename, (x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+            # Priority dot: small filled circle to the left of the filename
+            file_priorities = getattr(button_state, 'gallery_file_priorities', {})
+            priority = file_priorities.get(filepath.name, "")
+            filename_x = x
+            if priority and priority in PRIORITY_COLORS:
+                dot_color = PRIORITY_COLORS[priority]
+                dot_cx = x + 5
+                dot_cy = label_y + 14
+                cv2.circle(frame, (dot_cx, dot_cy), 5, dot_color, -1, cv2.LINE_AA)
+                cv2.circle(frame, (dot_cx, dot_cy), 5, (220, 220, 220), 1, cv2.LINE_AA)
+                filename_x = x + 15
+
+            cv2.putText(frame, filename, (filename_x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
 
     # Side dock on top so it's clearly delimited; storage bar floats with viewport as you scroll
     draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
