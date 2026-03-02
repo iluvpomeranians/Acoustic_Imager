@@ -16,9 +16,9 @@ from .viewer_dock import (
     draw_viewer_chrome,
     draw_viewer_back_button_on_top,
     draw_viewer_button_feedback,
-    draw_storage_bar,
     VIEWER_DOCK_HEIGHT as VIEWER_DOCK_H,
 )
+from .grid_side_dock import draw_grid_side_dock, GRID_SIDE_DOCK_WIDTH
 from ..state import button_state
 
 # Rubber band at first/last item: stiff so no ghost card appears beyond the end
@@ -121,7 +121,7 @@ def get_gallery_items(output_dir: Path) -> List[Tuple[Path, str, datetime]]:
     """
     Get all screenshots and videos from the output directory.
     Returns list of tuples: (filepath, type, modification_time)
-    Sorted by modification time (newest first).
+    Sorted by modification time (newest first). Does not apply filter/sort/search.
     """
     items = []
 
@@ -139,6 +139,46 @@ def get_gallery_items(output_dir: Path) -> List[Tuple[Path, str, datetime]]:
     items.sort(key=lambda x: x[2], reverse=True)
 
     return items
+
+
+def apply_gallery_filter_sort_search(
+    items: List[Tuple[Path, str, datetime]],
+) -> List[Tuple[Path, str, datetime]]:
+    """
+    Apply current filter (type), sort (date/name/size), and search (filename) from button_state.
+    """
+    out = list(items)
+    # Filter by type
+    ft = getattr(button_state, "gallery_filter_type", "all")
+    if ft == "image":
+        out = [x for x in out if x[1] == "image"]
+    elif ft == "video":
+        out = [x for x in out if x[1] == "video"]
+    # Search by filename (case-insensitive substring)
+    q = (getattr(button_state, "gallery_search_query", "") or "").strip().lower()
+    if q:
+        out = [x for x in out if q in x[0].name.lower()]
+    # Sort
+    sort_by = getattr(button_state, "gallery_sort_by", "date")
+    if sort_by == "date":
+        out.sort(key=lambda x: x[2], reverse=True)
+    elif sort_by == "name":
+        out.sort(key=lambda x: x[0].name.lower())
+    elif sort_by == "size":
+        def _size_key(t: Tuple[Path, str, datetime]) -> float:
+            try:
+                return -t[0].stat().st_size
+            except OSError:
+                return 0.0
+        out.sort(key=_size_key)
+    return out
+
+
+def get_displayed_gallery_items(output_dir: Optional[Path]) -> List[Tuple[Path, str, datetime]]:
+    """Return gallery items after filter, sort, and search (what the user sees)."""
+    if not output_dir:
+        return []
+    return apply_gallery_filter_sort_search(get_gallery_items(output_dir))
 
 
 def _update_viewer_swipe_inertia(frame_w: int) -> None:
@@ -511,7 +551,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     if output_dir is None:
         return
 
-    items = get_gallery_items(output_dir)
+    items = get_displayed_gallery_items(output_dir)
 
     if button_state.gallery_viewer_mode == "image":
         draw_image_viewer(frame, items, output_dir)
@@ -538,22 +578,22 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_thick = 2
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
-    title_y = (header_h + title_h) // 2 + 5 - 12
+    title_y = (header_h + title_h) // 2 + 5 - 20
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_8)
-    
+
     if button_state.gallery_select_mode:
         selected_count = len(button_state.gallery_selected_items)
         if selected_count > 0:
-            info_text = f"Total: {len(items)} items | Selected: {selected_count} | Click to select/deselect | Swipe to scroll"
+            info_text = f"Total: {len(items)} items | Selected: {selected_count} | Click to select | Swipe to scroll"
         else:
-            info_text = f"Total: {len(items)} items | Click to select/deselect | Swipe to scroll"
+            info_text = f"Total: {len(items)} items | Click to select | Swipe to scroll"
     else:
         info_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos) | Click to view | Swipe to scroll"
-    
+
     info_scale = 0.45
     (info_w, info_h), _ = cv2.getTextSize(info_text, font, info_scale, 1)
     info_x = (frame.shape[1] - info_w) // 2
-    info_y = title_y + 22
+    info_y = title_y + 35
     cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (150, 150, 150), 1, cv2.LINE_AA)
 
     back_btn_x = 10
@@ -570,16 +610,16 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_back"].h = back_btn_h
 
     menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
-    
+
     if button_state.gallery_select_mode and button_state.gallery_selected_items:
         selected_count = len(button_state.gallery_selected_items)
         delete_btn_w = 140
         delete_btn_x = back_btn_x + back_btn_w + 10
         delete_btn_y = 20
-        
+
         delete_text = f"DELETE ({selected_count})"
         delete_color = (0, 0, 220)
-        
+
         if "gallery_delete_selected" not in menu_buttons:
             menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, back_btn_h, delete_text)
         else:
@@ -588,7 +628,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_delete_selected"].w = delete_btn_w
             menu_buttons["gallery_delete_selected"].h = back_btn_h
             menu_buttons["gallery_delete_selected"].text = delete_text
-        
+
         menu_buttons["gallery_delete_selected"].is_active = True
         menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
 
@@ -638,8 +678,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
             menu_buttons["gallery_select_all"].draw(frame, transparent=True)
 
-    draw_storage_bar(frame, items, output_dir, header_h)
-
     if not items:
         msg = "No captures yet. Use SHOT or REC to create content."
         msg_scale = 0.7
@@ -648,17 +686,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         msg_x = (frame.shape[1] - msg_w) // 2
         msg_y = frame.shape[0] // 2
         cv2.putText(frame, msg, (msg_x, msg_y), font, msg_scale, (150, 150, 150), msg_thick, cv2.LINE_AA)
+        draw_grid_side_dock(frame, header_h, items, output_dir, 0)
         return
 
     margin = 20
     grid_start_y = header_h + margin
     grid_start_x = margin
+    content_width = frame.shape[1] - GRID_SIDE_DOCK_WIDTH
 
     thumb_w = 280
     thumb_h = 180
     gap = 15
 
-    cols = (frame.shape[1] - 2 * margin + gap) // (thumb_w + gap)
+    cols = (content_width - 2 * margin + gap) // (thumb_w + gap)
     cols = max(1, cols)
 
     total_rows = (len(items) + cols - 1) // cols
@@ -880,6 +920,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
 
             cv2.putText(frame, filename, (x, label_y + 20), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+
+    # Side dock on top so it's clearly delimited; storage bar floats with viewport as you scroll
+    draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
 
     if button_state.gallery_delete_modal_open:
         if button_state.gallery_delete_modal_kind == "batch":

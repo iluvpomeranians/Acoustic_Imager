@@ -11,7 +11,7 @@ import time
 
 from . import ui_cache
 from .button import buttons, menu_buttons
-from .gallery import get_gallery_items, _viewer_rubber_band_offset
+from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
@@ -46,7 +46,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
     if button_state.gallery_delete_modal_open:
         if "modal_yes" in menu_buttons and menu_buttons["modal_yes"].contains(x, y):
-            items = get_gallery_items(output_dir) if output_dir else []
+            items = get_displayed_gallery_items(output_dir)
 
             try:
                 if button_state.gallery_delete_modal_kind == "batch":
@@ -64,11 +64,14 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     button_state.gallery_select_mode = False
                     button_state.gallery_delete_modal_open = False
                     button_state.gallery_delete_modal_kind = "single"
+                    if deleted > 0:
+                        button_state.gallery_storage_dirty = True
                     return True
 
                 if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
                     filepath = items[button_state.gallery_selected_item][0]
                     filepath.unlink()
+                    button_state.gallery_storage_dirty = True
 
                     if len(items) <= 1:
                         button_state.gallery_viewer_mode = "grid"
@@ -91,6 +94,71 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         return True
 
+    # Dock row buttons have priority; Search, Filter, Sort are mutually exclusive (one open at a time)
+    if button_state.gallery_viewer_mode == "grid":
+        if "gallery_dock_search" in menu_buttons and menu_buttons["gallery_dock_search"].contains(x, y):
+            button_state.gallery_search_keyboard_open = not button_state.gallery_search_keyboard_open
+            if button_state.gallery_search_keyboard_open:
+                button_state.gallery_filter_modal_open = False
+                button_state.gallery_sort_modal_open = False
+            return True
+        if "gallery_dock_filter" in menu_buttons and menu_buttons["gallery_dock_filter"].contains(x, y):
+            button_state.gallery_filter_modal_open = not button_state.gallery_filter_modal_open
+            if button_state.gallery_filter_modal_open:
+                button_state.gallery_sort_modal_open = False
+                button_state.gallery_search_keyboard_open = False
+            return True
+        if "gallery_dock_sort" in menu_buttons and menu_buttons["gallery_dock_sort"].contains(x, y):
+            button_state.gallery_sort_modal_open = not button_state.gallery_sort_modal_open
+            if button_state.gallery_sort_modal_open:
+                button_state.gallery_filter_modal_open = False
+                button_state.gallery_search_keyboard_open = False
+            return True
+
+    # Filter modal: option click only sets filter (modal stays open); click outside closes and fall through
+    if button_state.gallery_filter_modal_open:
+        for value in ("all", "image", "video"):
+            key = f"gallery_filter_opt_{value}"
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                button_state.gallery_filter_type = value
+                return True
+        if "gallery_filter_modal_panel" in menu_buttons and menu_buttons["gallery_filter_modal_panel"].contains(x, y):
+            return True
+        button_state.gallery_filter_modal_open = False
+        # fall through so the same click can hit thumbnails or other controls
+
+    # Sort modal: option click only sets sort (modal stays open); click outside closes and fall through
+    if button_state.gallery_sort_modal_open:
+        for value in ("date", "name", "size"):
+            key = f"gallery_sort_opt_{value}"
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                button_state.gallery_sort_by = value
+                return True
+        if "gallery_sort_modal_panel" in menu_buttons and menu_buttons["gallery_sort_modal_panel"].contains(x, y):
+            return True
+        button_state.gallery_sort_modal_open = False
+        # fall through so the same click can hit thumbnails or other controls
+
+    if button_state.gallery_search_keyboard_open:
+        if "search_key_done" in menu_buttons and menu_buttons["search_key_done"].contains(x, y):
+            button_state.gallery_search_keyboard_open = False
+            return True
+        if "search_key_clear" in menu_buttons and menu_buttons["search_key_clear"].contains(x, y):
+            button_state.gallery_search_query = ""
+            return True
+        if "search_key_backspace" in menu_buttons and menu_buttons["search_key_backspace"].contains(x, y):
+            button_state.gallery_search_query = (button_state.gallery_search_query or "")[:-1]
+            return True
+        for c in "abcdefghijklmnopqrstuvwxyz0123456789":
+            key = f"search_key_{c}"
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                button_state.gallery_search_query = (button_state.gallery_search_query or "") + c
+                return True
+        if "search_keyboard_panel" in menu_buttons and menu_buttons["search_keyboard_panel"].contains(x, y):
+            return True
+        button_state.gallery_search_keyboard_open = False
+        return True
+
     if button_state.gallery_viewer_mode in ("image", "video", "grid"):
         if "gallery_delete" in menu_buttons and menu_buttons["gallery_delete"].contains(x, y):
             button_state.gallery_delete_modal_open = True
@@ -101,7 +169,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             trigger_viewer_button_feedback("gallery_prev")
             if button_state.gallery_selected_item > 0:
                 button_state.gallery_selected_item -= 1
-                items = get_gallery_items(output_dir) if output_dir else []
+                items = get_displayed_gallery_items(output_dir)
 
                 if button_state.gallery_selected_item < len(items):
                     new_item_type = items[button_state.gallery_selected_item][1]
@@ -118,7 +186,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         if "gallery_next" in menu_buttons and menu_buttons["gallery_next"].contains(x, y):
             trigger_viewer_button_feedback("gallery_next")
-            items = get_gallery_items(output_dir) if output_dir else []
+            items = get_displayed_gallery_items(output_dir)
             if button_state.gallery_selected_item < len(items) - 1:
                 button_state.gallery_selected_item += 1
 
@@ -142,7 +210,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             return True
 
         if "gallery_progress" in menu_buttons and menu_buttons["gallery_progress"].contains(x, y):
-            items = get_gallery_items(output_dir) if output_dir else []
+            items = get_displayed_gallery_items(output_dir)
             if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
                 filepath = items[button_state.gallery_selected_item][0]
                 cap = cv2.VideoCapture(str(filepath))
@@ -171,7 +239,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons:
             if menu_buttons["gallery_select_all"].contains(x, y):
-                items = get_gallery_items(output_dir) if output_dir else []
+                items = get_displayed_gallery_items(output_dir)
                 if items:
                     all_selected = len(button_state.gallery_selected_items) == len(items)
                     if all_selected:
@@ -296,6 +364,7 @@ def handle_menu_click(
     if "shot" in menu_buttons and menu_buttons["shot"].contains(x, y):
         if current_frame is not None and output_dir is not None:
             save_screenshot(current_frame, output_dir)
+            button_state.gallery_storage_dirty = True  # so storage bar updates when opening gallery
         return video_recorder
 
     if "rec" in menu_buttons and menu_buttons["rec"].contains(x, y):
@@ -316,11 +385,13 @@ def handle_menu_click(
             video_recorder.stop_recording()
             button_state.is_paused = False
             menu_buttons["rec"].text = "REC"
+            button_state.gallery_storage_dirty = True  # so storage bar updates when opening gallery
         return video_recorder
 
     if "gallery" in menu_buttons and menu_buttons["gallery"].contains(x, y):
         button_state.gallery_open = True
         button_state.menu_open = False
+        button_state.gallery_storage_dirty = True  # refresh storage bar when opening gallery
         return video_recorder
 
     return video_recorder
@@ -381,7 +452,7 @@ def handle_gallery_viewer_mouse(event, x, y, flags, output_dir) -> bool:
         return False
 
     now = time.perf_counter()
-    items = get_gallery_items(output_dir) if output_dir else []
+    items = get_displayed_gallery_items(output_dir)
     n = len(items)
     idx = button_state.gallery_selected_item
     if idx is None or n == 0:

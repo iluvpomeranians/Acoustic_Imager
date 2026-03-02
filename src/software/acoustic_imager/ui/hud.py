@@ -5,11 +5,15 @@ import time
 import cv2
 import numpy as np
 
+from ..config import BUTTON_ALPHA, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
+from .menu import _blue_gradient_overlay
+
 @dataclass
 class HudRects:
     net:  Tuple[int,int,int,int]
     fps:  Tuple[int,int,int,int]
     time: Tuple[int,int,int,int]
+
 
 def _draw_pill(frame: np.ndarray, x: int, y: int, w: int, h: int,
                bg=(0,0,0), alpha: float = 0.35, border=(255,255,255), is_active: bool = False) -> None:
@@ -19,15 +23,17 @@ def _draw_pill(frame: np.ndarray, x: int, y: int, w: int, h: int,
     if x1 <= x0 or y1 <= y0:
         return
 
-    # Use green colors when active
     if is_active:
-        bg = (40, 200, 60)
-        alpha = 0.25
-        border = (80, 255, 100)
+        alpha = BUTTON_ALPHA  # same as menu so blue matches
+        border = (255, 255, 255)
 
     roi = frame[y0:y1, x0:x1]
-    overlay = np.empty_like(roi)
-    overlay[:] = bg
+    pill_h, pill_w = roi.shape[:2]
+    if is_active:
+        overlay = _blue_gradient_overlay(pill_h, pill_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    else:
+        overlay = np.empty_like(roi)
+        overlay[:] = bg
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
 
     cv2.rectangle(frame, (x0, y0), (x1 - 1, y1 - 1), border, 1, cv2.LINE_AA)
@@ -128,71 +134,22 @@ def draw_hud(
     # --- NETWORK ---
     draw_net_icon(x_net + 18, cy)
     cv2.putText(
-        frame,
-        f"{net_txt} Mb/s",
-        (x_net + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (0, 0, 0),
-        2,
-        cv2.LINE_AA
-    )
-
-    cv2.putText(
-        frame,
-        f"{net_txt} Mb/s",
-        (x_net + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),
-        1,
-        cv2.LINE_AA
+        frame, f"{net_txt} Mb/s", (x_net + 40, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA
     )
 
     # --- FPS ---
     draw_fps_icon(x_fps + 18, cy)
     cv2.putText(
-        frame,
-        f"{fps_txt} FPS",
-        (x_fps + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (0, 0, 0),
-        2,
-        cv2.LINE_AA
-    )
-    cv2.putText(
-        frame,
-        f"{fps_txt} FPS",
-        (x_fps + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),
-        1,
-        cv2.LINE_AA
+        frame, f"{fps_txt} FPS", (x_fps + 40, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA
     )
 
     # --- TIME ---
     draw_clock_icon(x_time + 18, cy)
     cv2.putText(
-        frame,
-        time_txt,
-        (x_time + 40, text_y),   # text positioned after icon
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (0, 0, 0),         # WHITE text
-        2,
-        cv2.LINE_AA
-    )
-    cv2.putText(
-        frame,
-        time_txt,
-        (x_time + 40, text_y),   # text positioned after icon
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.55,
-        (255, 255, 255),         # WHITE text
-        1,
-        cv2.LINE_AA
+        frame, time_txt, (x_time + 40, text_y),
+        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA
     )
 
     rects = HudRects(

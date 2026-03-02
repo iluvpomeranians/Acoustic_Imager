@@ -205,6 +205,29 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     return
         except Exception:
             pass
+        # Bandpass drag: clicks in the frequency bar always start/continue drag (even when menu is open)
+        bar_left = left_width
+        if mx >= bar_left and mx < config.WIDTH:
+            y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
+            y_max = freq_to_y(state.F_MAX_HZ, h, config.F_DISPLAY_MAX)
+            dmin = abs(my - y_min)
+            dmax = abs(my - y_max)
+            if dmin <= config.DRAG_MARGIN_PX or dmax <= config.DRAG_MARGIN_PX:
+                state.DRAG_TARGET = "min" if dmin <= dmax else "max"
+                state.DRAG_ACTIVE = True
+                f = y_to_freq(my, h, config.F_DISPLAY_MAX)
+                if state.DRAG_TARGET == "min":
+                    state.F_MIN_HZ = min(f, state.F_MAX_HZ)
+                else:
+                    state.F_MAX_HZ = max(f, state.F_MIN_HZ)
+                return
+            if min(y_min, y_max) <= my <= max(y_min, y_max):
+                state.DRAG_TARGET = "box"
+                state.DRAG_ACTIVE = True
+                state.DRAG_START_Y = my
+                state.DRAG_START_F_MIN = state.F_MIN_HZ
+                state.DRAG_START_F_MAX = state.F_MAX_HZ
+                return
         # Check UI buttons first
         for b in buttons.values():
             if b.contains(mx, my):
@@ -247,33 +270,6 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                         height=config.HEIGHT,
                     )
                     return
-
-        # Bandpass drag on frequency bar
-        bar_left = left_width
-        if mx >= bar_left and mx < config.WIDTH:
-            y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
-            y_max = freq_to_y(state.F_MAX_HZ, h, config.F_DISPLAY_MAX)
-            dmin = abs(my - y_min)
-            dmax = abs(my - y_max)
-
-            # Check if clicking near a handle (within margin)
-            if dmin <= config.DRAG_MARGIN_PX or dmax <= config.DRAG_MARGIN_PX:
-                # Drag individual handle
-                state.DRAG_TARGET = "min" if dmin <= dmax else "max"
-                state.DRAG_ACTIVE = True
-
-                f = y_to_freq(my, h, config.F_DISPLAY_MAX)
-                if state.DRAG_TARGET == "min":
-                    state.F_MIN_HZ = min(f, state.F_MAX_HZ)
-                else:
-                    state.F_MAX_HZ = max(f, state.F_MIN_HZ)
-            elif min(y_min, y_max) <= my <= max(y_min, y_max):
-                # Click inside the box but not near handles - drag the whole box
-                state.DRAG_TARGET = "box"
-                state.DRAG_ACTIVE = True
-                state.DRAG_START_Y = my
-                state.DRAG_START_F_MIN = state.F_MIN_HZ
-                state.DRAG_START_F_MAX = state.F_MAX_HZ
 
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:

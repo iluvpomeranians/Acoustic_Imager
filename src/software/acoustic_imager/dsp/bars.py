@@ -7,6 +7,8 @@ import cv2
 from dataclasses import dataclass
 import time
 
+from ..config import FREQ_BAR_BLUE
+
 # Colormap mapping
 COLORMAP_DICT = {
     "MAGMA": cv2.COLORMAP_MAGMA,
@@ -188,6 +190,12 @@ def draw_frequency_bar(
 
     bar = _get_panel_bg(h, bar_w).copy()
 
+    # Graph lines: warm amber/orange gradient (complements blue sliding window), BGR
+    graph_color_top = (0, 220, 255)   # lighter amber at high freq
+    graph_color_bot = (0, 120, 255)    # deeper orange at low freq
+    graph_dim_top = (140, 160, 180)   # out-of-band warmer gray, more visible
+    graph_dim_bot = (90, 120, 150)    # out-of-band darker but still readable
+
     if mag_valid.size > 0:
         mag_norm = mag_valid / (mag_valid.max() + 1e-12)
         mag_norm = mag_norm ** 0.4
@@ -200,7 +208,11 @@ def draw_frequency_bar(
             x0 = bar_w - 5 - length
             x1 = bar_w - 5
 
-            color = (0, 255, 255) if (float(f_min) <= float(f) <= float(f_max)) else (120, 120, 255)
+            t = y / max(1, h - 1)  # 0 at top, 1 at bottom
+            if float(f_min) <= float(f) <= float(f_max):
+                color = tuple(int((1 - t) * graph_color_top[c] + t * graph_color_bot[c]) for c in range(3))
+            else:
+                color = tuple(int((1 - t) * graph_dim_top[c] + t * graph_dim_bot[c]) for c in range(3))
             if length > 0:
                 cv2.line(bar, (x0, y), (x1, y), color, 1)
 
@@ -215,27 +227,24 @@ def draw_frequency_bar(
     y_min_txt = int(np.clip(y_min - 6, 12, h - 6))
     y_max_txt = int(np.clip(y_max - 6, 12, h - 6))
 
-    # Draw semi-transparent fill inside the bandpass box
+    # Semi-transparent fill inside the bandpass box (slightly more blueish tint)
     y_top = min(y_min, y_max)
     y_bottom = max(y_min, y_max)
     if y_bottom > y_top:
-        # Create a semi-transparent overlay
         overlay = bar.copy()
-        cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), (0, 255, 0), -1)
-        # Blend with low alpha for subtle effect
-        cv2.addWeighted(overlay, 0.08, bar, 0.92, 0, bar)
+        tint_blue = (240, 180, 70)  # BGR: bit more blue than FREQ_BAR_BLUE for tint
+        cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), tint_blue, -1)
+        cv2.addWeighted(overlay, 0.12, bar, 0.88, 0, bar)
 
-    cv2.putText(bar, f"{fmin_khz:5.1f} kHz", (label_x, y_min_txt),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
-    cv2.putText(bar, f"{fmax_khz:5.1f} kHz", (label_x, y_max_txt),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1, cv2.LINE_AA)
+    # kHz labels: simple white text
+    for (txt, y_pos) in [(f"{fmin_khz:5.1f} kHz", y_min_txt), (f"{fmax_khz:5.1f} kHz", y_max_txt)]:
+        cv2.putText(bar, txt, (label_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
 
-    # Draw bandpass box (horizontal + vertical lines)
-    cv2.line(bar, (0, y_min), (bar_w - 1, y_min), (0, 255, 0), 2)
-    cv2.line(bar, (0, y_max), (bar_w - 1, y_max), (0, 255, 0), 2)
-    # Vertical lines to complete the box
-    cv2.line(bar, (0, y_min), (0, y_max), (0, 255, 0), 2)
-    cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), (0, 255, 0), 2)
+    # Draw bandpass box (match menu/HUD blue)
+    cv2.line(bar, (0, y_min), (bar_w - 1, y_min), FREQ_BAR_BLUE, 2)
+    cv2.line(bar, (0, y_max), (bar_w - 1, y_max), FREQ_BAR_BLUE, 2)
+    cv2.line(bar, (0, y_min), (0, y_max), FREQ_BAR_BLUE, 2)
+    cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), FREQ_BAR_BLUE, 2)
 
     # cv2.putText(bar, "Freq:", (5, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     # cv2.putText(bar, f"{int(f_display_max/1000)} kHz", (5, 40),
@@ -243,12 +252,12 @@ def draw_frequency_bar(
     # cv2.putText(bar, "0", (5, h - 10),
     #             cv2.FONT_HERSHEY_SIMPLEX, 0.4, (180, 180, 180), 1)
 
-    # draggable handles
+    # draggable handles (match menu blue)
     handle_x = bar_w // 2
-    cv2.circle(bar, (handle_x, y_min), 7, (0, 255, 0), -1, cv2.LINE_AA)
-    cv2.circle(bar, (handle_x, y_max), 7, (0, 255, 0), -1, cv2.LINE_AA)
-    cv2.circle(bar, (handle_x, y_min), 7, (0, 0, 0), 1, cv2.LINE_AA)
-    cv2.circle(bar, (handle_x, y_max), 7, (0, 0, 0), 1, cv2.LINE_AA)
+    cv2.circle(bar, (handle_x, y_min), 7, FREQ_BAR_BLUE, -1, cv2.LINE_AA)
+    cv2.circle(bar, (handle_x, y_max), 7, FREQ_BAR_BLUE, -1, cv2.LINE_AA)
+    cv2.circle(bar, (handle_x, y_min), 7, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.circle(bar, (handle_x, y_max), 7, (255, 255, 255), 1, cv2.LINE_AA)
 
     frame[:, bar_left:bar_right, :] = bar
 

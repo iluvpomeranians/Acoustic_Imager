@@ -12,7 +12,15 @@ from . import ui_cache
 from .button import menu_buttons
 from ..state import button_state
 from .video_recorder import VideoRecorder
-from ..config import BUTTON_ALPHA
+from ..config import BUTTON_ALPHA, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
+
+
+def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bgr: Tuple[int, int, int]) -> np.ndarray:
+    """Vertical gradient (top -> bottom) as (h, w, 3) BGR uint8."""
+    out = np.zeros((h, w, 3), dtype=np.uint8)
+    for c in range(3):
+        out[:, :, c] = np.linspace(top_bgr[c], bot_bgr[c], h, dtype=np.uint8).reshape(-1, 1)
+    return out
 
 
 def draw_menu(frame: np.ndarray) -> None:
@@ -28,13 +36,15 @@ def draw_menu(frame: np.ndarray) -> None:
     x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
 
     roi = frame[y:y+h, x:x+w]
-    overlay = np.empty_like(roi)
-    bg_color = (40, 200, 60) if menu_btn.is_active else (40, 40, 40)
-    overlay[:] = bg_color
+    if menu_btn.is_active:
+        overlay = _blue_gradient_overlay(h, w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    else:
+        overlay = np.empty_like(roi)
+        overlay[:] = (40, 40, 40)
     alpha = BUTTON_ALPHA
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
 
-    border_color = (80, 255, 100) if menu_btn.is_active else (255, 255, 255)
+    border_color = (255, 255, 255)  # white border always
     cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_AA)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -61,23 +71,23 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["rec"].is_active = button_state.is_recording
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
-    menu_buttons["fps30"].draw(frame, transparent=True)
-    menu_buttons["fps60"].draw(frame, transparent=True)
-    menu_buttons["fpsmax"].draw(frame, transparent=True)
+    white_border = (255, 255, 255)
+    menu_buttons["fps30"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["fps60"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["fpsmax"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
 
-    gain_color = (40, 200, 60)
-    menu_buttons["gain"].draw(frame, transparent=True, active_color=gain_color)
+    menu_buttons["gain"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
 
-    menu_buttons["colormap"].draw(frame, transparent=True)
-    menu_buttons["cam"].draw(frame, transparent=True)
-    menu_buttons["source"].draw(frame, transparent=True)
-    menu_buttons["debug"].draw(frame, transparent=True)
+    menu_buttons["colormap"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["cam"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["source"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
 
-    menu_buttons["shot"].draw(frame, transparent=True, icon_type="camera")
-    menu_buttons["rec"].draw(frame, transparent=True, icon_type="rec")
+    menu_buttons["shot"].draw(frame, transparent=True, icon_type="camera", active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["rec"].draw(frame, transparent=True, icon_type="rec", active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
 
     if not button_state.is_recording:
-        menu_buttons["gallery"].draw(frame, transparent=True)
+        menu_buttons["gallery"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
 
 
 def get_recording_timestamp_rect() -> Optional[Tuple[int, int, int, int]]:

@@ -25,9 +25,18 @@ NOISE_POWER = 0.0005
 WIDTH = 1024
 HEIGHT = 600
 ALPHA = 0.7
-BUTTON_ALPHA = 0.8
+BUTTON_ALPHA = 0.92  # menu + children: reduce transparency (more opaque)
 
 BUTTON_HITPAD_PX = 14
+
+# Shared UI blue (BGR) for menu, HUD
+MENU_ACTIVE_BLUE = (130, 82, 32)       # slightly darker blue
+MENU_ACTIVE_BLUE_LIGHT = (165, 110, 48)  # gradient end
+
+# Freq bar / bandpass: lighter neon blue so it stands out on dark bar
+FREQ_BAR_BLUE = (230, 170, 80)  # BGR slightly darker blue for sliding window
+# Gallery filter/sort modal: goldish yellow for selected option (bandpass-style accent)
+MODAL_ACTIVE_GOLD = (0, 200, 255)  # BGR goldish yellow
 
 FREQ_BAR_WIDTH = 150
 DB_BAR_WIDTH = 80

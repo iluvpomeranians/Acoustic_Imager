@@ -86,6 +86,15 @@ class ButtonState:
     gallery_delete_modal_kind: str = "single"
     gallery_delete_modal_title: str = "Delete this item?"
     gallery_delete_modal_subtitle: str = "This action cannot be undone."
+    gallery_storage_dirty: bool = False  # set when file(s) deleted so storage bar syncs and updates
+
+    # Gallery dock: filter (type), sort, search
+    gallery_filter_type: str = "all"  # "all" | "image" | "video"
+    gallery_sort_by: str = "date"  # "date" | "name" | "size"
+    gallery_search_query: str = ""
+    gallery_filter_modal_open: bool = False
+    gallery_sort_modal_open: bool = False
+    gallery_search_keyboard_open: bool = False
 
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
