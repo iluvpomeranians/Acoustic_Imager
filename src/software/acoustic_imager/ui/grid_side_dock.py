@@ -43,6 +43,17 @@ BAR_INSET = 2
 # Bar is 15% skinnier than dock, centered (1px gap each side of dock)
 BAR_WIDTH_RATIO = 0.85
 
+# Priority colours (BGR)
+PRIORITY_COLORS = {
+    "high":   (30,  30, 220),   # red
+    "medium": (0,  140, 255),   # orange
+    "low":    (50, 185,  50),   # green
+}
+PRIORITY_OPTIONS = [("High", "high"), ("Medium", "medium"), ("Low", "low")]
+
+# Preset tags shown in the tags panel
+PRESET_TAGS = ["Important", "Reviewed", "Processed", "Follow-up", "Archive"]
+
 
 def _vertical_gradient(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bgr: Tuple[int, int, int]) -> np.ndarray:
     """Vertical gradient (top -> bottom) as (h, w, 3) BGR uint8."""
@@ -80,6 +91,45 @@ def _draw_icon_sort(frame: np.ndarray, cx: int, cy: int, color: Tuple[int, int, 
     cv2.line(frame, (cx - 7, cy - 7), (cx + 5, cy - 7), color, 1, cv2.LINE_AA)
     cv2.line(frame, (cx - 7, cy), (cx + 7, cy), color, 1, cv2.LINE_AA)
     cv2.line(frame, (cx - 7, cy + 7), (cx + 12, cy + 7), color, 1, cv2.LINE_AA)
+
+
+def _draw_icon_tag(frame: np.ndarray, cx: int, cy: int, color: Tuple[int, int, int]) -> None:
+    """Draw a price-tag / label icon centered at (cx, cy)."""
+    pts = np.array([
+        [cx - 11, cy - 7],
+        [cx + 3,  cy - 7],
+        [cx + 11, cy],
+        [cx + 3,  cy + 7],
+        [cx - 11, cy + 7],
+    ], dtype=np.int32)
+    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=1, lineType=cv2.LINE_AA)
+    cv2.circle(frame, (cx - 6, cy), 2, color, -1, cv2.LINE_AA)
+
+
+def _draw_icon_priority(frame: np.ndarray, cx: int, cy: int, color: Tuple[int, int, int]) -> None:
+    """Draw a flag icon for priority centered at (cx, cy)."""
+    cv2.line(frame, (cx - 6, cy - 10), (cx - 6, cy + 10), color, 2, cv2.LINE_AA)
+    flag_pts = np.array([
+        [cx - 6, cy - 10],
+        [cx + 9, cy - 4],
+        [cx - 6, cy + 2],
+    ], dtype=np.int32)
+    cv2.fillPoly(frame, [flag_pts], color)
+
+
+def _draw_icon_pen(frame: np.ndarray, cx: int, cy: int, color: Tuple[int, int, int]) -> None:
+    """Draw a pen / pencil icon centered at (cx, cy)."""
+    cv2.line(frame, (cx + 8, cy - 8), (cx - 6, cy + 6), color, 2, cv2.LINE_AA)
+    cv2.line(frame, (cx - 6, cy + 6), (cx - 10, cy + 10), color, 1, cv2.LINE_AA)
+    tip_pts = np.array([
+        [cx - 6,  cy + 6],
+        [cx - 10, cy + 4],
+        [cx - 10, cy + 10],
+    ], dtype=np.int32)
+    cv2.fillPoly(frame, [tip_pts], color)
+    cv2.line(frame, (cx + 6, cy - 10), (cx + 10, cy - 6), color, 1, cv2.LINE_AA)
+    cv2.line(frame, (cx + 6, cy - 10), (cx + 8,  cy - 8), color, 1, cv2.LINE_AA)
+    cv2.line(frame, (cx + 10, cy - 6), (cx + 8,  cy - 8), color, 1, cv2.LINE_AA)
 
 
 # Subtle border for dock buttons so they read as controls, not flat panels
@@ -122,6 +172,12 @@ def _draw_dock_row(
         _draw_icon_filter(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
     elif icon_right == "sort":
         _draw_icon_sort(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+    elif icon_right == "tag":
+        _draw_icon_tag(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+    elif icon_right == "priority":
+        _draw_icon_priority(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+    elif icon_right == "pen":
+        _draw_icon_pen(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
     cv2.putText(
         frame, label, (text_x, text_y),
         font, scale, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA
@@ -129,7 +185,15 @@ def _draw_dock_row(
 
 
 def _draw_dock_top_rows(frame: np.ndarray, dock_x: int, dock_y: int, dock_w: int) -> None:
-    """Draw Search, Filter, and Sort rows (icon above text); register buttons for click handling."""
+    """Draw top dock rows.
+
+    Normal mode  → Search / Filter / Sort
+    Select mode  → Tags / Priority / Rename
+    """
+    if button_state.gallery_select_mode:
+        _draw_select_mode_rows(frame, dock_x, dock_y, dock_w)
+        return
+
     inset_x = DOCK_TOP_INSET_X
     inset_y = DOCK_TOP_INSET_Y
     row_h = DOCK_ROW_HEIGHT
@@ -169,13 +233,62 @@ def _draw_dock_top_rows(frame: np.ndarray, dock_x: int, dock_y: int, dock_w: int
         b.x, b.y, b.w, b.h = x0, y, w, row_h
 
 
+def _draw_select_mode_rows(frame: np.ndarray, dock_x: int, dock_y: int, dock_w: int) -> None:
+    """Draw Tags / Priority / Rename rows shown when gallery_select_mode is active."""
+    inset_x = DOCK_TOP_INSET_X
+    inset_y = DOCK_TOP_INSET_Y
+    row_h = DOCK_ROW_HEIGHT
+    x0 = dock_x + inset_x
+    w = dock_w - 2 * inset_x
+    if w < 10:
+        return
+    y = dock_y + inset_y
+
+    # Row 1: Tags
+    _draw_dock_row(frame, x0, y, w, row_h, "Tags", icon_right="tag")
+    if "gallery_dock_tags" not in menu_buttons:
+        menu_buttons["gallery_dock_tags"] = Button(x0, y, w, row_h, "Tags")
+    else:
+        b = menu_buttons["gallery_dock_tags"]
+        b.x, b.y, b.w, b.h = x0, y, w, row_h
+    y += row_h
+    for _ in range(DOCK_DIVIDER_THICKNESS):
+        cv2.line(frame, (dock_x, y), (dock_x + dock_w, y), DOCK_DIVIDER_COLOR, 1, cv2.LINE_AA)
+        y += 1
+
+    # Row 2: Priority
+    _draw_dock_row(frame, x0, y, w, row_h, "Priority", icon_right="priority")
+    if "gallery_dock_priority" not in menu_buttons:
+        menu_buttons["gallery_dock_priority"] = Button(x0, y, w, row_h, "Priority")
+    else:
+        b = menu_buttons["gallery_dock_priority"]
+        b.x, b.y, b.w, b.h = x0, y, w, row_h
+    y += row_h
+    for _ in range(DOCK_DIVIDER_THICKNESS):
+        cv2.line(frame, (dock_x, y), (dock_x + dock_w, y), DOCK_DIVIDER_COLOR, 1, cv2.LINE_AA)
+        y += 1
+
+    # Row 3: Rename
+    _draw_dock_row(frame, x0, y, w, row_h, "Rename", icon_right="pen")
+    if "gallery_dock_rename" not in menu_buttons:
+        menu_buttons["gallery_dock_rename"] = Button(x0, y, w, row_h, "Rename")
+    else:
+        b = menu_buttons["gallery_dock_rename"]
+        b.x, b.y, b.w, b.h = x0, y, w, row_h
+
+
 # Filter modal: option labels and state values
 FILTER_OPTIONS = [("All", "all"), ("Images", "image"), ("Videos", "video")]
 # Sort modal: option labels and state values
-SORT_OPTIONS = [("Date (newest)", "date"), ("Name (A to Z)", "name"), ("Size (largest)", "size")]
+SORT_OPTIONS = [
+    ("Date (newest)", "date"),
+    ("Name (A to Z)", "name"),
+    ("Size (largest)", "size"),
+    ("Priority (Highest)", "priority"),
+]
 
 MODAL_PANEL_W = 320
-MODAL_PANEL_H = 200
+MODAL_PANEL_H = 200  # used for filter modal (3 options)
 MODAL_OPTION_H = 44
 MODAL_TITLE_H = 50
 
@@ -239,17 +352,18 @@ def _draw_filter_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
 
 
 def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
-    """Draw sort panel aligned with top of Sort button; no screen dim."""
+    """Draw sort panel aligned with top of Sort button; height scales with number of options."""
     fh, fw = frame.shape[:2]
     row_h = DOCK_ROW_HEIGHT
     sort_row_top_y = dock_y + DOCK_TOP_INSET_Y + 2 * (row_h + DOCK_DIVIDER_THICKNESS)
+    panel_h = MODAL_TITLE_H + len(SORT_OPTIONS) * MODAL_OPTION_H + 10
     px = dock_x - MODAL_GAP_WEST - MODAL_PANEL_W
     py = sort_row_top_y
-    py = max(10, min(py, fh - MODAL_PANEL_H - 10))
-    roi = frame[py : py + MODAL_PANEL_H, px : px + MODAL_PANEL_W]
-    grad = _vertical_gradient(MODAL_PANEL_H, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    py = max(10, min(py, fh - panel_h - 10))
+    roi = frame[py : py + panel_h, px : px + MODAL_PANEL_W]
+    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
     roi[:] = grad
-    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + MODAL_PANEL_H - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
     cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Sort by", (px + (MODAL_PANEL_W - 80) // 2, py + 32),
@@ -273,10 +387,227 @@ def _draw_sort_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             menu_buttons[key].x, menu_buttons[key].y = ox, oy
             menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
     if "gallery_sort_modal_panel" not in menu_buttons:
-        menu_buttons["gallery_sort_modal_panel"] = Button(px, py, MODAL_PANEL_W, MODAL_PANEL_H, "")
+        menu_buttons["gallery_sort_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
     else:
         menu_buttons["gallery_sort_modal_panel"].x, menu_buttons["gallery_sort_modal_panel"].y = px, py
-        menu_buttons["gallery_sort_modal_panel"].w, menu_buttons["gallery_sort_modal_panel"].h = MODAL_PANEL_W, MODAL_PANEL_H
+        menu_buttons["gallery_sort_modal_panel"].w, menu_buttons["gallery_sort_modal_panel"].h = MODAL_PANEL_W, panel_h
+
+
+def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
+    """Priority picker aligned with Row 2 (Priority button) in select mode."""
+    fh, _ = frame.shape[:2]
+    row_h = DOCK_ROW_HEIGHT
+    # Row 2 top = after Row 1 + divider
+    row2_top_y = dock_y + DOCK_TOP_INSET_Y + row_h + DOCK_DIVIDER_THICKNESS
+    n_opts = len(PRIORITY_OPTIONS)
+    panel_h = MODAL_TITLE_H + n_opts * MODAL_OPTION_H + 10
+    px = dock_x - MODAL_GAP_WEST - MODAL_PANEL_W
+    py = row2_top_y
+    py = max(10, min(py, fh - panel_h - 10))
+
+    roi = frame[py: py + panel_h, px: px + MODAL_PANEL_W]
+    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    roi[:] = grad
+    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(frame, "Set Priority", (px + (MODAL_PANEL_W - 130) // 2, py + 32),
+                font, 0.7, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+
+    # Determine which priority value is held by ALL currently selected items.
+    # Use gallery_thumbnail_rects (populated each frame by gallery.py) so we
+    # know the filenames of selected items without a circular import.
+    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+    sel_names = [r['filepath'].name for r in rects if r['idx'] in button_state.gallery_selected_items]
+    priorities_map = getattr(button_state, 'gallery_file_priorities', {})
+    selected_priorities: set = set()
+    for fname in sel_names:
+        pval = priorities_map.get(fname, "")
+        if pval:
+            selected_priorities.add(pval)
+
+    for i, (label, value) in enumerate(PRIORITY_OPTIONS):
+        oy = py + MODAL_TITLE_H + i * MODAL_OPTION_H
+        btn_w, btn_h = MODAL_PANEL_W - 24, MODAL_OPTION_H - 8
+        ox = px + (MODAL_PANEL_W - btn_w) // 2
+        active = value in selected_priorities
+        if active:
+            cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
+        cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+
+        # Colored circle indicator
+        dot_color = PRIORITY_COLORS[value]
+        dot_cx = ox + 18
+        dot_cy = oy + btn_h // 2
+        cv2.circle(frame, (dot_cx, dot_cy), 7, dot_color, -1, cv2.LINE_AA)
+        cv2.circle(frame, (dot_cx, dot_cy), 7, (255, 255, 255), 1, cv2.LINE_AA)
+
+        text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
+        (tw, _), _ = cv2.getTextSize(label, font, 0.55, 1)
+        cv2.putText(frame, label, (ox + 34, oy + btn_h // 2 + 6),
+                    font, 0.55, text_color, 1, cv2.LINE_AA)
+
+        key = f"gallery_priority_opt_{value}"
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(ox, oy, btn_w, btn_h, label)
+        else:
+            menu_buttons[key].x, menu_buttons[key].y = ox, oy
+            menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
+
+    if "gallery_priority_modal_panel" not in menu_buttons:
+        menu_buttons["gallery_priority_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
+    else:
+        menu_buttons["gallery_priority_modal_panel"].x, menu_buttons["gallery_priority_modal_panel"].y = px, py
+        menu_buttons["gallery_priority_modal_panel"].w, menu_buttons["gallery_priority_modal_panel"].h = MODAL_PANEL_W, panel_h
+
+
+def _draw_tags_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
+    """Tags panel aligned with Row 1 (Tags button) in select mode."""
+    fh, _ = frame.shape[:2]
+    row1_top_y = dock_y + DOCK_TOP_INSET_Y
+    n_tags = len(PRESET_TAGS)
+    panel_h = MODAL_TITLE_H + n_tags * MODAL_OPTION_H + 10
+    px = dock_x - MODAL_GAP_WEST - MODAL_PANEL_W
+    py = row1_top_y
+    py = max(10, min(py, fh - panel_h - 10))
+
+    roi = frame[py: py + panel_h, px: px + MODAL_PANEL_W]
+    grad = _vertical_gradient(panel_h, MODAL_PANEL_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    roi[:] = grad
+    cv2.rectangle(frame, (px, py), (px + MODAL_PANEL_W - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + MODAL_PANEL_W, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(frame, "Tags", (px + (MODAL_PANEL_W - 45) // 2, py + 32),
+                font, 0.7, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+
+    for i, tag in enumerate(PRESET_TAGS):
+        oy = py + MODAL_TITLE_H + i * MODAL_OPTION_H
+        btn_w, btn_h = MODAL_PANEL_W - 24, MODAL_OPTION_H - 8
+        ox = px + (MODAL_PANEL_W - btn_w) // 2
+
+        # A tag is "active" if ALL selected items have it.
+        # Use gallery_thumbnail_rects (populated each frame by gallery.py) to avoid circular import.
+        file_tags = getattr(button_state, 'gallery_file_tags', {})
+        active = False
+        if button_state.gallery_selected_items:
+            rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+            sel_names = [r['filepath'].name for r in rects if r['idx'] in button_state.gallery_selected_items]
+            active = bool(sel_names) and all(tag in file_tags.get(n, []) for n in sel_names)
+
+        if active:
+            cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
+        cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+
+        # Small tag icon before label
+        _draw_icon_tag(frame, ox + 18, oy + btn_h // 2, SEARCH_BAR_TEXT_COLOR if not active else (0, 0, 0))
+
+        text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
+        cv2.putText(frame, tag, (ox + 34, oy + btn_h // 2 + 6),
+                    font, 0.52, text_color, 1, cv2.LINE_AA)
+
+        key = f"gallery_tag_opt_{tag.lower().replace('-', '_').replace(' ', '_')}"
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(ox, oy, btn_w, btn_h, tag)
+        else:
+            menu_buttons[key].x, menu_buttons[key].y = ox, oy
+            menu_buttons[key].w, menu_buttons[key].h = btn_w, btn_h
+
+    if "gallery_tags_modal_panel" not in menu_buttons:
+        menu_buttons["gallery_tags_modal_panel"] = Button(px, py, MODAL_PANEL_W, panel_h, "")
+    else:
+        menu_buttons["gallery_tags_modal_panel"].x, menu_buttons["gallery_tags_modal_panel"].y = px, py
+        menu_buttons["gallery_tags_modal_panel"].w, menu_buttons["gallery_tags_modal_panel"].h = MODAL_PANEL_W, panel_h
+
+
+def _draw_rename_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
+    """Rename keyboard aligned with Row 3 (Rename button) in select mode."""
+    fh, fw = frame.shape[:2]
+    num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
+    num_rows = num_letter_rows + 1 + 1
+    total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
+    max_letters = max(len(r) for r in KEYBOARD_ROWS_QWERTY)
+    max_row_w = max(max_letters, len(KEYBOARD_ROW_NUMBERS)) * (KEY_W + KEY_GAP) + KEY_GAP
+    special_w = KEY_W * 2
+    special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
+    panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
+    panel_h = KEYBOARD_BAR_H + total_key_h + 3 * KEY_GAP
+
+    row3_top_y = dock_y + DOCK_TOP_INSET_Y + 2 * (DOCK_ROW_HEIGHT + DOCK_DIVIDER_THICKNESS)
+    py = row3_top_y
+    if py + panel_h > fh - 10:
+        py = fh - panel_h - 10
+    px = dock_x - MODAL_GAP_WEST - panel_w
+    if px < 10:
+        px = 10
+
+    roi = frame[py: py + panel_h, px: px + panel_w]
+    grad = _vertical_gradient(panel_h, panel_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+    roi[:] = grad
+    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    cv2.line(frame, (px, py), (px + panel_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    display = button_state.gallery_rename_query if button_state.gallery_rename_query else "New name..."
+    cv2.putText(frame, display[:40], (px + 10, py + KEYBOARD_BAR_H - 12),
+                font, KEYBOARD_FONT_BAR, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+
+    key_y = py + KEYBOARD_BAR_H + KEY_GAP
+    for row in KEYBOARD_ROWS_QWERTY:
+        key_x = px + (panel_w - (len(row) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
+        for c in row:
+            key_roi = frame[key_y: key_y + KEY_H, key_x: key_x + KEY_W]
+            key_roi[:] = _vertical_gradient(KEY_H, KEY_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+            (cw, ch), _ = cv2.getTextSize(c.upper(), font, KEYBOARD_FONT_KEY, 1)
+            cv2.putText(frame, c.upper(), (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
+                        font, KEYBOARD_FONT_KEY, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+            key = f"rename_key_{c}"
+            if key not in menu_buttons:
+                menu_buttons[key] = Button(key_x, key_y, KEY_W, KEY_H, c)
+            else:
+                menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
+            key_x += KEY_W + KEY_GAP
+        key_y += KEY_H + KEY_GAP
+
+    key_x = px + (panel_w - (len(KEYBOARD_ROW_NUMBERS) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
+    for c in KEYBOARD_ROW_NUMBERS:
+        key_roi = frame[key_y: key_y + KEY_H, key_x: key_x + KEY_W]
+        key_roi[:] = _vertical_gradient(KEY_H, KEY_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+        cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+        (cw, ch), _ = cv2.getTextSize(c, font, KEYBOARD_FONT_KEY, 1)
+        cv2.putText(frame, c, (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
+                    font, KEYBOARD_FONT_KEY, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+        key = f"rename_key_{c}"
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(key_x, key_y, KEY_W, KEY_H, c)
+        else:
+            menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
+        key_x += KEY_W + KEY_GAP
+    key_y += KEY_H + KEY_GAP
+
+    key_x = px + (panel_w - (len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) - KEY_GAP)) // 2
+    for label, value in KEYBOARD_SPECIAL:
+        key_roi = frame[key_y: key_y + KEY_H, key_x: key_x + special_w]
+        key_roi[:] = _vertical_gradient(KEY_H, special_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
+        cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+        (tw, _), _ = cv2.getTextSize(label, font, KEYBOARD_FONT_SPECIAL, 1)
+        cv2.putText(frame, label, (key_x + (special_w - tw) // 2, key_y + KEY_H - 10),
+                    font, KEYBOARD_FONT_SPECIAL, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+        key = f"rename_key_{value}"
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(key_x, key_y, special_w, KEY_H, label)
+        else:
+            menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
+            menu_buttons[key].w = special_w
+        key_x += special_w + KEY_GAP
+
+    if "rename_keyboard_panel" not in menu_buttons:
+        menu_buttons["rename_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
+    else:
+        menu_buttons["rename_keyboard_panel"].x, menu_buttons["rename_keyboard_panel"].y = px, py
+        menu_buttons["rename_keyboard_panel"].w, menu_buttons["rename_keyboard_panel"].h = panel_w, panel_h
 
 
 def _draw_search_keyboard(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
@@ -595,9 +926,15 @@ def draw_grid_side_dock(
         frame, dock_x, dock_w, header_h, items, output_dir
     )
 
-    if button_state.gallery_filter_modal_open:
-        _draw_filter_modal(frame, dock_x, dock_y)
-    if button_state.gallery_sort_modal_open:
-        _draw_sort_modal(frame, dock_x, dock_y)
-    if button_state.gallery_search_keyboard_open:
-        _draw_search_keyboard(frame, dock_x, dock_y)
+    if button_state.gallery_select_mode:
+        if button_state.gallery_priority_modal_open:
+            _draw_priority_modal(frame, dock_x, dock_y)
+        if button_state.gallery_rename_modal_open:
+            _draw_rename_keyboard(frame, dock_x, dock_y)
+    else:
+        if button_state.gallery_filter_modal_open:
+            _draw_filter_modal(frame, dock_x, dock_y)
+        if button_state.gallery_sort_modal_open:
+            _draw_sort_modal(frame, dock_x, dock_y)
+        if button_state.gallery_search_keyboard_open:
+            _draw_search_keyboard(frame, dock_x, dock_y)
