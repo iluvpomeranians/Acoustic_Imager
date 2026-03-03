@@ -99,32 +99,47 @@ def _draw_gallery_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
 
 
 def _draw_trash_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
-    """Draw a trash can icon: body with trapezoid shape, lid, and arched handle."""
-    body_w = int(size * 1.0)
-    body_h = int(size * 1.2)
-    top_y = cy - body_h // 2
-    bottom_y = cy + body_h // 2
-    # Body: trapezoid (wider at bottom) for depth
-    body_top_w = body_w
-    body_bot_w = int(body_w * 1.15)
-    pts = np.array([
-        [cx - body_top_w // 2, top_y + 4],
-        [cx + body_top_w // 2, top_y + 4],
-        [cx + body_bot_w // 2, bottom_y - 2],
-        [cx - body_bot_w // 2, bottom_y - 2],
-    ], np.int32)
-    cv2.fillPoly(frame, [pts], (255, 255, 255), cv2.LINE_AA)
-    cv2.polylines(frame, [pts], True, (180, 180, 180), 1, cv2.LINE_AA)
-    # Lid (rounded top)
-    lid_h = 3
+    """Draw a clean trash can icon: rectangular body with lid overhang, bail handle, and interior lines."""
+    col = (255, 255, 255)
+    dim = (170, 170, 170)
+
+    body_w = int(size * 1.1)
+    body_h = int(size * 1.3)
+    lid_h = max(2, int(size * 0.18))
+    bail_h = max(2, int(size * 0.22))
+
+    # Vertical centre of entire icon (body + lid + bail)
+    total_h = bail_h + 2 + lid_h + body_h
+    icon_top = cy - total_h // 2
+
+    bail_cy = icon_top + bail_h // 2
+    lid_y = icon_top + bail_h + 2
+    body_y = lid_y + lid_h
+
+    # Bail (handle arc) above lid
+    bail_rx = max(2, body_w // 4)
+    cv2.ellipse(frame, (cx, bail_cy + bail_h // 2), (bail_rx, bail_h), 0, 180, 360, col, 2, cv2.LINE_AA)
+
+    # Lid: slightly wider than body with overhang
+    lid_w = body_w + 4
     cv2.rectangle(frame,
-                  (cx - body_top_w // 2, top_y),
-                  (cx + body_top_w // 2, top_y + lid_h),
-                  (255, 255, 255), -1, cv2.LINE_AA)
-    # Handle: small arch above lid
-    handle_w = body_w // 2
-    handle_top = top_y - 2
-    cv2.ellipse(frame, (cx, handle_top + 2), (handle_w // 2, 3), 0, 180, 360, (255, 255, 255), 2, cv2.LINE_AA)
+                  (cx - lid_w // 2, lid_y),
+                  (cx + lid_w // 2, lid_y + lid_h),
+                  col, -1, cv2.LINE_AA)
+
+    # Body: clean rectangle
+    bx0 = cx - body_w // 2
+    bx1 = cx + body_w // 2
+    by0 = body_y
+    by1 = body_y + body_h
+    cv2.rectangle(frame, (bx0, by0), (bx1, by1), col, 2, cv2.LINE_AA)
+
+    # Interior vertical lines (3 evenly-spaced lines suggesting slots/ribs)
+    line_top = by0 + max(2, body_h // 6)
+    line_bot = by1 - max(2, body_h // 6)
+    for offset in (-body_w // 4, 0, body_w // 4):
+        lx = cx + offset
+        cv2.line(frame, (lx, line_top), (lx, line_bot), dim, 1, cv2.LINE_AA)
 
 
 class Button:

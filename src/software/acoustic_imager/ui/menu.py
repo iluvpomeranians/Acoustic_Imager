@@ -84,10 +84,9 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
     white_border = (255, 255, 255)
-    ox = int(offset_x)
+    ox = 0  # dropdown stays fixed horizontally; no horizontal offset applied
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
-            menu_buttons[k].x += ox
             menu_buttons[k].y += oy
     menu_buttons["fps30"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     menu_buttons["fps60"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
@@ -100,7 +99,6 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
-            menu_buttons[k].x -= ox
             menu_buttons[k].y -= oy
 
 
