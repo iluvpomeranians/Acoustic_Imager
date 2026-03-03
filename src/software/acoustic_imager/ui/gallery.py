@@ -26,6 +26,18 @@ from .grid_side_dock import (
     PRIORITY_COLORS,
     DOCK_ROW_BORDER,
     DOCK_ROW_TOP_HIGHLIGHT,
+    DOCK_ROW_WHITE_BORDER,
+    SEARCH_BAR_TEXT_COLOR,
+)
+from .keyboard import (
+    ROWS_QWERTY as _TK_ROWS,
+    ROW_NUMBERS as _TK_NUMS,
+    SPECIAL_KEYS_COMPACT as _TK_SPECIAL,
+    COMPACT_KEY_SCALE,
+    dimensions_for_scale,
+    draw_key_bg_clipped,
+    KEY_BORDER_BGR as _TK_KEY_BORDER,
+    KEY_TEXT_BGR as _TK_KEY_TEXT,
 )
 from .priority_circle import draw_priority_circle_neon
 from ..state import button_state
@@ -102,16 +114,15 @@ VIEWER_EDGE_PEEK_THRESHOLD_PX = 18
 # Cache first frame of videos for carousel peek (path -> BGR frame)
 _video_first_frame_cache: Dict[Path, np.ndarray] = {}
 
-# ── Tag modal / keyboard dimensions ────────────────────────────────────────────
-_TK_SCALE = 1.3
-_TK_W = int(28 * _TK_SCALE)         # key width  (36 px)
-_TK_H = int(28 * _TK_SCALE)         # key height (36 px)
-_TK_GAP = int(4 * _TK_SCALE)        # key gap    (5 px)
-_TK_BAR_H = int(36 * _TK_SCALE)     # active-field bar height (46 px)
-_TK_SP_W = _TK_W * 2                # special key width
-_TK_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
-_TK_NUMS = "1234567890"
-_TK_SPECIAL = [("Back", "backspace"), ("Clear", "clear"), ("Done", "done")]
+# Tag keyboard uses .keyboard module (COMPACT_KEY_SCALE); _TK_* aliases set after import
+_TK_DIMS = dimensions_for_scale(COMPACT_KEY_SCALE)
+_TK_W = _TK_DIMS["key_w"]
+_TK_H = _TK_DIMS["key_h"]
+_TK_GAP = _TK_DIMS["key_gap"]
+_TK_BAR_H = _TK_DIMS["bar_h"]
+_TK_SP_W = _TK_W * _TK_DIMS["special_key_w_mult"]
+_TK_FONT_KEY = _TK_DIMS["font_key"]
+_TK_FONT_SPECIAL = _TK_DIMS["font_special"]
 
 _TAG_FIELDS = [
     ("asset_name", "Asset Name", ""),
@@ -229,8 +240,9 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
     py = min(y_top, fh - panel_h - 4)
 
     roi = frame[py: py + panel_h, px: px + panel_w]
-    roi[:] = _tk_vgrad(panel_h, panel_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    # Continue form gradient: panel top matches form bottom (MENU_ACTIVE_BLUE_LIGHT) for no seam
+    roi[:] = _tk_vgrad(panel_h, panel_w, MENU_ACTIVE_BLUE_LIGHT, MENU_ACTIVE_BLUE_LIGHT)
+    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
     cv2.line(frame, (px, py), (px + panel_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -243,18 +255,16 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
                 font, 0.48, (240, 240, 240), 1, cv2.LINE_AA)
 
     key_y = py + _TK_BAR_H + _TK_GAP
-    # Letter rows
     for row in _TK_ROWS:
         row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
         key_x = px + (panel_w - row_w) // 2
         for c in row:
             kx, ky = key_x, key_y
-            frame[ky: ky + _TK_H, kx: kx + _TK_W] = _tk_vgrad(
-                _TK_H, _TK_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-            (cw, ch), _ = cv2.getTextSize(c.upper(), font, 0.5, 1)
+            draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+            (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
             cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                        font, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
+                        font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
             bkey = f"tag_key_{c}"
             if bkey not in menu_buttons:
                 menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
@@ -262,17 +272,15 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
                 menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
             key_x += _TK_W + _TK_GAP
         key_y += _TK_H + _TK_GAP
-    # Number row
     row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
     key_x = px + (panel_w - row_w) // 2
     for c in _TK_NUMS:
         kx, ky = key_x, key_y
-        frame[ky: ky + _TK_H, kx: kx + _TK_W] = _tk_vgrad(
-            _TK_H, _TK_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-        (cw, ch), _ = cv2.getTextSize(c, font, 0.5, 1)
+        draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+        (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
         cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                    font, 0.5, (240, 240, 240), 1, cv2.LINE_AA)
+                    font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
         bkey = f"tag_key_{c}"
         if bkey not in menu_buttons:
             menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
@@ -280,17 +288,15 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
             menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
         key_x += _TK_W + _TK_GAP
     key_y += _TK_H + _TK_GAP
-    # Special row
     sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
     key_x = px + (panel_w - sp_row_w) // 2
     for label, val in _TK_SPECIAL:
         kx, ky = key_x, key_y
-        frame[ky: ky + _TK_H, kx: kx + _TK_SP_W] = _tk_vgrad(
-            _TK_H, _TK_SP_W, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(label, font, 0.44, 1)
+        draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+        (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
         cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
-                    font, 0.44, (240, 240, 240), 1, cv2.LINE_AA)
+                    font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
         bkey = f"tag_key_{val}"
         if bkey not in menu_buttons:
             menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
@@ -307,23 +313,34 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
 
 
 def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int) -> None:
-    """Centered tag edit modal with 3 input fields + QWERTY keyboard. Blue styling to match dock modals."""
+    """Edit Tags form: 3 input fields + keyboard. Styling matches dock modals (gradient, white border)."""
     fh, fw = frame.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
     form_w, form_h = 590, 280
     dock_x = fw - GRID_SIDE_DOCK_WIDTH
-    form_x = max(10, dock_x - form_w)
+    # Align with dock strip (same left as side-dock modal so it doesn’t look like two modals)
+    MODAL_GAP_WEST = 8
+    form_x = max(10, dock_x - MODAL_GAP_WEST - form_w)
     tags_row_top = header_h + 3
     form_y = min(tags_row_top, fh - form_h - 4)
-    roi = frame[form_y : form_y + form_h, form_x : form_x + form_w]
-    roi[:] = _tk_vgrad(form_h, form_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    cv2.rectangle(frame, (form_x, form_y), (form_x + form_w - 1, form_y + form_h - 1), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (form_x, form_y), (form_x + form_w, form_y), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    # No form background: dock draws strip + panel with same growth animation as other modals
+    progress = getattr(button_state, "gallery_modal_anim_progress", 0.0)
+    t = max(0.0, min(1.0, progress))
+    progress_eased = t * t * (3.0 - 2.0 * t)
+    content_visible = progress_eased >= 0.999
+
+    if not content_visible:
+        if "tag_modal_panel" not in menu_buttons:
+            menu_buttons["tag_modal_panel"] = Button(form_x, form_y, form_w, form_h, "")
+        else:
+            b = menu_buttons["tag_modal_panel"]
+            b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h
+        return
 
     title = "Edit Tags"
     (tw, th), _ = cv2.getTextSize(title, font, 0.72, 2)
     cv2.putText(frame, title, (form_x + (form_w - tw) // 2, form_y + 34),
-                font, 0.72, (255, 255, 255), 2, cv2.LINE_AA)
+                font, 0.72, SEARCH_BAR_TEXT_COLOR, 2, cv2.LINE_AA)
 
     # Determine which file is being edited (first selected in grid)
     rects = getattr(button_state, 'gallery_thumbnail_rects', [])
@@ -344,11 +361,11 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
         # Row label
         (lw, lh), _ = cv2.getTextSize(flabel, font, 0.48, 1)
         cv2.putText(frame, flabel, (form_x + 14, ry + input_h // 2 + lh // 2),
-                    font, 0.48, (200, 200, 200), 1, cv2.LINE_AA)
+                    font, 0.48, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
 
         is_active = (button_state.gallery_tag_active_field == fkey
                      and button_state.gallery_tag_keyboard_open)
-        border = (255, 255, 255) if is_active else DOCK_ROW_BORDER
+        border = DOCK_ROW_WHITE_BORDER
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), (28, 28, 34), -1)
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h),
                       border, 2 if is_active else 1, cv2.LINE_AA)
@@ -363,10 +380,10 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
 
         if display:
             cv2.putText(frame, display[:40], (input_x + 9, ry + input_h // 2 + 7),
-                        font, 0.48, (245, 245, 245), 1, cv2.LINE_AA)
+                        font, 0.48, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
         elif placeholder:
             cv2.putText(frame, placeholder, (input_x + 9, ry + input_h // 2 + 7),
-                        font, 0.45, (95, 95, 108), 1, cv2.LINE_AA)
+                        font, 0.45, (120, 120, 128), 1, cv2.LINE_AA)
 
         bkey = f"tag_field_{fkey}"
         if bkey not in menu_buttons:
@@ -375,6 +392,17 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
             b = menu_buttons[bkey]
             b.x, b.y, b.w, b.h = input_x, ry, input_w, input_h
 
+    # ── Band between last input and buttons: ensure gradient (no black strip) ─────
+    band_top = row_start_y + (len(_TAG_FIELDS) - 1) * row_gap + input_h
+    band_bottom = form_y + form_h - 54
+    if band_bottom > band_top:
+        band_roi = frame[band_top:band_bottom, form_x:form_x + form_w]
+        t_band_top = (band_top - form_y) / form_h if form_h else 0
+        t_band_bot = (band_bottom - form_y) / form_h if form_h else 1
+        c_top = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_band_top) + MENU_ACTIVE_BLUE_LIGHT[i] * t_band_top) for i in range(3))
+        c_bot = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_band_bot) + MENU_ACTIVE_BLUE_LIGHT[i] * t_band_bot) for i in range(3))
+        band_roi[:] = _vertical_gradient(band_roi.shape[0], band_roi.shape[1], c_top, c_bot)
+
     # ── Buttons (Cancel / Save): blue styling to match dock modals ─────────────────
     btn_y = form_y + form_h - 54
     btn_h = 40
@@ -382,25 +410,30 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
     cancel_x = form_x + form_w // 2 - cancel_w - 12
     save_x   = form_x + form_w // 2 + 12
 
-    # Cancel: subtle dark fill, border consistent with dock
-    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (38, 38, 44), -1)
-    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
+    # Cancel: dark fill that matches modal tone (not black), border consistent with dock
+    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (52, 48, 44), -1)
+    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
     (cw, _), _ = cv2.getTextSize("CANCEL", font, 0.5, 1)
     cv2.putText(frame, "CANCEL", (cancel_x + (cancel_w - cw) // 2, btn_y + btn_h // 2 + 7),
-                font, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
+                font, 0.5, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
     if "tag_cancel" not in menu_buttons:
         menu_buttons["tag_cancel"] = Button(cancel_x, btn_y, cancel_w, btn_h, "CANCEL")
     else:
         b = menu_buttons["tag_cancel"]
         b.x, b.y, b.w, b.h = cancel_x, btn_y, cancel_w, btn_h
 
-    # Save: same blue gradient as menu/dock
+    # Save: gradient slice from form so it matches the modal gradient at this Y
     save_roi = frame[btn_y : btn_y + btn_h, save_x : save_x + save_w]
-    save_roi[:] = _tk_vgrad(btn_h, save_w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h), (255, 255, 255), 1, cv2.LINE_AA)
+    t_top = (btn_y - form_y) / form_h if form_h else 0
+    t_bot = (btn_y + btn_h - form_y) / form_h if form_h else 1
+    save_top = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_top) + MENU_ACTIVE_BLUE_LIGHT[i] * t_top) for i in range(3))
+    save_bot = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_bot) + MENU_ACTIVE_BLUE_LIGHT[i] * t_bot) for i in range(3))
+    save_roi[:] = _vertical_gradient(btn_h, save_w, save_top, save_bot)
+    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h),
+                  DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
     (sw, _), _ = cv2.getTextSize("SAVE", font, 0.5, 1)
     cv2.putText(frame, "SAVE", (save_x + (save_w - sw) // 2, btn_y + btn_h // 2 + 7),
-                font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                font, 0.5, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
     if "tag_save" not in menu_buttons:
         menu_buttons["tag_save"] = Button(save_x, btn_y, save_w, btn_h, "SAVE")
     else:
@@ -413,9 +446,9 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
         b = menu_buttons["tag_modal_panel"]
         b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h
 
-    # ── Keyboard (below form) ────────────────────────────────────────────────────
+    # ── Keyboard (below form, flush — no black gap) ───────────────────────────────
     if button_state.gallery_tag_keyboard_open:
-        _draw_tag_keyboard(frame, form_y + form_h + 6)
+        _draw_tag_keyboard(frame, form_y + form_h)
 
 
 def _viewer_rubber_band_offset(offset: float, idx: int, n: int) -> float:
@@ -484,16 +517,51 @@ def _make_image_card(img: np.ndarray, card_w: int, card_h: int) -> np.ndarray:
     return card
 
 
+# Avoid repeatedly opening known-bad/incomplete video files (reduces log spam from OpenCV/GStreamer)
+_video_fail_cache: Dict[Path, float] = {}
+_VIDEO_FAIL_CACHE_TTL_S = 60.0
+
+
+def _video_read_frame_at(filepath: Path, frame_idx: int = 0):
+    """
+    Read one frame at index from video file. Uses CAP_FFMPEG only (no GStreamer fallback)
+    to avoid GStreamer dispose/moov-atom errors on incomplete or in-progress MP4s.
+    Skips opening for a while if this path recently failed (reduces log spam).
+    Returns (frame, total_frames, fps) or (None, 0, 0.0). Caller does not release; we always release.
+    """
+    now = time.time()
+    if filepath in _video_fail_cache and (now - _video_fail_cache[filepath]) < _VIDEO_FAIL_CACHE_TTL_S:
+        return None, 0, 0.0
+    cap = None
+    try:
+        cap = cv2.VideoCapture(str(filepath), cv2.CAP_FFMPEG)
+        if not cap.isOpened():
+            _video_fail_cache[filepath] = now
+            return None, 0, 0.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
+        fps = float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
+        cap.set(cv2.CAP_PROP_POS_FRAMES, max(0, frame_idx))
+        ret, frame = cap.read()
+        if filepath in _video_fail_cache:
+            del _video_fail_cache[filepath]
+        return (frame if (ret and frame is not None) else None), total, fps
+    except Exception:
+        _video_fail_cache[filepath] = now
+        return None, 0, 0.0
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+
 def _get_video_first_frame(filepath: Path) -> Optional[np.ndarray]:
-    """Return first frame of video, cached. Used for carousel peek."""
+    """Return first frame of video, cached. Used for carousel peek. Uses safe open/read/release."""
     if filepath in _video_first_frame_cache:
         return _video_first_frame_cache[filepath]
-    cap = cv2.VideoCapture(str(filepath))
-    if not cap.isOpened():
-        return None
-    ret, frame = cap.read()
-    cap.release()
-    if ret and frame is not None:
+    frame, _, _ = _video_read_frame_at(filepath, 0)
+    if frame is not None:
         _video_first_frame_cache[filepath] = frame
         return frame
     return None
@@ -760,23 +828,24 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
     _update_viewer_swipe_inertia(frame_w)
 
     filepath, item_type, mtime = items[button_state.gallery_selected_item]
-    cap = cv2.VideoCapture(str(filepath))
+    button_state.gallery_video_frame_idx = max(0, button_state.gallery_video_frame_idx)
+    vid_frame, total_frames, fps = _video_read_frame_at(filepath, button_state.gallery_video_frame_idx)
 
-    if not cap.isOpened():
+    if vid_frame is None and total_frames == 0:
         font = cv2.FONT_HERSHEY_SIMPLEX
-        msg = "Failed to load video"
-        (msg_w, msg_h), _ = cv2.getTextSize(msg, font, 0.7, 1)
+        msg = "Unable to play (file may be in use or incomplete)"
+        (msg_w, msg_h), _ = cv2.getTextSize(msg, font, 0.6, 1)
         cv2.putText(frame, msg, ((frame_w - msg_w) // 2, frame_h // 2),
-                   font, 0.7, (150, 150, 150), 1, cv2.LINE_AA)
+                   font, 0.6, (150, 150, 150), 1, cv2.LINE_AA)
         controls_y = draw_viewer_chrome(frame, filepath, item_type, mtime, is_video=True,
                                         total_frames=0, fps=0, current_idx=0, play_text="PLAY")
         draw_viewer_back_button_on_top(frame)
         return
 
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     button_state._gallery_video_total_frames = total_frames
-    button_state._gallery_video_fps = fps
+    button_state._gallery_video_fps = fps or 30.0
+    fps = button_state._gallery_video_fps
+    total_frames = max(1, total_frames)
 
     if button_state.gallery_video_playing:
         button_state.gallery_video_frame_idx += 1
@@ -784,10 +853,7 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             button_state.gallery_video_frame_idx = 0
 
     button_state.gallery_video_frame_idx = max(0, min(button_state.gallery_video_frame_idx, total_frames - 1))
-
-    cap.set(cv2.CAP_PROP_POS_FRAMES, button_state.gallery_video_frame_idx)
-    ret, vid_frame = cap.read()
-    cap.release()
+    ret = vid_frame is not None
 
     play_text = "PAUSE" if button_state.gallery_video_playing else "PLAY"
     controls_y = draw_viewer_chrome(frame, filepath, item_type, mtime, is_video=True,
@@ -981,7 +1047,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     fh, fw = frame.shape[0], frame.shape[1]
     frame[:] = _vertical_gradient(fh, fw, BG_GRADIENT_TOP, BG_GRADIENT_BOT)
 
-    header_h = 80
+    header_h = 98
     frame[0:header_h, 0:fw] = _vertical_gradient(header_h, fw, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT)
     cv2.line(frame, (0, header_h), (frame.shape[1], header_h), (80, 80, 80), 2)
 
@@ -991,8 +1057,25 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_thick = 2
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
-    title_y = (header_h + title_h) // 2 + 5 - 20
+    # Baseline so top of text stays on screen (putText y is baseline; text extends above by title_h)
+    title_y = title_h + 10
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
+
+    # Hint line between title and info (space reserved so layout is stable)
+    hint_line_y = title_y + title_h + 6
+    info_y = hint_line_y + 26
+
+    # When user clicked Tags/Priority/Rename with no selection, show brief hint between GALLERY and info
+    if button_state.gallery_select_mode and getattr(button_state, "gallery_select_first_hint_until", 0) > 0:
+        if time.time() < button_state.gallery_select_first_hint_until:
+            hint = "Select one or more items first"
+            hint_scale = 0.65
+            (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
+            hint_x = (frame.shape[1] - hint_w) // 2
+            hint_y = hint_line_y + max(0, (26 - hint_h) // 2)
+            cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
+        else:
+            button_state.gallery_select_first_hint_until = 0.0
 
     if button_state.gallery_select_mode:
         selected_count = len(button_state.gallery_selected_items)
@@ -1006,7 +1089,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     info_scale = 0.45
     (info_w, info_h), _ = cv2.getTextSize(info_text, font, info_scale, 1)
     info_x = (frame.shape[1] - info_w) // 2
-    info_y = title_y + 35
     cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
     back_btn_x = 10
@@ -1206,25 +1288,25 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (40, 40, 40), -1)
 
-        fully_visible = (y0 >= vis_top) and (y1 <= vis_bot)
-        if fully_visible:
-            border_color = (80, 255, 100) if is_selected else (100, 100, 100)
-            border_thickness = 4 if is_selected else 2
-            cv2.rectangle(frame, (x0, y0), (x1, y1), border_color, border_thickness, cv2.LINE_AA)
+        # Always draw border so selection highlight stays visible when card is partially on-screen
+        border_color = (80, 255, 100) if is_selected else (100, 100, 100)
+        border_thickness = 4 if is_selected else 2
+        cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), border_color, border_thickness, cv2.LINE_AA)
 
         if is_selected:
             check_size = 25
             check_x = x + thumb_w - check_size - 10
             check_y = y + 10
+            # Only draw checkmark when the whole icon is in the content area (no bleed into header = no ghost flicker)
+            if check_y >= vis_top and check_y + check_size <= vis_bot:
+                cv2.circle(frame, (check_x + check_size//2, check_y + check_size//2), check_size//2, (80, 255, 100), -1, cv2.LINE_AA)
 
-            cv2.circle(frame, (check_x + check_size//2, check_y + check_size//2), check_size//2, (80, 255, 100), -1, cv2.LINE_AA)
-
-            check_pts = np.array([
-                [check_x + 6, check_y + check_size//2],
-                [check_x + check_size//2 - 2, check_y + check_size - 8],
-                [check_x + check_size - 6, check_y + 5]
-            ], np.int32)
-            cv2.polylines(frame, [check_pts], False, (255, 255, 255), 3, cv2.LINE_AA)
+                check_pts = np.array([
+                    [check_x + 6, check_y + check_size//2],
+                    [check_x + check_size//2 - 2, check_y + check_size - 8],
+                    [check_x + check_size - 6, check_y + 5]
+                ], np.int32)
+                cv2.polylines(frame, [check_pts], False, (255, 255, 255), 3, cv2.LINE_AA)
 
         try:
             if item_type == "image":
@@ -1263,11 +1345,8 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 cached_m = ui_cache._THUMB_CACHE_MTIME.get(filepath)
 
                 if cached is None or cached_m != mtime_s:
-                    cap = cv2.VideoCapture(str(filepath))
-                    ret, vid_frame = cap.read()
-                    cap.release()
-
-                    if ret and vid_frame is not None:
+                    vid_frame, _, _ = _video_read_frame_at(filepath, 0)
+                    if vid_frame is not None:
                         cached = cv2.resize(vid_frame, (thumb_w - 4, thumb_h - 4), interpolation=cv2.INTER_AREA)
                         ui_cache._THUMB_CACHE[filepath] = cached
                         ui_cache._THUMB_CACHE_MTIME[filepath] = mtime_s
@@ -1405,8 +1484,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 cv2.putText(frame, tag_text, (x + tag_icon_w, line2_y + 4),
                             font, tag_scale, (180, 200, 180), 1, cv2.LINE_AA)
 
-    # Side dock on top so it's clearly delimited; storage bar floats with viewport as you scroll
+    # Side dock first so strip + panel grow from Tags button (same as Filter/Sort); then form content on top
     draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
+    if button_state.gallery_tag_modal_open:
+        draw_tag_modal(frame, output_dir, header_h)
 
     if button_state.gallery_delete_modal_open:
         if button_state.gallery_delete_modal_kind == "batch":
@@ -1420,6 +1501,3 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             )
         else:
             draw_delete_modal(frame)
-
-    if button_state.gallery_tag_modal_open:
-        draw_tag_modal(frame, output_dir, header_h)

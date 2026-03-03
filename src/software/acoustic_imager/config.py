@@ -73,6 +73,25 @@ F_MAX_HZ_DEFAULT = 35000.0
 
 DRAG_MARGIN_PX = 18
 
+# UI visibility (swipe/double-tap): hide offsets in px, animation speed, gesture thresholds
+UI_TOP_HUD_HIDE_OFFSET = -120      # top HUD moves up off screen
+UI_BOTTOM_HUD_HIDE_OFFSET = 60     # bottom HUD moves down off screen
+UI_MENU_HIDE_OFFSET = 220          # menu moves right off screen
+UI_MENU_HIDE_OFFSET_Y = 80         # menu moves down off screen (with bottom HUD on swipe down)
+UI_VISIBILITY_ANIM_SPEED = 0.18    # lerp per frame (~60fps: ~0.25s to settle)
+UI_SWIPE_THRESHOLD_PX = 50         # min distance for swipe
+UI_DOUBLE_TAP_MS = 400             # max ms between taps for double-tap
+UI_DOUBLE_TAP_RADIUS_PX = 40       # max distance between taps
+UI_TAP_MAX_MOVE_PX = 15            # max movement to count as tap (not drag)
+# Shared pill size for top and bottom HUD (same size, larger for clickability)
+UI_PILL_H = 48
+UI_PILL_W = 170
+# Gestures (swipe/double-tap) only active in content area: between dB bar and freq bar, excluding top/bottom strips
+UI_CONTENT_TOP_MARGIN = 58         # below top HUD
+UI_CONTENT_BOTTOM_MARGIN = 62      # above bottom HUD
+# Extra hit padding for bottom HUD pills (better clickability)
+UI_BOTTOM_HUD_HIT_PAD = 8
+
 # Angle grid
 ANGLES = np.linspace(-90, 90, 181)
 

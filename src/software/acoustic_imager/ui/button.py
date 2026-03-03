@@ -58,7 +58,7 @@ def _draw_rec_icon(frame: np.ndarray, cx: int, cy: int, size: int = 8, is_active
     cv2.circle(frame, (cx, cy), size, border_color, 1, cv2.LINE_AA)
 
 
-def _draw_pause_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
+def _draw_pause_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10, color: Tuple[int, int, int] = (255, 255, 255)):
     """Draw pause bars icon (||)."""
     bar_w = size // 3
     bar_h = size
@@ -66,11 +66,11 @@ def _draw_pause_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
     cv2.rectangle(frame,
                  (cx - gap - bar_w, cy - bar_h//2),
                  (cx - gap, cy + bar_h//2),
-                 (255, 255, 255), -1, cv2.LINE_AA)
+                 color, -1, cv2.LINE_AA)
     cv2.rectangle(frame,
                  (cx + gap, cy - bar_h//2),
                  (cx + gap + bar_w, cy + bar_h//2),
-                 (255, 255, 255), -1, cv2.LINE_AA)
+                 color, -1, cv2.LINE_AA)
 
 
 def _draw_back_arrow_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
@@ -82,6 +82,20 @@ def _draw_back_arrow_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
     thickness = max(2, size // 5)
     cv2.line(frame, (tip_x, cy), top_pt, (255, 255, 255), thickness, cv2.LINE_AA)
     cv2.line(frame, (tip_x, cy), bot_pt, (255, 255, 255), thickness, cv2.LINE_AA)
+
+
+def _draw_gallery_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
+    """Draw a 2x2 grid of squares (gallery/thumbnails)."""
+    half = size // 2
+    gap = max(1, size // 6)
+    for i in range(2):
+        for j in range(2):
+            x1 = cx - half - gap // 2 + i * (half + gap)
+            y1 = cy - half - gap // 2 + j * (half + gap)
+            x2 = x1 + half
+            y2 = y1 + half
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), -1, cv2.LINE_AA)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (180, 180, 180), 1, cv2.LINE_AA)
 
 
 def _draw_trash_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
@@ -259,12 +273,11 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     item_h = 40
     gap = 8
 
-    total_items = 7
+    total_items = 6  # fps, gain, colormap, cam, source, debug (each own row); SHOT/Gallery in bottom HUD
     dropdown_h = total_items * (item_h + gap) + gap
-
     dropdown_y = menu_y - dropdown_h - gap
-    y0 = dropdown_y
 
+    y0 = dropdown_y
     seg_gap = 6
     seg_w = (menu_w - 2 * seg_gap) // 3
     menu_buttons["fps30"]  = Button(menu_x + 0 * (seg_w + seg_gap), y0, seg_w, item_h, "30FPS")
@@ -278,22 +291,18 @@ def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
     menu_buttons["colormap"] = Button(menu_x, colormap_y, menu_w, item_h, f"COLOUR: {button_state.colormap_mode}")
 
     cam_y = colormap_y + (item_h + gap)
-    menu_buttons["cam"] = Button(
-        menu_x, cam_y, menu_w, item_h,
-        "CAMERA: ON" if button_state.camera_enabled else "CAMERA: OFF"
-    )
+    menu_buttons["cam"] = Button(menu_x, cam_y, menu_w, item_h, "CAM: ON" if button_state.camera_enabled else "CAM: OFF")
 
     src_y = cam_y + (item_h + gap)
-    tools_y = src_y + (item_h + gap)
-    tool_gap = 6
-    tool_w = (menu_w - tool_gap) // 2
-    menu_buttons["source"] = Button(menu_x + 0 * (tool_w + tool_gap), src_y, tool_w, item_h, f"SRC: {button_state.source_mode}")
-    menu_buttons["debug"] = Button(menu_x + 1 * (tool_w + tool_gap), src_y, tool_w, item_h, "DEBUG")
-    menu_buttons["shot"]  = Button(menu_x + 0 * (tool_w + tool_gap), tools_y, tool_w, item_h, "SHOT")
-    menu_buttons["rec"]   = Button(menu_x + 1 * (tool_w + tool_gap), tools_y, tool_w, item_h, "REC")
+    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SRC: {button_state.source_mode}")
 
-    gallery_y = tools_y + (item_h + gap)
-    menu_buttons["gallery"] = Button(menu_x, gallery_y, menu_w, item_h, "GALLERY")
+    debug_y = src_y + (item_h + gap)
+    menu_buttons["debug"] = Button(menu_x, debug_y, menu_w, item_h, "DEBUG")
+
+    # SHOT, Gallery, REC live in bottom HUD (bottom_hud creates/positions them each frame)
+    menu_buttons["shot"] = Button(0, 0, 0, 0, "SHOT")
+    menu_buttons["gallery"] = Button(0, 0, 0, 0, "GALLERY")
+    menu_buttons["rec"] = Button(0, 0, 165, 34, "REC")
 
 
 def update_button_states(mx: int, my: int) -> None:
@@ -303,16 +312,17 @@ def update_button_states(mx: int, my: int) -> None:
     if "menu" in menu_buttons:
         menu_buttons["menu"].is_hovered = menu_buttons["menu"].contains(mx, my)
 
-    keys = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "shot", "rec", "gallery")
+    # Bottom HUD pills: always use screen coords; independent of menu state
+    for k in ("shot", "rec", "rec_resume", "rec_stop", "gallery"):
+        if k in menu_buttons:
+            b = menu_buttons[k]
+            menu_buttons[k].is_hovered = b.w > 0 and b.contains(mx, my)
 
+    # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in keys:
+        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug"):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
-    else:
-        for k in keys:
-            if k in menu_buttons:
-                menu_buttons[k].is_hovered = False
 
     if button_state.gallery_open:
         gallery_keys = ("gallery_back", "gallery_select_mode", "gallery_select_all", "gallery_delete_selected",

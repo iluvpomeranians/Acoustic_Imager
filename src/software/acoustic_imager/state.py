@@ -100,6 +100,15 @@ class ButtonState:
     gallery_priority_modal_open: bool = False
     gallery_tags_modal_open: bool = False
     gallery_rename_modal_open: bool = False
+    # When > 0, show "Select one or more items first" until time.time() > this (set on Tags/Priority/Rename click with no selection)
+    gallery_select_first_hint_until: float = 0.0
+
+    # Modal slide animation: progress 0=hidden, 1=visible; track which modal so we always animate on switch
+    gallery_modal_anim_progress: float = 0.0
+    gallery_modal_anim_target: float = 0.0
+    gallery_modal_anim_start_t: float = 0.0
+    gallery_modal_anim_progress_at_flip: float = 0.0
+    gallery_modal_anim_active_key: str = ""  # "" when none; forces re-animate when modal changes
     gallery_rename_query: str = ""
     gallery_file_priorities: dict = field(default_factory=dict)  # filename → "high"|"medium"|"low"
     gallery_file_tags: dict = field(default_factory=dict)        # filename → list[str]
@@ -162,3 +171,26 @@ CAMERA_AVAILABLE: bool = False
 RECORDING_START_TIME: Optional[float] = None  # time.time() when recording started
 RECORDING_PAUSED_TIME: Optional[float] = None  # time.time() when paused
 RECORDING_TOTAL_PAUSED: float = 0.0  # total time spent paused
+
+# ===============================================================
+# UI visibility (top HUD, bottom HUD, menu) – swipe/double-tap to hide/show with animation
+# ===============================================================
+# Current animated offset (px). Top: 0=visible, negative=hidden up. Bottom: 0=visible, positive=hidden down. Menu: x=right, y=down.
+ui_top_hud_offset: float = 0.0
+ui_bottom_hud_offset: float = 0.0
+ui_menu_offset: float = 0.0
+ui_menu_offset_y: float = 0.0
+# Target offsets (we lerp toward these each frame)
+ui_top_hud_offset_target: float = 0.0
+ui_bottom_hud_offset_target: float = 0.0
+ui_menu_offset_target: float = 0.0
+ui_menu_offset_y_target: float = 0.0
+# Gesture state for tap/double-tap and swipe
+ui_last_tap_time: float = 0.0
+ui_last_tap_x: int = 0
+ui_last_tap_y: int = 0
+ui_drag_start_x: int = 0
+ui_drag_start_y: int = 0
+ui_drag_start_time: float = 0.0
+ui_drag_handled: bool = False  # True once we've treated this pointer down as a drag
+ui_click_was_on_ui: bool = False  # True if LBUTTONDOWN hit menu/HUD/button (gestures ignored on this pointer)

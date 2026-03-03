@@ -1,3 +1,7 @@
+"""
+Top HUD: network, FPS, and time pills at the top of the main view.
+"""
+
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional
@@ -5,7 +9,7 @@ import time
 import cv2
 import numpy as np
 
-from ..config import BUTTON_ALPHA, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
+from ..config import BUTTON_ALPHA, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, UI_PILL_H, UI_PILL_W
 from .menu import _blue_gradient_overlay
 
 @dataclass
@@ -54,19 +58,21 @@ def draw_hud(
     source_stats,
     fps_mode: str,
     frame_bytes: int,
+    offset_y: float = 0.0,
 ) -> HudRects:
     """
-    Draw compact HUD top-left. Returns hit rects for mouse click handling.
+    Draw compact HUD top-left. offset_y moves the HUD vertically (0=visible, negative=retracted up).
+    Returns hit rects for mouse click handling (with offset applied).
     """
     if details_level == "OFF":
         return HudRects(net=(0,0,0,0), fps=(0,0,0,0), time=(0,0,0,0))
 
     h, w, _ = frame.shape
 
-    # Layout constants
+    # Layout constants; y with visibility offset (retract up when offset_y < 0); same pill size as bottom HUD
     pad = 110
-    y = 1
-    pill_h = 34
+    y = 1 + int(offset_y)
+    pill_h = UI_PILL_H
     icon_w = 34
     gap = 8
 
@@ -78,7 +84,7 @@ def draw_hud(
     fps_txt  = f"{fps_ema:4.1f}"
     net_txt  = f"{mbps_bits:4.1f}"
 
-    # “Icons” (no external assets): simple glyphs inside circles
+    # "Icons" (no external assets): simple glyphs inside circles
     # If you later want PNG icons, we can swap these with image blits.
     def icon_circle(cx, cy, label: str):
         cv2.circle(frame, (cx, cy), 12, (255,255,255), -1, cv2.LINE_AA)  # filled white
@@ -111,9 +117,9 @@ def draw_hud(
         (ww, hh), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
         return ww
 
-    net_w  = 165
-    fps_w  = 165
-    time_w = 170
+    net_w  = UI_PILL_W
+    fps_w  = UI_PILL_W
+    time_w = UI_PILL_W
 
     # Calculate total width and center horizontally
     total_width = net_w + gap + fps_w + gap + time_w
@@ -129,28 +135,29 @@ def draw_hud(
     _draw_pill(frame, x_time, y, time_w, pill_h, is_active=(open_panel == "time"))
 
     cy = y + pill_h // 2
-    text_y = y + 23  # consistent baseline
+    text_y = y + pill_h // 2 + 6  # baseline for text
+    icon_radius = 12
+    icon_w = icon_radius * 2
+    gap_icon_text = 8
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.55
+
+    def draw_pill_icon_text(pill_x: int, pill_w: int, label: str, draw_icon_fn) -> None:
+        (label_w, _), _ = cv2.getTextSize(label, font, scale, 1)
+        content_w = icon_w + gap_icon_text + label_w
+        start_x = pill_x + (pill_w - content_w) // 2
+        icon_cx = start_x + icon_radius
+        draw_icon_fn(icon_cx, cy)
+        cv2.putText(frame, label, (start_x + icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
 
     # --- NETWORK ---
-    draw_net_icon(x_net + 18, cy)
-    cv2.putText(
-        frame, f"{net_txt} Mb/s", (x_net + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA
-    )
+    draw_pill_icon_text(x_net, net_w, f"{net_txt} Mb/s", draw_net_icon)
 
     # --- FPS ---
-    draw_fps_icon(x_fps + 18, cy)
-    cv2.putText(
-        frame, f"{fps_txt} FPS", (x_fps + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA
-    )
+    draw_pill_icon_text(x_fps, fps_w, f"{fps_txt} FPS", draw_fps_icon)
 
     # --- TIME ---
-    draw_clock_icon(x_time + 18, cy)
-    cv2.putText(
-        frame, time_txt, (x_time + 40, text_y),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA
-    )
+    draw_pill_icon_text(x_time, time_w, time_txt, draw_clock_icon)
 
     rects = HudRects(
         net=(x_net,  y, net_w,  pill_h),

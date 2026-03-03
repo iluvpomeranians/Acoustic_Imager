@@ -23,7 +23,12 @@ def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bg
     return out
 
 
-def draw_menu(frame: np.ndarray) -> None:
+# Keys for menu dropdown (positions are shifted by offset_x when drawing)
+_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug")
+
+
+def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -> None:
+    """Draw menu button and dropdown. offset_x = right, offset_y = down (retract with bottom HUD on swipe down)."""
     if "menu" not in menu_buttons:
         return
 
@@ -34,8 +39,10 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_btn.y = actual_frame_height - menu_btn.h - 5
 
     x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
+    x_off = x + int(offset_x)
+    y_off = y + int(offset_y)
 
-    roi = frame[y:y+h, x:x+w]
+    roi = frame[y_off:y_off+h, x_off:x_off+w]
     if menu_btn.is_active:
         overlay = _blue_gradient_overlay(h, w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
     else:
@@ -45,19 +52,25 @@ def draw_menu(frame: np.ndarray) -> None:
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
 
     border_color = (255, 255, 255)  # white border always
-    cv2.rectangle(frame, (x, y), (x + w, y + h), border_color, 2, cv2.LINE_AA)
+    cv2.rectangle(frame, (x_off, y_off), (x_off + w, y_off + h), border_color, 2, cv2.LINE_AA)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     scale = 0.52
     thick = 1
     tw, th = cv2.getTextSize(menu_btn.text, font, scale, thick)[0]
-    tx = x + (w - tw) // 2
-    ty = y + (h + th) // 2
+    tx = x_off + (w - tw) // 2
+    ty = y_off + (h + th) // 2
     # cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (0, 0, 0), thick + 1, cv2.LINE_AA)
     cv2.putText(frame, menu_btn.text, (tx, ty), font, scale, (255, 255, 255), thick, cv2.LINE_AA)
 
     if not button_state.menu_open:
         return
+
+    # SHOT and Gallery live in bottom HUD only; menu dropdown has 6 rows (fps, gain, colormap, cam, source, debug)
+    item_h, gap, menu_w = 40, 8, menu_btn.w
+    dropdown_h = 6 * (item_h + gap) + gap
+    dropdown_y = menu_btn.y - dropdown_h - gap
+    oy = int(offset_y)
 
     menu_buttons["fps30"].is_active = (button_state.fps_mode == "30")
     menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")
@@ -68,50 +81,32 @@ def draw_menu(frame: np.ndarray) -> None:
     menu_buttons["cam"].is_active = button_state.camera_enabled
     menu_buttons["source"].is_active = True
     menu_buttons["debug"].is_active = button_state.debug_enabled
-    menu_buttons["rec"].is_active = button_state.is_recording
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
     white_border = (255, 255, 255)
+    ox = int(offset_x)
+    for k in _MENU_DROPDOWN_KEYS:
+        if k in menu_buttons:
+            menu_buttons[k].x += ox
+            menu_buttons[k].y += oy
     menu_buttons["fps30"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     menu_buttons["fps60"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     menu_buttons["fpsmax"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
 
     menu_buttons["gain"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-
     menu_buttons["colormap"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     menu_buttons["cam"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     menu_buttons["source"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
     menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-
-    menu_buttons["shot"].draw(frame, transparent=True, icon_type="camera", active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["rec"].draw(frame, transparent=True, icon_type="rec", active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-
-    if not button_state.is_recording:
-        menu_buttons["gallery"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    for k in _MENU_DROPDOWN_KEYS:
+        if k in menu_buttons:
+            menu_buttons[k].x -= ox
+            menu_buttons[k].y -= oy
 
 
 def get_recording_timestamp_rect() -> Optional[Tuple[int, int, int, int]]:
-    if not button_state.is_recording:
-        return None
-
-    if "menu" not in menu_buttons or "gallery" not in menu_buttons:
-        return None
-
-    RECORDING_BAR_HEIGHT = 50
-
-    if button_state.menu_open:
-        gallery_btn = menu_buttons["gallery"]
-        menu_x = gallery_btn.x
-        menu_w = gallery_btn.w
-        timestamp_y = gallery_btn.y
-        timestamp_h = RECORDING_BAR_HEIGHT
-    else:
-        menu_x = menu_buttons["menu"].x
-        menu_w = menu_buttons["menu"].w
-        timestamp_h = RECORDING_BAR_HEIGHT
-        timestamp_y = menu_buttons["menu"].y - timestamp_h - 10
-
-    return (menu_x, timestamp_y, menu_w, timestamp_h)
+    """Recording state (flash + time) is now drawn inside the REC pill in bottom_hud; no separate bar."""
+    return None
 
 
 def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRecorder]) -> None:

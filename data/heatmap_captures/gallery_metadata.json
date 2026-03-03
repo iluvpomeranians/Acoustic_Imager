@@ -2,8 +2,8 @@
   "version": 1,
   "priorities": {
     "testd.mp4": "high",
-    "recording_20260301_220627.mp4": "low",
-    "screenshot_20260301_232107.png": "medium"
+    "recording_20260301_220627.mp4": "medium",
+    "screenshot_20260301_232107.png": "low"
   },
   "file_tags": {},
   "tag_data": {

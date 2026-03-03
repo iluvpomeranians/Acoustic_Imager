@@ -59,7 +59,8 @@ from acoustic_imager.dsp.bars import (
     y_to_freq,
 )
 
-from acoustic_imager.ui.hud import draw_hud, handle_hud_click
+from acoustic_imager.ui.top_hud import draw_hud, handle_hud_click
+from acoustic_imager.ui.bottom_hud import draw_bottom_hud, BOTTOM_HUD_HEIGHT
 from acoustic_imager.state import HUD
 
 # I/O managers
@@ -78,11 +79,7 @@ from acoustic_imager.ui.button import (
     FPS_MODE_TO_TARGET,
 )
 from acoustic_imager.ui.screenshot import save_screenshot, draw_screenshot_flash
-from acoustic_imager.ui.menu import (
-    draw_menu,
-    get_recording_timestamp_rect,
-    draw_recording_timestamp,
-)
+from acoustic_imager.ui.menu import draw_menu, get_recording_timestamp_rect, _MENU_DROPDOWN_KEYS
 from acoustic_imager.ui.gallery import draw_gallery_view, get_gallery_items
 from acoustic_imager.ui.handlers import (
     handle_button_click,
@@ -172,41 +169,95 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             if handle_gallery_viewer_mouse(event, mx, my, flags, state.OUTPUT_DIR):
                 return
 
-    # Handle left button down
+    # Handle left button down: UI (top HUD, menu, bottom HUD) and buttons take priority over gestures
     if event == cv2.EVENT_LBUTTONDOWN:
-        # Check if we're in gallery grid view for drag scrolling
-
         # Check gallery view first (if open)
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
 
-        # Check recording timestamp bar click (for pause/resume) - works when menu is open or closed
+        # 1) Top HUD click (top priority)
+        try:
+            from acoustic_imager.state import HUD
+            from acoustic_imager.ui.top_hud import handle_hud_click
+            if hasattr(state, "HUD_RECTS"):
+                new_panel = handle_hud_click(mx, my, state.HUD_RECTS, HUD.open_panel)
+                if new_panel != HUD.open_panel:
+                    HUD.open_panel = new_panel
+                    state.ui_click_was_on_ui = True
+                    return
+        except Exception:
+            pass
+
+        # 2) Bottom HUD pills first (so they work when menu is closed; only when bar visible)
+        if state.ui_bottom_hud_offset <= 15:
+            hit_pad = getattr(config, "UI_BOTTOM_HUD_HIT_PAD", 8)
+            for k in ("shot", "rec", "rec_resume", "rec_stop", "gallery"):
+                if k in menu_buttons:
+                    b = menu_buttons[k]
+                    if b.w > 0 and b.h > 0:
+                        if (b.x - hit_pad <= mx < b.x + b.w + hit_pad and
+                                b.y - hit_pad <= my < b.y + b.h + hit_pad):
+                            video_recorder = handle_button_click(
+                                mx, my,
+                                current_frame=state.CURRENT_FRAME,
+                                output_dir=state.OUTPUT_DIR,
+                                camera_available=state.CAMERA_AVAILABLE,
+                                video_recorder=video_recorder,
+                                width=config.WIDTH,
+                                height=config.HEIGHT,
+                            )
+                            state.ui_click_was_on_ui = True
+                            return
+
+        # 3) Menu button and dropdown (only when menu visible; hit-test accounts for offset_x and offset_y)
+        menu_mx = mx - int(state.ui_menu_offset)
+        menu_my = my - int(state.ui_menu_offset_y)
+        if state.ui_menu_offset <= 15 and state.ui_menu_offset_y <= 10:
+            if "menu" in menu_buttons and menu_buttons["menu"].contains(menu_mx, menu_my):
+                video_recorder = handle_button_click(
+                    mx, my,
+                    current_frame=state.CURRENT_FRAME,
+                    output_dir=state.OUTPUT_DIR,
+                    camera_available=state.CAMERA_AVAILABLE,
+                    video_recorder=video_recorder,
+                    width=config.WIDTH,
+                    height=config.HEIGHT,
+                )
+                state.ui_click_was_on_ui = True
+                return
+            if button_state.menu_open:
+                for k in _MENU_DROPDOWN_KEYS:
+                    if k not in menu_buttons:
+                        continue
+                    b = menu_buttons[k]
+                    if b.contains(menu_mx, menu_my):
+                        video_recorder = handle_button_click(
+                            mx, my,
+                            current_frame=state.CURRENT_FRAME,
+                            output_dir=state.OUTPUT_DIR,
+                            camera_available=state.CAMERA_AVAILABLE,
+                            video_recorder=video_recorder,
+                            width=config.WIDTH,
+                            height=config.HEIGHT,
+                        )
+                        state.ui_click_was_on_ui = True
+                        return
+
+        # 4) Recording timestamp bar (if used)
         if button_state.is_recording and video_recorder is not None:
             rect = get_recording_timestamp_rect()
             if rect is not None:
                 rx, ry, rw, rh = rect
                 if rx <= mx <= rx + rw and ry <= my <= ry + rh:
-                    # Toggle pause
                     button_state.is_paused = not button_state.is_paused
                     if button_state.is_paused:
                         video_recorder.pause_recording()
                     else:
                         video_recorder.resume_recording()
+                    state.ui_click_was_on_ui = True
                     return
 
-        # 1) HUD click handling (top priority, before buttons)
-        try:
-            from acoustic_imager.state import HUD
-            from acoustic_imager.ui.hud import handle_hud_click
-            # you need access to latest hud_rects -> simplest: store it in state each frame
-            if event == cv2.EVENT_LBUTTONDOWN and hasattr(state, "HUD_RECTS"):
-                new_panel = handle_hud_click(mx, my, state.HUD_RECTS, HUD.open_panel)
-                if new_panel != HUD.open_panel:
-                    HUD.open_panel = new_panel
-                    return
-        except Exception:
-            pass
-        # Bandpass drag: clicks in the frequency bar always start/continue drag (even when menu is open)
+        # 5) Bandpass drag: frequency bar
         bar_left = left_width
         if mx >= bar_left and mx < config.WIDTH:
             y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
@@ -221,6 +272,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     state.F_MIN_HZ = min(f, state.F_MAX_HZ)
                 else:
                     state.F_MAX_HZ = max(f, state.F_MIN_HZ)
+                state.ui_click_was_on_ui = True
                 return
             if min(y_min, y_max) <= my <= max(y_min, y_max):
                 state.DRAG_TARGET = "box"
@@ -228,8 +280,9 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 state.DRAG_START_Y = my
                 state.DRAG_START_F_MIN = state.F_MIN_HZ
                 state.DRAG_START_F_MAX = state.F_MAX_HZ
+                state.ui_click_was_on_ui = True
                 return
-        # Check UI buttons first
+        # 6) Other UI buttons (camera, source, debug)
         for b in buttons.values():
             if b.contains(mx, my):
                 video_recorder = handle_button_click(
@@ -241,36 +294,143 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     width=config.WIDTH,
                     height=config.HEIGHT,
                 )
+                state.ui_click_was_on_ui = True
                 return
 
-        # Check menu buttons
-        if "menu" in menu_buttons and menu_buttons["menu"].contains(mx, my):
-            video_recorder = handle_button_click(
-                mx, my,
-                current_frame=state.CURRENT_FRAME,
-                output_dir=state.OUTPUT_DIR,
-                camera_available=state.CAMERA_AVAILABLE,
-                video_recorder=video_recorder,
-                width=config.WIDTH,
-                height=config.HEIGHT,
-            )
-            return
+        # No UI hit: record drag start for possible swipe/double-tap (only in content area)
+        state.ui_click_was_on_ui = False
+        state.ui_drag_start_x = mx
+        state.ui_drag_start_y = my
+        state.ui_drag_start_time = time.time()
 
-        if button_state.menu_open:
-            for k, b in menu_buttons.items():
-                if k == "menu":
-                    continue
-                if b.contains(mx, my):
-                    video_recorder = handle_button_click(
-                        mx, my,
-                        current_frame=state.CURRENT_FRAME,
-                        output_dir=state.OUTPUT_DIR,
-                        camera_available=state.CAMERA_AVAILABLE,
-                        video_recorder=video_recorder,
-                        width=config.WIDTH,
-                        height=config.HEIGHT,
-                    )
+    # Handle left button up: swipe or double-tap (content area, or swipe-down from bottom strip to hide HUD/menu)
+    if event == cv2.EVENT_LBUTTONUP and not button_state.gallery_open and not state.ui_click_was_on_ui:
+        content_left = config.DB_BAR_WIDTH
+        content_right = left_width
+        content_top = getattr(config, "UI_CONTENT_TOP_MARGIN", 58)
+        content_bottom = h - getattr(config, "UI_CONTENT_BOTTOM_MARGIN", 62)
+        dx = mx - state.ui_drag_start_x
+        dy = my - state.ui_drag_start_y
+        dist = (dx * dx + dy * dy) ** 0.5
+        now = time.time()
+        in_content = (
+            content_left <= mx < content_right and content_top <= my < content_bottom
+            and content_left <= state.ui_drag_start_x < content_right
+            and content_top <= state.ui_drag_start_y < content_bottom
+        )
+        # Drag started in content (raw camera/heatmap area) – use for swipe even if release is outside
+        in_content_start = (
+            content_left <= state.ui_drag_start_x < content_right
+            and content_top <= state.ui_drag_start_y < content_bottom
+        )
+        # Swipe-down from bottom strip (e.g. from bottom HUD area) to hide bottom HUD + menu
+        swipe_down_from_bottom = (
+            not in_content
+            and dist >= config.UI_SWIPE_THRESHOLD_PX
+            and abs(dy) > abs(dx)
+            and dy > 0
+            and state.ui_drag_start_y >= h - 120
+        )
+        # Swipe-down from top strip when top HUD is hidden: bring top HUD back
+        swipe_down_from_top_hidden = (
+            not in_content
+            and dist >= config.UI_SWIPE_THRESHOLD_PX
+            and abs(dy) > abs(dx)
+            and dy > 0
+            and state.ui_drag_start_y <= getattr(config, "UI_CONTENT_TOP_MARGIN", 58) + 20
+            and state.ui_top_hud_offset_target <= float(config.UI_TOP_HUD_HIDE_OFFSET) * 0.5
+        )
+        # Swipe-up from bottom strip when HUD/menu are hidden: bring them back
+        swipe_up_from_bottom_hidden = (
+            not in_content
+            and dist >= config.UI_SWIPE_THRESHOLD_PX
+            and abs(dy) > abs(dx)
+            and dy < 0
+            and state.ui_drag_start_y >= h - 120
+            and (state.ui_bottom_hud_offset_target > 1 or state.ui_menu_offset_y_target > 1)
+        )
+        # Allow gestures when: full content tap/swipe, or swipe that started in content, or swipe in top/bottom strips
+        swipe_started_in_content = in_content_start and dist >= config.UI_SWIPE_THRESHOLD_PX
+        if (
+            not in_content
+            and not swipe_down_from_bottom
+            and not swipe_down_from_top_hidden
+            and not swipe_up_from_bottom_hidden
+            and not swipe_started_in_content
+        ):
+            pass  # do not run gesture
+        else:
+            if dist >= config.UI_SWIPE_THRESHOLD_PX:
+                # Swipe: when menu is open, first swipe down only closes the menu (takes 2 swipes to slide out).
+                if abs(dy) > abs(dx):
+                    if dy > 0:  # swipe down
+                        if button_state.menu_open:
+                            button_state.menu_open = False
+                            return
+                        # Downward swipe from upper/mid area: toggle top HUD; from lower half: hide bottom HUD + menu
+                        mid_y = h // 2
+                        if state.ui_drag_start_y <= mid_y:
+                            if state.ui_top_hud_offset_target < 0:
+                                state.ui_top_hud_offset_target = 0.0
+                            else:
+                                state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
+                        else:
+                            state.ui_bottom_hud_offset_target = float(config.UI_BOTTOM_HUD_HIDE_OFFSET)
+                            state.ui_menu_offset_y_target = float(getattr(config, "UI_MENU_HIDE_OFFSET_Y", 80))
+                    else:  # swipe up
+                        if state.ui_bottom_hud_offset_target > 0 or state.ui_menu_offset_y_target > 0:
+                            state.ui_bottom_hud_offset_target = 0.0
+                            state.ui_menu_offset_y_target = 0.0
+                        elif (
+                            not button_state.menu_open
+                            and state.ui_bottom_hud_offset_target <= 1
+                            and state.ui_menu_offset_y_target <= 1
+                            and state.ui_drag_start_y >= h - 140
+                        ):
+                            # Swipe up from bottom: open the menu (bottom HUD and menu button visible, menu closed)
+                            button_state.menu_open = True
+                        else:
+                            state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
+                else:
+                    if dx > 0:  # swipe right -> hide menu (x)
+                        state.ui_menu_offset_target = float(config.UI_MENU_HIDE_OFFSET)
+                    else:  # swipe left -> show menu (x)
+                        state.ui_menu_offset_target = 0.0
+                return
+            if dist <= config.UI_TAP_MAX_MOVE_PX and in_content:
+                # Single tap in content area when menu is open: close menu, keep menu button visible
+                if button_state.menu_open:
+                    button_state.menu_open = False
                     return
+                dt_ms = (now - state.ui_last_tap_time) * 1000
+                tap_dist = ((mx - state.ui_last_tap_x) ** 2 + (my - state.ui_last_tap_y) ** 2) ** 0.5
+                if dt_ms < config.UI_DOUBLE_TAP_MS and tap_dist < config.UI_DOUBLE_TAP_RADIUS_PX:
+                    menu_hide_y = getattr(config, "UI_MENU_HIDE_OFFSET_Y", 80)
+                    menu_hidden = (
+                        state.ui_menu_offset_target >= config.UI_MENU_HIDE_OFFSET * 0.5
+                        or state.ui_menu_offset_y_target >= menu_hide_y * 0.5
+                    )
+                    all_hidden = (
+                        state.ui_top_hud_offset_target <= config.UI_TOP_HUD_HIDE_OFFSET * 0.5
+                        and state.ui_bottom_hud_offset_target >= config.UI_BOTTOM_HUD_HIDE_OFFSET * 0.5
+                        and menu_hidden
+                    )
+                    if all_hidden:
+                        state.ui_top_hud_offset_target = 0.0
+                        state.ui_bottom_hud_offset_target = 0.0
+                        state.ui_menu_offset_target = 0.0
+                        state.ui_menu_offset_y_target = 0.0
+                    else:
+                        state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
+                        state.ui_bottom_hud_offset_target = float(config.UI_BOTTOM_HUD_HIDE_OFFSET)
+                        state.ui_menu_offset_target = float(config.UI_MENU_HIDE_OFFSET)
+                        state.ui_menu_offset_y_target = float(menu_hide_y)
+                        button_state.menu_open = False
+                    state.ui_last_tap_time = 0.0
+                    return
+                state.ui_last_tap_time = now
+                state.ui_last_tap_x = mx
+                state.ui_last_tap_y = my
 
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
@@ -665,9 +825,10 @@ def main() -> None:
                 box_w = min(max_text_width + 2 * padding, max_available_width)
                 box_h = len(debug_lines) * line_height + 2 * padding
 
-                # Position at bottom left of camera/heatmap area (after dB bar)
+                # Position above bottom HUD pills with clear gap (no overlap)
                 box_x = config.DB_BAR_WIDTH + 10
-                box_y = config.HEIGHT - box_h - 5
+                debug_above_bottom_gap = 18  # space between debug box bottom and top of bottom HUD pills
+                box_y = config.HEIGHT - box_h - BOTTOM_HUD_HEIGHT - debug_above_bottom_gap
 
                 # Draw semi-transparent grey background box
                 overlay = output_frame.copy()
@@ -685,10 +846,18 @@ def main() -> None:
                                font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
                     text_y += line_height
 
+            # ---- UI visibility animation (lerp offsets toward targets) ----
+            speed = config.UI_VISIBILITY_ANIM_SPEED
+            state.ui_top_hud_offset += (state.ui_top_hud_offset_target - state.ui_top_hud_offset) * speed
+            state.ui_bottom_hud_offset += (state.ui_bottom_hud_offset_target - state.ui_bottom_hud_offset) * speed
+            state.ui_menu_offset += (state.ui_menu_offset_target - state.ui_menu_offset) * speed
+            state.ui_menu_offset_y += (state.ui_menu_offset_y_target - state.ui_menu_offset_y) * speed
+
             # ---- Draw UI buttons ----
             draw_buttons(output_frame)
-            draw_menu(output_frame)
-            draw_recording_timestamp(output_frame, video_recorder)
+            if not button_state.gallery_open:
+                draw_bottom_hud(output_frame, video_recorder, offset_y=state.ui_bottom_hud_offset)
+            draw_menu(output_frame, offset_x=state.ui_menu_offset, offset_y=state.ui_menu_offset_y)
 
             hud_rects = draw_hud(
                 output_frame,
@@ -701,6 +870,7 @@ def main() -> None:
                 source_stats=source_stats,
                 fps_mode=button_state.fps_mode,
                 frame_bytes=config.FRAME_BYTES,
+                offset_y=state.ui_top_hud_offset,
             )
 
             state.HUD_RECTS = hud_rects

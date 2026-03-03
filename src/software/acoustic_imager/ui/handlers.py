@@ -11,7 +11,7 @@ import time
 
 from . import ui_cache
 from .button import buttons, menu_buttons
-from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset
+from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset, _video_read_frame_at
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
@@ -44,7 +44,9 @@ def _close_select_mode_modals() -> None:
 
 
 def _apply_rename(output_dir: Optional[Path]) -> None:
-    """Rename the selected file(s) using gallery_rename_query as the new stem."""
+    """Rename the selected file(s) using gallery_rename_query as the new stem.
+    Single selection: name becomes stem + extension.
+    Multiple: names become stem_1, stem_2, ... (same extension). No-op if none selected."""
     if not output_dir:
         return
     new_stem = (button_state.gallery_rename_query or "").strip()
@@ -106,7 +108,8 @@ def _open_tag_modal(output_dir: Optional[Path]) -> None:
 
 
 def _apply_tag_save(output_dir: Optional[Path]) -> None:
-    """Commit tag modal values: rename file (Asset Name) + store Asset Type/Leak Type."""
+    """Commit tag modal values: rename first file if Asset Name changed; apply Asset Type and Leak Type to all selected.
+    Multi-select: same tags (asset_type, leak_type) apply to every selected item; only the first can be renamed by name."""
     if not output_dir:
         return
     # Commit any open keyboard field first
@@ -260,33 +263,41 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
     # Dock row buttons have priority.
     # In select mode: Tags / Priority / Rename  (Search / Filter / Sort hidden)
-    # In normal mode: Search / Filter / Sort
+    # Require at least one selected item to open; otherwise show hint and do not open.
     if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
         if "gallery_dock_tags" in menu_buttons and menu_buttons["gallery_dock_tags"].contains(x, y):
-            # Toggle Edit Tags modal; close others when opening (mutual exclusivity like Search/Filter/Sort)
             if button_state.gallery_tag_modal_open:
                 button_state.gallery_tag_modal_open = False
+            elif not button_state.gallery_selected_items:
+                button_state.gallery_select_first_hint_until = time.time() + 2.5
             else:
                 _open_tag_modal(output_dir)
             return True
         if "gallery_dock_priority" in menu_buttons and menu_buttons["gallery_dock_priority"].contains(x, y):
-            button_state.gallery_priority_modal_open = not button_state.gallery_priority_modal_open
             if button_state.gallery_priority_modal_open:
+                button_state.gallery_priority_modal_open = False
+            elif not button_state.gallery_selected_items:
+                button_state.gallery_select_first_hint_until = time.time() + 2.5
+            else:
+                button_state.gallery_priority_modal_open = True
                 button_state.gallery_tag_modal_open = False
                 button_state.gallery_tags_modal_open = False
                 button_state.gallery_rename_modal_open = False
             return True
         if "gallery_dock_rename" in menu_buttons and menu_buttons["gallery_dock_rename"].contains(x, y):
-            # Pre-fill rename query with the first selected file's stem (name without extension)
-            items = get_displayed_gallery_items(output_dir)
-            sel = sorted(button_state.gallery_selected_items)
-            if sel and sel[0] < len(items):
-                first_path = items[sel[0]][0]
-                button_state.gallery_rename_query = first_path.stem
-            else:
-                button_state.gallery_rename_query = ""
-            button_state.gallery_rename_modal_open = not button_state.gallery_rename_modal_open
             if button_state.gallery_rename_modal_open:
+                button_state.gallery_rename_modal_open = False
+            elif not button_state.gallery_selected_items:
+                button_state.gallery_select_first_hint_until = time.time() + 2.5
+            else:
+                items = get_displayed_gallery_items(output_dir)
+                sel = sorted(button_state.gallery_selected_items)
+                if sel and sel[0] < len(items):
+                    first_path = items[sel[0]][0]
+                    button_state.gallery_rename_query = first_path.stem
+                else:
+                    button_state.gallery_rename_query = ""
+                button_state.gallery_rename_modal_open = True
                 button_state.gallery_tag_modal_open = False
                 button_state.gallery_tags_modal_open = False
                 button_state.gallery_priority_modal_open = False
@@ -538,11 +549,8 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             items = get_displayed_gallery_items(output_dir)
             if button_state.gallery_selected_item is not None and button_state.gallery_selected_item < len(items):
                 filepath = items[button_state.gallery_selected_item][0]
-                cap = cv2.VideoCapture(str(filepath))
-                if cap.isOpened():
-                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    cap.release()
-
+                _, total_frames, _ = _video_read_frame_at(filepath, 0)
+                if total_frames > 0:
                     progress_btn = menu_buttons["gallery_progress"]
                     click_pos = (x - progress_btn.x) / progress_btn.w
                     click_pos = max(0.0, min(1.0, click_pos))
@@ -637,6 +645,53 @@ def handle_menu_click(
         button_state.menu_open = not button_state.menu_open
         return video_recorder
 
+    # Bottom HUD pills (shot, rec, gallery) are independent of menu – handle regardless of menu_open
+    if "shot" in menu_buttons and menu_buttons["shot"].w > 0 and menu_buttons["shot"].contains(x, y):
+        if current_frame is not None and output_dir is not None:
+            save_screenshot(current_frame, output_dir)
+            button_state.gallery_storage_dirty = True
+        return video_recorder
+
+    if "gallery" in menu_buttons and menu_buttons["gallery"].w > 0 and menu_buttons["gallery"].contains(x, y):
+        if button_state.is_recording and video_recorder is not None:
+            video_recorder.stop_recording()
+            button_state.is_recording = False
+            button_state.is_paused = False
+            button_state.gallery_storage_dirty = True
+        button_state.gallery_open = True
+        button_state.menu_open = False
+        button_state.gallery_storage_dirty = True
+        return video_recorder
+
+    if button_state.is_recording and button_state.is_paused:
+        if "rec_resume" in menu_buttons and menu_buttons["rec_resume"].w > 0 and menu_buttons["rec_resume"].contains(x, y):
+            if video_recorder is not None:
+                video_recorder.resume_recording()
+                button_state.is_paused = False
+            return video_recorder
+        if "rec_stop" in menu_buttons and menu_buttons["rec_stop"].w > 0 and menu_buttons["rec_stop"].contains(x, y):
+            if video_recorder is not None:
+                video_recorder.stop_recording()
+                button_state.is_recording = False
+                button_state.is_paused = False
+                button_state.gallery_storage_dirty = True
+            return video_recorder
+
+    if "rec" in menu_buttons and menu_buttons["rec"].w > 0 and menu_buttons["rec"].contains(x, y):
+        if video_recorder is None and output_dir is not None:
+            video_recorder = VideoRecorder(output_dir, width, height, fps=30)
+        if video_recorder is None:
+            return None
+        if not button_state.is_recording:
+            if video_recorder.start_recording():
+                button_state.is_recording = True
+                button_state.is_paused = False
+        else:
+            button_state.is_paused = True
+            video_recorder.pause_recording()
+        return video_recorder
+
+    # Dropdown items (fps, gain, etc.) only when menu is open
     if not button_state.menu_open:
         return video_recorder
 
@@ -668,7 +723,7 @@ def handle_menu_click(
 
     if "cam" in menu_buttons and menu_buttons["cam"].contains(x, y):
         button_state.camera_enabled = not button_state.camera_enabled
-        menu_buttons["cam"].text = "CAMERA: ON" if button_state.camera_enabled else "CAMERA: OFF"
+        menu_buttons["cam"].text = "CAM: ON" if button_state.camera_enabled else "CAM: OFF"
         return video_recorder
 
     if "source" in menu_buttons and menu_buttons["source"].contains(x, y):
@@ -684,39 +739,6 @@ def handle_menu_click(
 
     if "debug" in menu_buttons and menu_buttons["debug"].contains(x, y):
         button_state.debug_enabled = not button_state.debug_enabled
-        return video_recorder
-
-    if "shot" in menu_buttons and menu_buttons["shot"].contains(x, y):
-        if current_frame is not None and output_dir is not None:
-            save_screenshot(current_frame, output_dir)
-            button_state.gallery_storage_dirty = True  # so storage bar updates when opening gallery
-        return video_recorder
-
-    if "rec" in menu_buttons and menu_buttons["rec"].contains(x, y):
-        if video_recorder is None and output_dir is not None:
-            video_recorder = VideoRecorder(output_dir, width, height, fps=30)
-
-        if video_recorder is None:
-            return None
-
-        button_state.is_recording = not button_state.is_recording
-        if button_state.is_recording:
-            if video_recorder.start_recording():
-                button_state.is_paused = False
-                menu_buttons["rec"].text = "STOP"
-            else:
-                button_state.is_recording = False
-        else:
-            video_recorder.stop_recording()
-            button_state.is_paused = False
-            menu_buttons["rec"].text = "REC"
-            button_state.gallery_storage_dirty = True  # so storage bar updates when opening gallery
-        return video_recorder
-
-    if "gallery" in menu_buttons and menu_buttons["gallery"].contains(x, y):
-        button_state.gallery_open = True
-        button_state.menu_open = False
-        button_state.gallery_storage_dirty = True  # refresh storage bar when opening gallery
         return video_recorder
 
     return video_recorder
