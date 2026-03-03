@@ -125,6 +125,14 @@ class ButtonState:
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
 
+    # Archive panel state
+    archive_drag_source_idx: int = -1       # index into displayed items list; -1 = not dragging
+    archive_drag_x: int = 0                 # current drag cursor x
+    archive_drag_y: int = 0                 # current drag cursor y
+    archive_hover_folder_idx: int = -1      # index of folder cell under cursor (-1 = none)
+    archive_create_open: bool = False       # create-folder name modal is open
+    archive_new_folder_name: str = ""       # name being built for new folder
+
     def __post_init__(self):
         if self.gallery_selected_items is None:
             self.gallery_selected_items = set()

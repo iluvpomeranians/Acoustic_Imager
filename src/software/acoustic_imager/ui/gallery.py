@@ -40,6 +40,12 @@ from .keyboard import (
     KEY_TEXT_BGR as _TK_KEY_TEXT,
 )
 from .priority_circle import draw_priority_circle_neon
+from .archive_panel import (
+    draw_archive_slot,
+    draw_drag_ghost,
+    archive_slot_rect,
+    get_archive_folders,
+)
 from ..state import button_state
 from ..config import (
     MENU_ACTIVE_BLUE,
@@ -1204,7 +1210,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     cols = (content_width - 2 * margin + gap) // (thumb_w + gap)
     cols = max(1, cols)
 
-    total_rows = (len(items) + cols - 1) // cols
+    # The archive slot permanently occupies (row=0, col=cols-1).
+    # Media items are shifted past that slot, so total slot count = len(items)+1.
+    _archive_linear = cols - 1   # linear slot index reserved for archive
+    total_rows = (len(items) + 1 + cols - 1) // cols
     item_height = thumb_h + gap + 50
     total_content_height = grid_start_y + (total_rows * item_height)
     footer_space = 40
@@ -1251,8 +1260,14 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     scroll_offset = button_state.gallery_scroll_offset
 
     for idx, (filepath, item_type, mtime) in enumerate(items):
-        row = idx // cols
-        col = idx % cols
+        # Skip the archive slot at (row=0, col=cols-1).
+        # Items before that slot keep their natural position; items at or after
+        # are shifted by one slot.
+        if idx < _archive_linear:
+            row, col = 0, idx
+        else:
+            adj = idx + 1  # skip the reserved archive slot
+            row, col = adj // cols, adj % cols
 
         x = grid_start_x + col * (thumb_w + gap)
         y = grid_start_y + row * (thumb_h + gap + 50) - scroll_offset
@@ -1482,6 +1497,35 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 tag_scale = 0.51  # 10% larger than 0.46
                 cv2.putText(frame, tag_text, (x + tag_icon_w, line2_y + 4),
                             font, tag_scale, (180, 200, 180), 1, cv2.LINE_AA)
+
+    # ── Archive slot (top-right) ──────────────────────────────────────────────
+    arch_x, arch_y, arch_w, arch_h = archive_slot_rect(
+        grid_start_x, grid_start_y, cols, thumb_w, thumb_h, gap,
+        button_state.gallery_scroll_offset,
+    )
+    # Only draw archive slot when it is within the visible content area
+    if arch_y + arch_h >= header_h and arch_y < fh:
+        drag_on = button_state.archive_drag_source_idx >= 0
+        draw_archive_slot(
+            frame, arch_x, arch_y, arch_w, arch_h, output_dir,
+            drag_active=drag_on,
+            drag_x=button_state.archive_drag_x,
+            drag_y=button_state.archive_drag_y,
+        )
+
+    # ── Drag ghost (drawn on top of everything in the grid) ───────────────────
+    if button_state.archive_drag_source_idx >= 0:
+        from . import ui_cache
+        items_all = get_displayed_gallery_items(output_dir)
+        src_idx = button_state.archive_drag_source_idx
+        if 0 <= src_idx < len(items_all):
+            src_path = items_all[src_idx][0]
+            ghost_img = ui_cache._THUMB_CACHE.get(src_path)
+            draw_drag_ghost(
+                frame, ghost_img,
+                button_state.archive_drag_x,
+                button_state.archive_drag_y,
+            )
 
     # Side dock first so strip + panel grow from Tags button (same as Filter/Sort); then form content on top
     draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
