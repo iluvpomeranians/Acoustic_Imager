@@ -15,11 +15,6 @@ from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset, _v
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
-from .archive_panel import (
-    get_archive_folders,
-    create_archive_folder,
-    move_to_folder,
-)
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
 from ..state import button_state
 from ..io.gallery_metadata import save_metadata
@@ -172,17 +167,6 @@ def _apply_tag_save(output_dir: Optional[Path]) -> None:
     button_state.gallery_tag_data = tag_data
     button_state.gallery_storage_dirty = True
     _persist_gallery_metadata(output_dir)
-
-
-def handle_archive_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
-    """
-    Handle clicks on archive-panel controls ('+' button).
-    Returns True if the click was consumed.
-    """
-    if "archive_add_folder" in menu_buttons and menu_buttons["archive_add_folder"].contains(x, y):
-        create_archive_folder(output_dir)
-        return True
-    return False
 
 
 def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
@@ -927,10 +911,6 @@ def handle_gallery_mouse(event, x, y, flags, output_dir) -> bool:
     now = time.perf_counter()
 
     if event == cv2.EVENT_LBUTTONDOWN:
-        # ── Check archive "+" button first ────────────────────────────────────
-        if handle_archive_click(x, y, output_dir):
-            return True
-
         button_state.gallery_dragging = True
         button_state.gallery_drag_start_y = y
         button_state.gallery_drag_start_x = x
@@ -941,17 +921,6 @@ def handle_gallery_mouse(event, x, y, flags, output_dir) -> bool:
         button_state.gallery_last_drag_t = now
         button_state.gallery_last_drag_y = y
         button_state.gallery_inertia_active = False
-
-        # ── Record which thumbnail was pressed (for drag-to-archive) ──────────
-        button_state.archive_drag_source_idx = -1
-        if not button_state.gallery_select_mode:
-            rects = getattr(button_state, "gallery_thumbnail_rects", [])
-            for thumb in rects:
-                if (thumb["x"] <= x <= thumb["x"] + thumb["w"] and
-                        thumb["y"] <= y <= thumb["y"] + thumb["h"]):
-                    button_state.archive_drag_source_idx = thumb["idx"]
-                    break
-
         return True
 
     if event == cv2.EVENT_MOUSEMOVE and button_state.gallery_dragging:
@@ -961,56 +930,26 @@ def handle_gallery_mouse(event, x, y, flags, output_dir) -> bool:
         if (abs(dy) > ui_cache.DRAG_PX) or (abs(dx) > ui_cache.DRAG_PX):
             button_state.gallery_drag_moved = True
 
-        # Update drag cursor for archive ghost + hover highlight
-        if button_state.archive_drag_source_idx >= 0:
-            button_state.archive_drag_x = x
-            button_state.archive_drag_y = y
-
         if button_state.gallery_drag_moved:
-            # Only scroll if NOT in archive-drag mode (or if dragging mostly vertically)
-            if button_state.archive_drag_source_idx < 0 or abs(dy) > abs(dx):
-                new_scroll = button_state.gallery_drag_start_scroll - dy
-                max_scroll = int(getattr(button_state, "gallery_max_scroll", 0))
-                button_state.gallery_scroll_offset = max(0, min(int(new_scroll), max_scroll))
+            new_scroll = button_state.gallery_drag_start_scroll - dy
+            max_scroll = int(getattr(button_state, "gallery_max_scroll", 0))
+            button_state.gallery_scroll_offset = max(0, min(int(new_scroll), max_scroll))
 
-                dt = max(1e-6, now - button_state.gallery_last_drag_t)
-                FLING_GAIN = 2
-                EMA_ALPHA = 0.6
-                inst_v = (button_state.gallery_last_drag_y - y) / dt * FLING_GAIN
-                button_state.gallery_scroll_velocity = (
-                    (1.0 - EMA_ALPHA) * button_state.gallery_scroll_velocity + EMA_ALPHA * inst_v
-                )
-                button_state.gallery_last_drag_t = now
-                button_state.gallery_last_drag_y = y
+            dt = max(1e-6, now - button_state.gallery_last_drag_t)
+            FLING_GAIN = 2
+            EMA_ALPHA = 0.6
+
+            inst_v = (button_state.gallery_last_drag_y - y) / dt
+            inst_v *= FLING_GAIN
+
+            button_state.gallery_scroll_velocity = (1.0 - EMA_ALPHA) * button_state.gallery_scroll_velocity + EMA_ALPHA * inst_v
+            button_state.gallery_last_drag_t = now
+            button_state.gallery_last_drag_y = y
 
         return True
 
     if event == cv2.EVENT_LBUTTONUP and button_state.gallery_dragging:
         button_state.gallery_dragging = False
-
-        # ── Archive drop: check if released over a folder cell ────────────────
-        src_idx = button_state.archive_drag_source_idx
-        if src_idx >= 0 and button_state.gallery_drag_moved:
-            hover = button_state.archive_hover_folder_idx
-            if hover >= 0 and output_dir:
-                folders = get_archive_folders(output_dir)
-                if hover < len(folders):
-                    items = get_displayed_gallery_items(output_dir)
-                    if 0 <= src_idx < len(items):
-                        file_path = items[src_idx][0]
-                        if move_to_folder(file_path, folders[hover]):
-                            button_state.gallery_storage_dirty = True
-                            # Evict thumbnail cache for moved file
-                            from . import ui_cache
-                            ui_cache._THUMB_CACHE.pop(file_path, None)
-                            ui_cache._THUMB_CACHE_MTIME.pop(file_path, None)
-            button_state.archive_drag_source_idx = -1
-            button_state.archive_hover_folder_idx = -1
-            return True
-
-        # Clear archive drag state on any release
-        button_state.archive_drag_source_idx = -1
-        button_state.archive_hover_folder_idx = -1
 
         if not button_state.gallery_drag_moved:
             return handle_gallery_click(x, y, output_dir)
