@@ -4,10 +4,18 @@ Button widget, icon drawing, and button/menu registries.
 
 from __future__ import annotations
 
-from typing import Optional, Dict
+from typing import Optional, Dict, Tuple
 
 import cv2
 import numpy as np
+
+
+def _vertical_gradient_uint8(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bgr: Tuple[int, int, int]) -> np.ndarray:
+    """Vertical gradient (top -> bottom) as (h, w, 3) BGR uint8."""
+    out = np.zeros((h, w, 3), dtype=np.uint8)
+    for c in range(3):
+        out[:, :, c] = np.linspace(top_bgr[c], bot_bgr[c], h, dtype=np.uint8).reshape(-1, 1)
+    return out
 
 from . import ui_cache
 from ..state import button_state
@@ -119,7 +127,15 @@ class Button:
             (self.y - pad) <= my <= (self.y + self.h + pad)
         )
 
-    def draw(self, frame: np.ndarray, transparent: bool = False, active_color: Optional[tuple] = None, active_border_color: Optional[tuple] = None, icon_type: Optional[str] = None) -> None:
+    def draw(
+        self,
+        frame: np.ndarray,
+        transparent: bool = False,
+        active_color: Optional[tuple] = None,
+        active_border_color: Optional[tuple] = None,
+        icon_type: Optional[str] = None,
+        gradient_colors: Optional[Tuple[tuple, tuple]] = None,
+    ) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
         active = active_color if active_color is not None else (40, 200, 60)
@@ -127,38 +143,69 @@ class Button:
         color = active if self.is_active else (hover if self.is_hovered else base)
 
         x, y, w, h = self.x, self.y, self.w, self.h
+        cx, cy = x + w // 2, y + h // 2
+        is_back = icon_type == "back"
 
-        if transparent:
+        if is_back:
+            # Circular back button: gradient fill and border as circle
+            r = min(w, h) // 2 - 1
             x0 = max(0, x)
             y0 = max(0, y)
             x1 = min(frame.shape[1], x + w)
             y1 = min(frame.shape[0], y + h)
-
             if x1 > x0 and y1 > y0:
                 roi = frame[y0:y1, x0:x1]
-                overlay = np.empty_like(roi)
-                overlay[:] = color
+                roi_h, roi_w = roi.shape[:2]
+                mask = np.zeros((roi_h, roi_w), dtype=np.uint8)
+                lcx, lcy = cx - x0, cy - y0
+                cv2.circle(mask, (lcx, lcy), r, 255, -1)
+                # Gradient: lighter top, darker bottom (gray tones)
+                back_top = (95, 95, 95)
+                back_bot = (45, 45, 45)
+                grad = _vertical_gradient_uint8(roi_h, roi_w, back_top, back_bot)
                 alpha = BUTTON_ALPHA
-                cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
-        else:
-            x0 = max(0, x)
-            y0 = max(0, y)
-            x1 = min(frame.shape[1], x + w)
-            y1 = min(frame.shape[0], y + h)
-            if x1 > x0 and y1 > y0:
-                roi = frame[y0:y1, x0:x1]
-                roi[:] = ui_cache.get_grad(roi.shape[1], roi.shape[0], color)
-
-        if self.is_active:
-            if active_border_color is not None:
-                border_color = active_border_color
-            elif active_color is not None:
-                border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
-            else:
-                border_color = (80, 255, 100)
-        else:
+                for c in range(3):
+                    blended = (roi[:, :, c].astype(np.float32) * (1 - alpha) + grad[:, :, c].astype(np.float32) * alpha).astype(np.uint8)
+                    roi[:, :, c] = np.where(mask > 0, blended, roi[:, :, c])
             border_color = (255, 255, 255)
-        _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
+            if self.is_active and active_border_color is not None:
+                border_color = active_border_color
+            cv2.circle(frame, (cx, cy), r, border_color, 2, cv2.LINE_AA)
+        else:
+            if transparent:
+                x0 = max(0, x)
+                y0 = max(0, y)
+                x1 = min(frame.shape[1], x + w)
+                y1 = min(frame.shape[0], y + h)
+                if x1 > x0 and y1 > y0:
+                    roi = frame[y0:y1, x0:x1]
+                    roi_h, roi_w = roi.shape[:2]
+                    if gradient_colors is not None:
+                        top_bgr, bot_bgr = gradient_colors
+                        overlay = _vertical_gradient_uint8(roi_h, roi_w, top_bgr, bot_bgr)
+                    else:
+                        overlay = np.empty_like(roi)
+                        overlay[:] = color
+                    alpha = BUTTON_ALPHA
+                    cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
+            else:
+                x0 = max(0, x)
+                y0 = max(0, y)
+                x1 = min(frame.shape[1], x + w)
+                y1 = min(frame.shape[0], y + h)
+                if x1 > x0 and y1 > y0:
+                    roi = frame[y0:y1, x0:x1]
+                    roi[:] = ui_cache.get_grad(roi.shape[1], roi.shape[0], color)
+            if self.is_active:
+                if active_border_color is not None:
+                    border_color = active_border_color
+                elif active_color is not None:
+                    border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
+                else:
+                    border_color = (80, 255, 100)
+            else:
+                border_color = (255, 255, 255)
+            _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
 
         if icon_type:
             cx = x + w // 2

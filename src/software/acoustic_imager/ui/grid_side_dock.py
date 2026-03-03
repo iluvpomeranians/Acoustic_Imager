@@ -14,9 +14,10 @@ import shutil
 import cv2
 import numpy as np
 
-from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, MODAL_ACTIVE_GOLD
+from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, MODAL_ACTIVE_GOLD, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT
 from ..state import button_state
 from .button import Button, menu_buttons
+from .priority_circle import draw_priority_circle_neon
 
 GRID_SIDE_DOCK_WIDTH = 113
 
@@ -118,18 +119,22 @@ def _draw_icon_priority(frame: np.ndarray, cx: int, cy: int, color: Tuple[int, i
 
 
 def _draw_icon_pen(frame: np.ndarray, cx: int, cy: int, color: Tuple[int, int, int]) -> None:
-    """Draw a pen / pencil icon centered at (cx, cy)."""
-    cv2.line(frame, (cx + 8, cy - 8), (cx - 6, cy + 6), color, 2, cv2.LINE_AA)
-    cv2.line(frame, (cx - 6, cy + 6), (cx - 10, cy + 10), color, 1, cv2.LINE_AA)
+    """Draw a simple pen icon: vertical body + pointed nib at bottom."""
+    # Body (vertical rectangle, cap at top)
+    body_top = cy - 10
+    body_bot = cy + 5
+    body_left = cx - 3
+    body_right = cx + 3
+    cv2.rectangle(frame, (body_left, body_top), (body_right, body_bot), color, -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (body_left, body_top), (body_right, body_bot), color, 1, cv2.LINE_AA)
+    # Nib (small triangle pointing down at writing end)
     tip_pts = np.array([
-        [cx - 6,  cy + 6],
-        [cx - 10, cy + 4],
-        [cx - 10, cy + 10],
+        [body_left, body_bot],
+        [body_right, body_bot],
+        [cx, cy + 10],
     ], dtype=np.int32)
     cv2.fillPoly(frame, [tip_pts], color)
-    cv2.line(frame, (cx + 6, cy - 10), (cx + 10, cy - 6), color, 1, cv2.LINE_AA)
-    cv2.line(frame, (cx + 6, cy - 10), (cx + 8,  cy - 8), color, 1, cv2.LINE_AA)
-    cv2.line(frame, (cx + 10, cy - 6), (cx + 8,  cy - 8), color, 1, cv2.LINE_AA)
+    cv2.polylines(frame, [tip_pts], True, color, 1, cv2.LINE_AA)
 
 
 # Subtle border for dock buttons so they read as controls, not flat panels
@@ -445,12 +450,11 @@ def _draw_priority_modal(frame: np.ndarray, dock_x: int, dock_y: int) -> None:
             cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
         cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_BORDER, 1, cv2.LINE_AA)
 
-        # Colored circle indicator
+        # Neon priority circle (same as gallery grid)
         dot_color = PRIORITY_COLORS[value]
         dot_cx = ox + 18
         dot_cy = oy + btn_h // 2
-        cv2.circle(frame, (dot_cx, dot_cy), 7, dot_color, -1, cv2.LINE_AA)
-        cv2.circle(frame, (dot_cx, dot_cy), 7, (255, 255, 255), 1, cv2.LINE_AA)
+        draw_priority_circle_neon(frame, dot_cx, dot_cy, 7, dot_color)
 
         text_color = (0, 0, 0) if active else SEARCH_BAR_TEXT_COLOR
         (tw, _), _ = cv2.getTextSize(label, font, 0.55, 1)
@@ -896,13 +900,11 @@ def draw_grid_side_dock(
     dock_x = frame_w - GRID_SIDE_DOCK_WIDTH
     dock_y = header_h + 3
     dock_w = GRID_SIDE_DOCK_WIDTH
-    dock_h = frame_h
+    dock_h = frame_h - dock_y
 
-    # Dock background: distinct, darker
-    cv2.rectangle(
-        frame, (dock_x, dock_y), (dock_x + dock_w, dock_y + dock_h),
-        DOCK_BG, -1
-    )
+    # Dock background: grey-to-black gradient (same as viewer dock / top bar)
+    dock_roi = frame[dock_y:dock_y + dock_h, dock_x:dock_x + dock_w]
+    dock_roi[:] = _vertical_gradient(dock_h, dock_w, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT)
     # Left edge: clear delimiter so it looks like a dock
     cv2.line(
         frame, (dock_x, dock_y), (dock_x, dock_y + dock_h),

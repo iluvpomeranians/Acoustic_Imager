@@ -38,6 +38,13 @@ FREQ_BAR_BLUE = (230, 170, 80)  # BGR slightly darker blue for sliding window
 # Gallery filter/sort modal: goldish yellow for selected option (bandpass-style accent)
 MODAL_ACTIVE_GOLD = (0, 200, 255)  # BGR goldish yellow
 
+# Dock and content area gradients (BGR grey to black)
+DOCK_GRADIENT_TOP = (55, 55, 55)
+DOCK_GRADIENT_BOT = (20, 20, 20)
+# Slightly darker for grid view and individual viewer background
+BG_GRADIENT_TOP = (42, 42, 42)
+BG_GRADIENT_BOT = (10, 10, 10)
+
 FREQ_BAR_WIDTH = 150
 DB_BAR_WIDTH = 80
 

@@ -17,6 +17,8 @@ from .viewer_dock import (
     draw_viewer_back_button_on_top,
     draw_viewer_button_feedback,
     VIEWER_DOCK_HEIGHT as VIEWER_DOCK_H,
+    BACK_BTN_SIZE,
+    _vertical_gradient,
 )
 from .grid_side_dock import (
     draw_grid_side_dock,
@@ -25,8 +27,66 @@ from .grid_side_dock import (
     DOCK_ROW_BORDER,
     DOCK_ROW_TOP_HIGHLIGHT,
 )
+from .priority_circle import draw_priority_circle_neon
 from ..state import button_state
-from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
+from ..config import (
+    MENU_ACTIVE_BLUE,
+    MENU_ACTIVE_BLUE_LIGHT,
+    BG_GRADIENT_TOP,
+    BG_GRADIENT_BOT,
+    DOCK_GRADIENT_TOP,
+    DOCK_GRADIENT_BOT,
+)
+
+# Viewer nav: double-chevron icon size and faint neon glow
+VIEWER_CHEVRON_SIZE = 14
+VIEWER_CHEVRON_GLOW_COLOR = (255, 220, 180)  # BGR faint warm white / cyan tint
+VIEWER_CHEVRON_GLOW_STRENGTH = 0.35
+
+
+def _draw_double_chevron_right(frame: np.ndarray, cx: int, cy: int) -> None:
+    """Draw double right-pointing chevrons with faint neon glow (no square)."""
+    s = VIEWER_CHEVRON_SIZE
+    # Two adjacent right-pointing triangles (thick/rounded feel via size)
+    pts1 = np.array([[cx + s, cy], [cx - s // 2, cy - s], [cx - s // 2, cy + s]], dtype=np.int32)
+    pts2 = np.array([[cx + 2 * s, cy], [cx + s // 2, cy - s], [cx + s // 2, cy + s]], dtype=np.int32)
+    _draw_chevron_pair_glow(frame, cx, cy, [pts1, pts2])
+
+
+def _draw_double_chevron_left(frame: np.ndarray, cx: int, cy: int) -> None:
+    """Draw double left-pointing chevrons with faint neon glow (no square)."""
+    s = VIEWER_CHEVRON_SIZE
+    pts1 = np.array([[cx - s, cy], [cx + s // 2, cy - s], [cx + s // 2, cy + s]], dtype=np.int32)
+    pts2 = np.array([[cx - 2 * s, cy], [cx - s // 2, cy - s], [cx - s // 2, cy + s]], dtype=np.int32)
+    _draw_chevron_pair_glow(frame, cx, cy, [pts1, pts2])
+
+
+def _draw_chevron_pair_glow(frame: np.ndarray, cx: int, cy: int, poly_list: list) -> None:
+    """Draw a list of polygon (chevron) shapes with faint neon glow, then solid white fill."""
+    h, w = frame.shape[:2]
+    pad = 25
+    x0 = max(0, cx - pad)
+    y0 = max(0, cy - pad)
+    x1 = min(w, cx + pad)
+    y1 = min(h, cy + pad)
+    if x1 <= x0 or y1 <= y0:
+        return
+    roi = frame[y0:y1, x0:x1]
+    lcx, lcy = cx - x0, cy - y0
+    glow_canvas = np.zeros((roi.shape[0], roi.shape[1], 3), dtype=np.uint8)
+    for pts in poly_list:
+        local_pts = pts - np.array([x0, y0])
+        cv2.fillPoly(glow_canvas, [local_pts], (255, 255, 255), cv2.LINE_AA)
+    glow_canvas = cv2.GaussianBlur(glow_canvas, (15, 15), 4.0)
+    glow_canvas = glow_canvas.astype(np.float32)
+    g = VIEWER_CHEVRON_GLOW_COLOR
+    for c in range(3):
+        glow_canvas[:, :, c] = glow_canvas[:, :, c] * (g[c] / 255.0)
+    roi[:] = np.minimum(255, (roi.astype(np.float32) + glow_canvas * VIEWER_CHEVRON_GLOW_STRENGTH)).astype(np.uint8)
+    for pts in poly_list:
+        cv2.fillPoly(frame, [pts], (255, 255, 255), cv2.LINE_AA)
+        cv2.polylines(frame, [pts], True, (240, 240, 240), 1, cv2.LINE_AA)
+
 
 # Rubber band at first/last item: stiff so no ghost card appears beyond the end
 VIEWER_RUBBER_BAND_FACTOR = 0.35
@@ -78,6 +138,18 @@ def _draw_tag_icon_small(frame: np.ndarray, cx: int, cy: int,
     ], dtype=np.int32)
     cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=1, lineType=cv2.LINE_AA)
     cv2.circle(frame, (cx - 3, cy), 2, color, -1, cv2.LINE_AA)
+
+
+def _draw_tag_icon_grid(frame: np.ndarray, cx: int, cy: int,
+                         color: tuple = (160, 200, 160)) -> None:
+    """Draw tag icon at 10% larger scale for grid labels."""
+    pts = np.array([
+        [cx - 8, cy - 6], [cx + 2, cy - 6],
+        [cx + 8, cy],
+        [cx + 2, cy + 6], [cx - 8, cy + 6],
+    ], dtype=np.int32)
+    cv2.polylines(frame, [pts], isClosed=True, color=color, thickness=1, lineType=cv2.LINE_AA)
+    cv2.circle(frame, (cx - 4, cy), 2, color, -1, cv2.LINE_AA)
 
 
 def _draw_viewer_tag_button(frame: np.ndarray, filepath: Path) -> None:
@@ -510,17 +582,27 @@ def _update_viewer_swipe_inertia(frame_w: int) -> None:
         button_state.gallery_viewer_swipe_velocity = 0.0
         button_state.gallery_viewer_swipe_inertia_active = False
     # Rubber band at ends: damp offset so it doesn't fly off
+    # Positive offset = swipe right = toward prev (newer). Negative = swipe left = toward next (older).
     n_items = getattr(button_state, "_gallery_items_len", 1)
     idx = button_state.gallery_selected_item or 0
-    if idx <= 0 and new_offset < 0:
+    if idx <= 0 and new_offset > 0:
         new_offset *= VIEWER_RUBBER_BAND_FACTOR
-    if idx >= n_items - 1 and new_offset > 0:
+    if idx >= n_items - 1 and new_offset < 0:
         new_offset *= VIEWER_RUBBER_BAND_FACTOR
 
-    # Snap or advance: threshold is fraction of slot width so drag feels continuous
+    # Snap or advance: swipe right (positive) -> prev (newer); swipe left (negative) -> next (older)
     slot_w = int(frame_w * VIEWER_CARD_WIDTH_RATIO) + int(frame_w * VIEWER_CARD_GAP_RATIO)
     threshold = max(float(ui_cache.VIEWER_SWIPE_THRESHOLD_PX), slot_w * VIEWER_SWIPE_SNAP_RATIO)
     if new_offset >= threshold:
+        button_state.gallery_viewer_swipe_offset = 0.0
+        button_state.gallery_viewer_swipe_velocity = 0.0
+        button_state.gallery_viewer_swipe_inertia_active = False
+        button_state.gallery_selected_item = max((button_state.gallery_selected_item or 0) - 1, 0)
+        if button_state.gallery_viewer_mode == "video":
+            button_state.gallery_video_playing = False
+            button_state.gallery_video_frame_idx = 0
+        return
+    if new_offset <= -threshold:
         button_state.gallery_viewer_swipe_offset = 0.0
         button_state.gallery_viewer_swipe_velocity = 0.0
         button_state.gallery_viewer_swipe_inertia_active = False
@@ -532,22 +614,14 @@ def _update_viewer_swipe_inertia(frame_w: int) -> None:
             button_state.gallery_video_playing = False
             button_state.gallery_video_frame_idx = 0
         return
-    if new_offset <= -threshold:
-        button_state.gallery_viewer_swipe_offset = 0.0
-        button_state.gallery_viewer_swipe_velocity = 0.0
-        button_state.gallery_viewer_swipe_inertia_active = False
-        button_state.gallery_selected_item = max((button_state.gallery_selected_item or 0) - 1, 0)
-        if button_state.gallery_viewer_mode == "video":
-            button_state.gallery_video_playing = False
-            button_state.gallery_video_frame_idx = 0
-        return
     button_state.gallery_viewer_swipe_offset = new_offset
 
 
 def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]], output_dir: Optional[Path]) -> None:
     """Draw image viewer with shared dock and swipe/inertia."""
-    frame[:] = (0, 0, 0)
+    menu_buttons.pop("viewer_tag_btn", None)
     frame_h, frame_w = frame.shape[:2]
+    frame[:] = _vertical_gradient(frame_h, frame_w, BG_GRADIENT_TOP, BG_GRADIENT_BOT)
 
     if button_state.gallery_selected_item is None or button_state.gallery_selected_item >= len(items):
         return
@@ -637,37 +711,47 @@ def draw_image_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
         cv2.putText(frame, msg, ((frame_w - msg_w) // 2, frame_h // 2),
                    font, 0.7, (150, 150, 150), 1, cv2.LINE_AA)
 
-    # Prev/next arrows (both flipped 180° from default: next "<", prev ">")
+    # Prev/next: double-chevron icons with faint neon glow (no square buttons)
     arrow_y = controls_y // 2 - 28
-    next_btn_x, next_btn_w, next_btn_h = 20, 50, 56
-    prev_btn_x, prev_btn_w, prev_btn_h = frame_w - 70, 50, 56
-    if button_state.gallery_selected_item < len(items) - 1:
-        if "gallery_next" not in menu_buttons:
-            menu_buttons["gallery_next"] = Button(next_btn_x, arrow_y, next_btn_w, next_btn_h, "<")
-        else:
-            menu_buttons["gallery_next"].x, menu_buttons["gallery_next"].y = next_btn_x, arrow_y
-            menu_buttons["gallery_next"].w, menu_buttons["gallery_next"].h = next_btn_w, next_btn_h
-        menu_buttons["gallery_next"].draw(frame, transparent=True)
-        draw_viewer_button_feedback(frame, "gallery_next", next_btn_x, arrow_y, next_btn_w, next_btn_h)
+    prev_btn_x, prev_btn_w, prev_btn_h = 20, 50, 56
+    next_btn_x, next_btn_w, next_btn_h = frame_w - 70, 50, 56
+    prev_cx, prev_cy = prev_btn_x + prev_btn_w // 2, arrow_y + prev_btn_h // 2
+    next_cx, next_cy = next_btn_x + next_btn_w // 2, arrow_y + next_btn_h // 2
     if button_state.gallery_selected_item > 0:
         if "gallery_prev" not in menu_buttons:
-            menu_buttons["gallery_prev"] = Button(prev_btn_x, arrow_y, prev_btn_w, prev_btn_h, ">")
+            menu_buttons["gallery_prev"] = Button(prev_btn_x, arrow_y, prev_btn_w, prev_btn_h, "")
         else:
             menu_buttons["gallery_prev"].x, menu_buttons["gallery_prev"].y = prev_btn_x, arrow_y
             menu_buttons["gallery_prev"].w, menu_buttons["gallery_prev"].h = prev_btn_w, prev_btn_h
-        menu_buttons["gallery_prev"].draw(frame, transparent=True)
-        draw_viewer_button_feedback(frame, "gallery_prev", prev_btn_x, arrow_y, prev_btn_w, prev_btn_h)
+        _draw_double_chevron_left(frame, prev_cx, prev_cy)
+        draw_viewer_button_feedback(
+            frame, "gallery_prev", prev_btn_x, arrow_y, prev_btn_w, prev_btn_h,
+            glow_center=(prev_cx - 10, prev_cy),
+        )
+    else:
+        menu_buttons.pop("gallery_prev", None)
+    if button_state.gallery_selected_item < len(items) - 1:
+        if "gallery_next" not in menu_buttons:
+            menu_buttons["gallery_next"] = Button(next_btn_x, arrow_y, next_btn_w, next_btn_h, "")
+        else:
+            menu_buttons["gallery_next"].x, menu_buttons["gallery_next"].y = next_btn_x, arrow_y
+            menu_buttons["gallery_next"].w, menu_buttons["gallery_next"].h = next_btn_w, next_btn_h
+        _draw_double_chevron_right(frame, next_cx, next_cy)
+        draw_viewer_button_feedback(
+            frame, "gallery_next", next_btn_x, arrow_y, next_btn_w, next_btn_h,
+            glow_center=(next_cx + 10, next_cy),
+        )
+    else:
+        menu_buttons.pop("gallery_next", None)
 
     draw_viewer_back_button_on_top(frame)
-    _draw_viewer_tag_button(frame, filepath)
-    if button_state.gallery_tag_info_open:
-        draw_tag_info_panel(frame, filepath)
 
 
 def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]], output_dir: Optional[Path]) -> None:
     """Draw video player with shared dock and swipe/inertia."""
-    frame[:] = (0, 0, 0)
+    menu_buttons.pop("viewer_tag_btn", None)
     frame_h, frame_w = frame.shape[:2]
+    frame[:] = _vertical_gradient(frame_h, frame_w, BG_GRADIENT_TOP, BG_GRADIENT_BOT)
 
     if button_state.gallery_selected_item is None or button_state.gallery_selected_item >= len(items):
         return
@@ -775,30 +859,40 @@ def draw_video_viewer(frame: np.ndarray, items: List[Tuple[Path, str, datetime]]
             if void_right > 0:
                 frame[0:available_h, 0:void_right] = (0, 0, 0)
 
+    # Prev/next: double-chevron icons with faint neon glow (no square buttons)
     arrow_y = controls_y // 2 - 28
-    next_btn_x, next_btn_w, next_btn_h = 20, 50, 56
-    prev_btn_x, prev_btn_w, prev_btn_h = frame_w - 70, 50, 56
-    if button_state.gallery_selected_item < len(items) - 1:
-        if "gallery_next" not in menu_buttons:
-            menu_buttons["gallery_next"] = Button(next_btn_x, arrow_y, next_btn_w, next_btn_h, "<")
-        else:
-            menu_buttons["gallery_next"].x, menu_buttons["gallery_next"].y = next_btn_x, arrow_y
-            menu_buttons["gallery_next"].w, menu_buttons["gallery_next"].h = next_btn_w, next_btn_h
-        menu_buttons["gallery_next"].draw(frame, transparent=True)
-        draw_viewer_button_feedback(frame, "gallery_next", next_btn_x, arrow_y, next_btn_w, next_btn_h)
+    prev_btn_x, prev_btn_w, prev_btn_h = 20, 50, 56
+    next_btn_x, next_btn_w, next_btn_h = frame_w - 70, 50, 56
+    prev_cx, prev_cy = prev_btn_x + prev_btn_w // 2, arrow_y + prev_btn_h // 2
+    next_cx, next_cy = next_btn_x + next_btn_w // 2, arrow_y + next_btn_h // 2
     if button_state.gallery_selected_item > 0:
         if "gallery_prev" not in menu_buttons:
-            menu_buttons["gallery_prev"] = Button(prev_btn_x, arrow_y, prev_btn_w, prev_btn_h, ">")
+            menu_buttons["gallery_prev"] = Button(prev_btn_x, arrow_y, prev_btn_w, prev_btn_h, "")
         else:
             menu_buttons["gallery_prev"].x, menu_buttons["gallery_prev"].y = prev_btn_x, arrow_y
             menu_buttons["gallery_prev"].w, menu_buttons["gallery_prev"].h = prev_btn_w, prev_btn_h
-        menu_buttons["gallery_prev"].draw(frame, transparent=True)
-        draw_viewer_button_feedback(frame, "gallery_prev", prev_btn_x, arrow_y, prev_btn_w, prev_btn_h)
+        _draw_double_chevron_left(frame, prev_cx, prev_cy)
+        draw_viewer_button_feedback(
+            frame, "gallery_prev", prev_btn_x, arrow_y, prev_btn_w, prev_btn_h,
+            glow_center=(prev_cx - 10, prev_cy),
+        )
+    else:
+        menu_buttons.pop("gallery_prev", None)
+    if button_state.gallery_selected_item < len(items) - 1:
+        if "gallery_next" not in menu_buttons:
+            menu_buttons["gallery_next"] = Button(next_btn_x, arrow_y, next_btn_w, next_btn_h, "")
+        else:
+            menu_buttons["gallery_next"].x, menu_buttons["gallery_next"].y = next_btn_x, arrow_y
+            menu_buttons["gallery_next"].w, menu_buttons["gallery_next"].h = next_btn_w, next_btn_h
+        _draw_double_chevron_right(frame, next_cx, next_cy)
+        draw_viewer_button_feedback(
+            frame, "gallery_next", next_btn_x, arrow_y, next_btn_w, next_btn_h,
+            glow_center=(next_cx + 10, next_cy),
+        )
+    else:
+        menu_buttons.pop("gallery_next", None)
 
     draw_viewer_back_button_on_top(frame)
-    _draw_viewer_tag_button(frame, filepath)
-    if button_state.gallery_tag_info_open:
-        draw_tag_info_panel(frame, filepath)
 
 
 def draw_delete_modal(
@@ -884,12 +978,11 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             draw_delete_modal(frame)
         return
 
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (15, 15, 15), -1)
-    cv2.addWeighted(overlay, 0.92, frame, 0.08, 0, frame)
+    fh, fw = frame.shape[0], frame.shape[1]
+    frame[:] = _vertical_gradient(fh, fw, BG_GRADIENT_TOP, BG_GRADIENT_BOT)
 
     header_h = 80
-    cv2.rectangle(frame, (0, 0), (frame.shape[1], header_h), (25, 25, 25), -1)
+    frame[0:header_h, 0:fw] = _vertical_gradient(header_h, fw, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT)
     cv2.line(frame, (0, header_h), (frame.shape[1], header_h), (80, 80, 80), 2)
 
     title = "GALLERY"
@@ -899,7 +992,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
     title_y = (header_h + title_h) // 2 + 5 - 20
-    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_8)
+    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
 
     if button_state.gallery_select_mode:
         selected_count = len(button_state.gallery_selected_items)
@@ -914,12 +1007,11 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     (info_w, info_h), _ = cv2.getTextSize(info_text, font, info_scale, 1)
     info_x = (frame.shape[1] - info_w) // 2
     info_y = title_y + 35
-    cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (150, 150, 150), 1, cv2.LINE_AA)
+    cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
     back_btn_x = 10
-    back_btn_y = 20
-    back_btn_w = 75
-    back_btn_h = 40
+    back_btn_y = 15
+    back_btn_w = back_btn_h = BACK_BTN_SIZE
 
     if "gallery_back" not in menu_buttons:
         menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
@@ -935,7 +1027,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         selected_count = len(button_state.gallery_selected_items)
         delete_btn_w = 140
         delete_btn_x = back_btn_x + back_btn_w + 10
-        delete_btn_y = 20
+        delete_btn_y = back_btn_y
 
         delete_text = f"DELETE ({selected_count})"
         delete_color = (0, 0, 220)
@@ -950,7 +1042,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_delete_selected"].text = delete_text
 
         menu_buttons["gallery_delete_selected"].is_active = True
-        menu_buttons["gallery_delete_selected"].draw(frame, transparent=True, active_color=delete_color)
+        menu_buttons["gallery_delete_selected"].draw(
+            frame, transparent=True, active_color=delete_color,
+            gradient_colors=((0, 0, 160), (0, 0, 255)),
+        )
 
     if items:
         btn_gap = 10
@@ -975,9 +1070,15 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
 
         if button_state.gallery_select_mode:
-            menu_buttons["gallery_select_mode"].draw(frame, transparent=True, active_color=(200, 100, 40))
+            menu_buttons["gallery_select_mode"].draw(
+                frame, transparent=True, active_color=(200, 100, 40),
+                gradient_colors=((160, 80, 30), (220, 120, 55)),
+            )
         else:
-            menu_buttons["gallery_select_mode"].draw(frame, transparent=True)
+            menu_buttons["gallery_select_mode"].draw(
+                frame, transparent=True,
+                gradient_colors=((50, 50, 50), (95, 95, 95)),
+            )
 
         current_x = select_mode_btn_x - btn_gap
 
@@ -1231,38 +1332,78 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         if label_y >= header_h and label_y <= frame.shape[0]:
             type_icon = "[IMG]" if item_type == "image" else "[VID]"
             type_color = (100, 200, 100) if item_type == "image" else (100, 150, 255)
+            (badge_w, _), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
 
+            # Line 1: [IMG]/[VID] then filename; priority circle right-aligned under thumbnail
             cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
 
-            # Small tag icon after [IMG]/[VID] badge if the file has tag data
-            tag_data_map = getattr(button_state, 'gallery_tag_data', {})
-            has_tag = bool(tag_data_map.get(filepath.name))
-            if has_tag:
-                (badge_w, _), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
-                _draw_tag_icon_small(frame, x + badge_w + 12, label_y - 4, (160, 200, 160))
+            (_, text_h), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
+            filename_x = x + badge_w + 6
+            max_fname_chars = 28
+            display_name = filepath.stem if filepath.stem else filepath.name
+            if len(display_name) > max_fname_chars:
+                display_name = display_name[: max_fname_chars - 3] + "..."
+            fname_scale = 0.45  # 5% larger than 0.43
+            (fname_w, _), _ = cv2.getTextSize(display_name, font, fname_scale, 1)
+            cv2.putText(frame, display_name, (filename_x, label_y), font, fname_scale, (200, 200, 200), 1, cv2.LINE_AA)
 
-            # Priority dot + filename/asset-name display
+            priority_radius = 7  # 15% larger than 5
+            dot_cy = label_y - text_h // 2  # align circle with type/filename baseline
+            gap_px = 4  # min gap between end of filename and priority circle
+            dot_cx = max(
+                filename_x + fname_w + gap_px + priority_radius,
+                x + thumb_w - priority_radius - 4,
+            )  # at least gap_px after filename; else right-aligned under thumbnail
             file_priorities = getattr(button_state, 'gallery_file_priorities', {})
             priority = file_priorities.get(filepath.name, "")
-            filename_x = x
             if priority and priority in PRIORITY_COLORS:
                 dot_color = PRIORITY_COLORS[priority]
-                dot_cx = x + 5
-                dot_cy = label_y + 14
-                cv2.circle(frame, (dot_cx, dot_cy), 5, dot_color, -1, cv2.LINE_AA)
-                cv2.circle(frame, (dot_cx, dot_cy), 5, (220, 220, 220), 1, cv2.LINE_AA)
-                filename_x = x + 15
-
-            # Display: asset name (stem) for tagged files, full filename for untagged
-            if has_tag:
-                display_name = filepath.stem
             else:
-                display_name = filepath.name
-            if len(display_name) > 30:
-                display_name = display_name[:27] + "..."
+                dot_color = (120, 120, 120)  # default grey when priority not set
+            draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, dot_color)
 
-            cv2.putText(frame, display_name, (filename_x, label_y + 20),
-                        font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
+            # Line 2: tag icon + tag text; only show if non-null and has real content (strict)
+            def _valid_tag(s) -> bool:
+                if s is None:
+                    return False
+                t = str(s).strip()
+                if not t or t.lower() == "null":
+                    return False
+                # reject placeholders: ?, ??, ???, or only punctuation/whitespace/replacement
+                if t in ("?", "??", "???"):
+                    return False
+                # strict: only show if there is at least one letter or digit (real content)
+                if not any(c.isalnum() for c in t):
+                    return False
+                # reject if only question marks and spaces (any Unicode)
+                if not t.replace("?", "").replace(" ", "").replace("\u00a0", "").replace("\u200b", "").replace("\ufffd", "").strip():
+                    return False
+                return True
+
+            line2_y = label_y + 18
+            tag_data_map = getattr(button_state, 'gallery_tag_data', {})
+            file_tags_map = getattr(button_state, 'gallery_file_tags', {})
+            tag_data = tag_data_map.get(filepath.name, {})
+            preset_tags = file_tags_map.get(filepath.name, [])
+            tag_parts = []
+            for key in ("asset_type", "leak_type"):
+                val = tag_data.get(key)
+                if _valid_tag(val):
+                    tag_parts.append(str(val).strip())
+            for t in preset_tags or []:
+                if _valid_tag(t):
+                    tag_parts.append(str(t).strip())
+            tag_text = " | ".join(tag_parts) if tag_parts else ""  # ASCII separator (· can render as ?? in OpenCV font)
+
+            if tag_text:
+                _draw_tag_icon_grid(frame, x + 10, line2_y, (160, 200, 160))
+                tag_icon_w = 22  # icon + gap
+                max_tag_chars = 32
+                if len(tag_text) > max_tag_chars:
+                    tag_text = tag_text[: max_tag_chars - 3] + "..."
+                tag_scale = 0.51  # 10% larger than 0.46
+                cv2.putText(frame, tag_text, (x + tag_icon_w, line2_y + 4),
+                            font, tag_scale, (180, 200, 180), 1, cv2.LINE_AA)
 
     # Side dock on top so it's clearly delimited; storage bar floats with viewport as you scroll
     draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)

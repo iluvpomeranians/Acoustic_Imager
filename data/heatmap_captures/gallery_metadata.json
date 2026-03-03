@@ -2,7 +2,8 @@
   "version": 1,
   "priorities": {
     "testd.mp4": "high",
-    "recording_20260301_220627.mp4": "low"
+    "recording_20260301_220627.mp4": "low",
+    "screenshot_20260301_232107.png": "medium"
   },
   "file_tags": {},
   "tag_data": {
@@ -17,6 +18,10 @@
     "recording_20260301_192008.mp4": {
       "asset_type": "j",
       "leak_type": ""
+    },
+    "screenshot_20260301_232107.png": {
+      "asset_type": "cvv",
+      "leak_type": "zz"
     }
   }
 }

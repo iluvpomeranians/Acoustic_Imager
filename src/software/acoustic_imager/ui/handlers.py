@@ -817,18 +817,19 @@ def handle_gallery_viewer_mouse(event, x, y, flags, output_dir) -> bool:
         vel = button_state.gallery_viewer_swipe_velocity
         th = getattr(button_state, "_gallery_swipe_threshold_px", ui_cache.VIEWER_SWIPE_THRESHOLD_PX)
         vth = ui_cache.VIEWER_SWIPE_VELOCITY_THRESHOLD
-        if (off >= th or vel >= vth) and idx < n - 1:
-            button_state.gallery_selected_item = idx + 1
-            button_state.gallery_viewer_mode = items[idx + 1][1]
+        # Swipe right (positive off/vel) -> prev (newer). Swipe left (negative) -> next (older).
+        if (off >= th or vel >= vth) and idx > 0:
+            button_state.gallery_selected_item = idx - 1
+            button_state.gallery_viewer_mode = items[idx - 1][1]
             button_state.gallery_viewer_swipe_offset = 0.0
             button_state.gallery_viewer_swipe_velocity = 0.0
             if button_state.gallery_viewer_mode == "video":
                 button_state.gallery_video_playing = False
                 button_state.gallery_video_frame_idx = 0
             return True
-        if (off <= -th or vel <= -vth) and idx > 0:
-            button_state.gallery_selected_item = idx - 1
-            button_state.gallery_viewer_mode = items[idx - 1][1]
+        if (off <= -th or vel <= -vth) and idx < n - 1:
+            button_state.gallery_selected_item = idx + 1
+            button_state.gallery_viewer_mode = items[idx + 1][1]
             button_state.gallery_viewer_swipe_offset = 0.0
             button_state.gallery_viewer_swipe_velocity = 0.0
             if button_state.gallery_viewer_mode == "video":
