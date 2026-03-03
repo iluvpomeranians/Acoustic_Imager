@@ -39,7 +39,7 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     menu_btn.y = actual_frame_height - menu_btn.h - 5
 
     x, y, w, h = menu_btn.x, menu_btn.y, menu_btn.w, menu_btn.h
-    x_off = x + int(offset_x)
+    x_off = x  # menu button stays fixed; horizontal offset does not move the button
     y_off = y + int(offset_y)
 
     roi = frame[y_off:y_off+h, x_off:x_off+w]

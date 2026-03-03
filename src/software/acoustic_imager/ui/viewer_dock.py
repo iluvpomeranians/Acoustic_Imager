@@ -309,10 +309,9 @@ def draw_viewer_chrome(
     file_priorities = getattr(button_state, "gallery_file_priorities", {})
     priority = file_priorities.get(filepath.name, "")
     if priority and priority in PRIORITY_COLORS:
-        dot_color = PRIORITY_COLORS[priority]
+        draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, PRIORITY_COLORS[priority])
     else:
-        dot_color = (120, 120, 120)
-    draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, dot_color)
+        draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, (120, 120, 120), neon=False)
 
     cv2.putText(frame, meta_str, (meta_x, row0_y), font, font_scale_meta, (240, 240, 240), 1, cv2.LINE_AA)
 

@@ -1436,10 +1436,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             file_priorities = getattr(button_state, 'gallery_file_priorities', {})
             priority = file_priorities.get(filepath.name, "")
             if priority and priority in PRIORITY_COLORS:
-                dot_color = PRIORITY_COLORS[priority]
+                draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, PRIORITY_COLORS[priority])
             else:
-                dot_color = (120, 120, 120)  # default grey when priority not set
-            draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, dot_color)
+                draw_priority_circle_neon(frame, dot_cx, dot_cy, priority_radius, (120, 120, 120), neon=False)
 
             # Line 2: tag icon + tag text; only show if non-null and has real content (strict)
             def _valid_tag(s) -> bool:

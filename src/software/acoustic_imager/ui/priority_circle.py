@@ -1,5 +1,6 @@
 """
-Shared neon-style priority circle drawing (gradient + circular glow).
+Shared priority circle drawing.
+Neon style (gradient + glow) for set priorities; plain flat circle for unset.
 Used in gallery grid labels and in the priority modal.
 """
 
@@ -10,9 +11,13 @@ import numpy as np
 
 
 def draw_priority_circle_neon(
-    frame: np.ndarray, cx: int, cy: int, radius: int, color_bgr: Tuple[int, int, int]
+    frame: np.ndarray, cx: int, cy: int, radius: int, color_bgr: Tuple[int, int, int],
+    neon: bool = True,
 ) -> None:
-    """Draw a priority circle with radial gradient and soft circular glow (neon style). No hard outline."""
+    """Draw a priority circle. When neon=True uses radial gradient + glow; when False draws a plain flat circle."""
+    if not neon:
+        cv2.circle(frame, (cx, cy), radius, color_bgr, -1, cv2.LINE_AA)
+        return
     glow_radius = radius + 6
     glow_extra = 10  # extra padding so blur has room to fall off
     size = 2 * (glow_radius + glow_extra) + 1
