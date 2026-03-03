@@ -392,10 +392,9 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                         else:
                             state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
                 else:
-                    if dx > 0:  # swipe right -> hide menu (x)
-                        state.ui_menu_offset_target = float(config.UI_MENU_HIDE_OFFSET)
-                    else:  # swipe left -> show menu (x)
+                    if dx < 0:  # swipe left -> show menu (x)
                         state.ui_menu_offset_target = 0.0
+                    # swipe right does nothing (menu button stays in place)
                 return
             if dist <= config.UI_TAP_MAX_MOVE_PX and in_content:
                 # Single tap in content area when menu is open: close menu, keep menu button visible
