@@ -1120,7 +1120,6 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         delete_btn_y = back_btn_y
 
         delete_text = f"DELETE ({selected_count})"
-        delete_color = (0, 0, 220)
 
         if "gallery_delete_selected" not in menu_buttons:
             menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, back_btn_h, delete_text)
@@ -1133,8 +1132,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         menu_buttons["gallery_delete_selected"].is_active = True
         menu_buttons["gallery_delete_selected"].draw(
-            frame, transparent=True, active_color=delete_color,
-            gradient_colors=((0, 0, 160), (0, 0, 255)),
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
+            active_border_color=(255, 255, 255),
         )
 
     if items:
@@ -1159,16 +1159,11 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
 
-        if button_state.gallery_select_mode:
-            menu_buttons["gallery_select_mode"].draw(
-                frame, transparent=True, active_color=(200, 100, 40),
-                gradient_colors=((160, 80, 30), (220, 120, 55)),
-            )
-        else:
-            menu_buttons["gallery_select_mode"].draw(
-                frame, transparent=True,
-                gradient_colors=((50, 50, 50), (95, 95, 95)),
-            )
+        menu_buttons["gallery_select_mode"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
+            active_border_color=(255, 255, 255),
+        )
 
         current_x = select_mode_btn_x - btn_gap
 
@@ -1187,7 +1182,12 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 all_selected = len(button_state.gallery_selected_items) == len(items)
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
 
-            menu_buttons["gallery_select_all"].draw(frame, transparent=True)
+            menu_buttons["gallery_select_all"].is_active = True
+            menu_buttons["gallery_select_all"].draw(
+                frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+                gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
+                active_border_color=(255, 255, 255),
+            )
 
     if not items:
         msg = "No captures yet. Use SHOT or REC to create content."
