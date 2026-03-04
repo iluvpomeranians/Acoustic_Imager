@@ -1041,7 +1041,6 @@ def draw_storage_bar(
     used_percent = (used_space / total_space * 100) if total_space > 0 else 0
     free_space = total_space - used_space
 
-    # Text area: left of the bar
     text_left = dock_x + 4
 
     # Compute text strings and measure max width (for bar centering)
@@ -1063,10 +1062,9 @@ def draw_storage_bar(
 
     label_text = "STORAGE"
     label_scale = 0.52
-    (label_w, label_h), _ = cv2.getTextSize(label_text, font, label_scale, 1)
-    # Place to the left of bar (same column as Free/Used), aligned with top of bar
-    label_x = text_left
-    label_y = bar_y + label_h  # baseline so top of text aligns with bar_y
+    (label_w, _), _ = cv2.getTextSize(label_text, font, label_scale, 1)
+    label_x = dock_x + (dock_w - label_w) // 2
+    label_y = bar_y - 6
     cv2.putText(
         frame, label_text, (label_x, label_y),
         font, label_scale, (180, 180, 180), 1, cv2.LINE_AA
@@ -1092,7 +1090,6 @@ def draw_storage_bar(
     if used_space > 0 and filled_h < 2:
         filled_h = 2
     used_top = fill_y1 - filled_h
-    # Blue gradient for used portion (matches Search/Filter/Sort buttons)
     used_color_top = MENU_ACTIVE_BLUE
     used_color_bot = MENU_ACTIVE_BLUE_LIGHT
     free_color_top = (115, 115, 120)
