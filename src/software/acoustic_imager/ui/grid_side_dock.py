@@ -1069,8 +1069,9 @@ def draw_storage_bar(
     if used_space > 0 and filled_h < 2:
         filled_h = 2
     used_top = fill_y1 - filled_h
-    used_color_top = (100, 120, 85)
-    used_color_bot = (145, 165, 120)
+    # Blue gradient for used portion (matches Search/Filter/Sort buttons)
+    used_color_top = MENU_ACTIVE_BLUE
+    used_color_bot = MENU_ACTIVE_BLUE_LIGHT
     free_color_top = (115, 115, 120)
     free_color_bot = (145, 145, 150)
     if filled_h > 0:
@@ -1090,15 +1091,14 @@ def draw_storage_bar(
                     free_color_top[c], free_color_bot[c], free_h, dtype=np.uint8
                 ).reshape(-1, 1)
             frame[fill_y0:used_top, fill_x0:fill_x1] = free_grad
-        ridge_color = (60, 85, 70)
+        ridge_color = (90, 100, 120)  # blue-tinted ridge
         cv2.line(
             frame, (fill_x0, used_top), (fill_x1, used_top),
             ridge_color, 2, cv2.LINE_AA
         )
 
-    # Text outside bar: two fixed rows to the left (always readable, no squishing)
-    percent_scale = 0.48
-    size_scale = 0.42
+    # Text outside bar: label on one line, value underneath (always readable)
+    percent_scale = 0.46
     used_pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
     free_pct = 100.0 - used_percent
     free_pct_str = f"{free_pct:.1f}%" if free_pct >= 0.1 else f"{free_pct:.2f}%"
@@ -1106,26 +1106,25 @@ def draw_storage_bar(
     free_size_str = f"({_format_size(free_space)})"
     text_color_used = (255, 255, 255)
     text_color_free = (230, 230, 230)
-    row_h = 28  # fixed row height for FREE and USED
+    label_color = (160, 160, 165)
+    line_gap = 6  # gap between label and value
 
-    # Row 1: FREE - top of text block
-    free_row_y = bar_y + 18
-    free_label = "FREE"
-    free_line = f"{free_pct_str} {free_size_str}"
-    cv2.putText(frame, free_label, (text_left, free_row_y),
-                font, 0.45, (160, 160, 165), 1, cv2.LINE_AA)
-    (free_lbl_w, _), _ = cv2.getTextSize(free_label, font, 0.45, 1)
-    cv2.putText(frame, free_line, (text_left + free_lbl_w + 4, free_row_y),
+    # FREE: label on top, value underneath
+    free_label_y = bar_y + 16
+    cv2.putText(frame, "FREE", (text_left, free_label_y),
+                font, 0.45, label_color, 1, cv2.LINE_AA)
+    free_value_y = free_label_y + 16 + line_gap
+    free_value_line = f"{free_pct_str} {free_size_str}"
+    cv2.putText(frame, free_value_line, (text_left, free_value_y),
                 font, percent_scale, text_color_free, 1, cv2.LINE_AA)
 
-    # Row 2: USED - below FREE (fixed position, never squished)
-    used_row_y = free_row_y + row_h
-    used_label = "USED"
-    used_line = f"{used_pct_str} {used_size_str}"
-    cv2.putText(frame, used_label, (text_left, used_row_y),
-                font, 0.45, (160, 160, 165), 1, cv2.LINE_AA)
-    (used_lbl_w, _), _ = cv2.getTextSize(used_label, font, 0.45, 1)
-    cv2.putText(frame, used_line, (text_left + used_lbl_w + 4, used_row_y),
+    # USED: label on top, value underneath
+    used_label_y = free_value_y + 20
+    cv2.putText(frame, "USED", (text_left, used_label_y),
+                font, 0.45, label_color, 1, cv2.LINE_AA)
+    used_value_y = used_label_y + 16 + line_gap
+    used_value_line = f"{used_pct_str} {used_size_str}"
+    cv2.putText(frame, used_value_line, (text_left, used_value_y),
                 font, percent_scale, text_color_used, 1, cv2.LINE_AA)
 
 
