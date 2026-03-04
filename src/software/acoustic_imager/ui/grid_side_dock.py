@@ -1134,13 +1134,13 @@ def draw_storage_bar(
     y += line_h
     cv2.putText(frame, free_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
 
-    # USED: label, percentage, size (3 lines) — blue
+    # USED: label blue, percentage and size white (to match Free)
     y += line_h + gap_between_blocks
     cv2.putText(frame, "Used", (text_left, y), font, 0.45, text_color_used, 1, cv2.LINE_AA)
     y += line_h
-    cv2.putText(frame, used_pct_str, (text_left, y), font, percent_scale, text_color_used, 1, cv2.LINE_AA)
+    cv2.putText(frame, used_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
     y += line_h
-    cv2.putText(frame, used_size_str, (text_left, y), font, 0.42, text_color_used, 1, cv2.LINE_AA)
+    cv2.putText(frame, used_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
 
 
 def draw_grid_side_dock(

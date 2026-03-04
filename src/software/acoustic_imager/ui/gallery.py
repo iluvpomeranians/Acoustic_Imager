@@ -1057,12 +1057,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     title_thick = 2
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
-    # Baseline so top of text stays on screen (putText y is baseline; text extends above by title_h)
-    title_y = title_h + 10
+    title_y = title_h + 18
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
 
-    # Hint line between title and info (space reserved so layout is stable)
-    hint_line_y = title_y + title_h + 6
+    hint_line_y = title_y + title_h + 4
     info_y = hint_line_y + 26
 
     # When user clicked Tags/Priority/Rename with no selection, show brief hint between GALLERY and info
