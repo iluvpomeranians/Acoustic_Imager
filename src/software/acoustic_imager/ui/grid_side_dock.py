@@ -50,10 +50,11 @@ DOCK_ROW_THIRD_LABEL = "Sort"
 SEARCH_BAR_TEXT_COLOR = (255, 255, 255)
 
 BAR_BOTTOM_MARGIN_PX = 2
-BAR_HEIGHT = 220
+BAR_HEIGHT = 200
 BAR_INSET = 2
-# Bar is 15% skinnier than dock, centered (1px gap each side of dock)
-BAR_WIDTH_RATIO = 0.85
+# Slim bar right-aligned: fixed width (thinner, more aesthetic)
+BAR_WIDTH_PX = 14
+BAR_RIGHT_MARGIN_PX = 4
 
 # Priority colours (BGR)
 PRIORITY_COLORS = {
@@ -1027,16 +1028,19 @@ def draw_storage_bar(
         used_space = total_media_size
 
     frame_h = frame.shape[0]
-    max_w = dock_w - 2
-    bar_w = max(20, int(max_w * BAR_WIDTH_RATIO))
-    bar_x = dock_x + 1 + (max_w - bar_w) // 2
+    bar_w = BAR_WIDTH_PX
+    # Right-align bar: bar sits at right edge of dock with small margin
+    bar_x = dock_x + dock_w - bar_w - BAR_RIGHT_MARGIN_PX
     bar_y = frame_h - BAR_BOTTOM_MARGIN_PX - BAR_HEIGHT
 
+    # Text area: left of the bar (fixed layout, always readable)
+    text_left = dock_x + 4
+
     label_text = "STORAGE"
-    label_scale = 0.54
+    label_scale = 0.52
     (label_w, _), _ = cv2.getTextSize(label_text, font, label_scale, 1)
     label_x = dock_x + (dock_w - label_w) // 2
-    label_y = bar_y - 8
+    label_y = bar_y - 6
     cv2.putText(
         frame, label_text, (label_x, label_y),
         font, label_scale, (180, 180, 180), 1, cv2.LINE_AA
@@ -1045,7 +1049,7 @@ def draw_storage_bar(
     used_percent = (used_space / total_space * 100) if total_space > 0 else 0
     free_space = total_space - used_space
 
-    # Track background
+    # Slim vertical bar (right-aligned)
     cv2.rectangle(
         frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + BAR_HEIGHT),
         (45, 45, 50), -1
@@ -1055,7 +1059,6 @@ def draw_storage_bar(
         (70, 70, 78), 2, cv2.LINE_AA
     )
 
-    # Fill flush against inset on all sides (no gap, no overfill)
     fill_x0 = bar_x + BAR_INSET
     fill_x1 = bar_x + bar_w - BAR_INSET
     fill_y0 = bar_y + BAR_INSET
@@ -1065,8 +1068,7 @@ def draw_storage_bar(
     filled_h = int(fill_area_h * min(used_percent / 100.0, 1.0))
     if used_space > 0 and filled_h < 2:
         filled_h = 2
-    used_top = fill_y1 - filled_h  # boundary between used (bottom) and free (top) segments
-    # Distinct palette: used = teal/green, free = cool gray (not menu blue)
+    used_top = fill_y1 - filled_h
     used_color_top = (100, 120, 85)
     used_color_bot = (145, 165, 120)
     free_color_top = (115, 115, 120)
@@ -1088,73 +1090,43 @@ def draw_storage_bar(
                     free_color_top[c], free_color_bot[c], free_h, dtype=np.uint8
                 ).reshape(-1, 1)
             frame[fill_y0:used_top, fill_x0:fill_x1] = free_grad
-        # Thin ridge at boundary (darker teal)
         ridge_color = (60, 85, 70)
         cv2.line(
             frame, (fill_x0, used_top), (fill_x1, used_top),
             ridge_color, 2, cv2.LINE_AA
         )
 
-    # Percent and (size) as a block, centered in each segment
-    percent_scale = 0.64
-    size_scale = 0.50
-    line_gap = 4
+    # Text outside bar: two fixed rows to the left (always readable, no squishing)
+    percent_scale = 0.48
+    size_scale = 0.42
     used_pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
     free_pct = 100.0 - used_percent
     free_pct_str = f"{free_pct:.1f}%" if free_pct >= 0.1 else f"{free_pct:.2f}%"
     used_size_str = f"({_format_size(used_space)})"
     free_size_str = f"({_format_size(free_space)})"
-    (used_tw, used_th), _ = cv2.getTextSize(used_pct_str, font, percent_scale, 2)
-    (free_tw, free_th), _ = cv2.getTextSize(free_pct_str, font, percent_scale, 2)
-    (used_sw, used_size_th), _ = cv2.getTextSize(used_size_str, font, size_scale, 1)
-    (free_sw, free_size_th), _ = cv2.getTextSize(free_size_str, font, size_scale, 1)
-    used_cx = (fill_x0 + fill_x1) // 2
-    free_cx = (fill_x0 + fill_x1) // 2
     text_color_used = (255, 255, 255)
     text_color_free = (230, 230, 230)
-    label_scale = 0.50  # small "FREE" / "USED" at top of each segment
-    label_pad = 2
-    text_push_up_px = 8  # push % and (size) block up slightly
+    row_h = 28  # fixed row height for FREE and USED
 
-    if filled_h > 0:
-        (used_lw, used_lh), _ = cv2.getTextSize("USED", font, label_scale, 1)
-        # USED label at bottom (other end) of used bar
-        cv2.putText(
-            frame, "USED", (used_cx - used_lw // 2, fill_y1 - label_pad),
-            font, label_scale, text_color_used, 1, cv2.LINE_AA
-        )
-        used_seg_center = (used_top + fill_y1) // 2
-        used_block_h = used_th + line_gap + used_size_th
-        used_pct_baseline = used_seg_center - used_block_h // 2 + used_th - text_push_up_px
-        used_size_baseline = used_pct_baseline + line_gap + used_size_th
-        cv2.putText(
-            frame, used_pct_str, (used_cx - used_tw // 2, used_pct_baseline),
-            font, percent_scale, text_color_used, 1, cv2.LINE_AA
-        )
-        cv2.putText(
-            frame, used_size_str, (used_cx - used_sw // 2, used_size_baseline),
-            font, size_scale, text_color_used, 1, cv2.LINE_AA
-        )
-    free_segment_top = fill_y0
-    free_segment_bottom = used_top
-    if free_segment_bottom > free_segment_top:
-        (free_lw, free_lh), _ = cv2.getTextSize("FREE", font, label_scale, 1)
-        cv2.putText(
-            frame, "FREE", (free_cx - free_lw // 2, free_segment_top + label_pad + free_lh),
-            font, label_scale, text_color_free, 1, cv2.LINE_AA
-        )
-        free_seg_center = (free_segment_top + free_segment_bottom) // 2
-        free_block_h = free_th + line_gap + free_size_th
-        free_pct_baseline = free_seg_center - free_block_h // 2 + free_th - text_push_up_px
-        free_size_baseline = free_pct_baseline + line_gap + free_size_th
-        cv2.putText(
-            frame, free_pct_str, (free_cx - free_tw // 2, free_pct_baseline),
-            font, percent_scale, text_color_free, 1, cv2.LINE_AA
-        )
-        cv2.putText(
-            frame, free_size_str, (free_cx - free_sw // 2, free_size_baseline),
-            font, size_scale, text_color_free, 1, cv2.LINE_AA
-        )
+    # Row 1: FREE - top of text block
+    free_row_y = bar_y + 18
+    free_label = "FREE"
+    free_line = f"{free_pct_str} {free_size_str}"
+    cv2.putText(frame, free_label, (text_left, free_row_y),
+                font, 0.45, (160, 160, 165), 1, cv2.LINE_AA)
+    (free_lbl_w, _), _ = cv2.getTextSize(free_label, font, 0.45, 1)
+    cv2.putText(frame, free_line, (text_left + free_lbl_w + 4, free_row_y),
+                font, percent_scale, text_color_free, 1, cv2.LINE_AA)
+
+    # Row 2: USED - below FREE (fixed position, never squished)
+    used_row_y = free_row_y + row_h
+    used_label = "USED"
+    used_line = f"{used_pct_str} {used_size_str}"
+    cv2.putText(frame, used_label, (text_left, used_row_y),
+                font, 0.45, (160, 160, 165), 1, cv2.LINE_AA)
+    (used_lbl_w, _), _ = cv2.getTextSize(used_label, font, 0.45, 1)
+    cv2.putText(frame, used_line, (text_left + used_lbl_w + 4, used_row_y),
+                font, percent_scale, text_color_used, 1, cv2.LINE_AA)
 
 
 def draw_grid_side_dock(
