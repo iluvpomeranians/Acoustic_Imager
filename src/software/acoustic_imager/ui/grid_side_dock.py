@@ -1063,9 +1063,10 @@ def draw_storage_bar(
 
     label_text = "STORAGE"
     label_scale = 0.52
-    (label_w, _), _ = cv2.getTextSize(label_text, font, label_scale, 1)
-    label_x = dock_x + (dock_w - label_w) // 2
-    label_y = bar_y - 6
+    (label_w, label_h), _ = cv2.getTextSize(label_text, font, label_scale, 1)
+    # Place to the left of bar (same column as Free/Used), aligned with top of bar
+    label_x = text_left
+    label_y = bar_y + label_h  # baseline so top of text aligns with bar_y
     cv2.putText(
         frame, label_text, (label_x, label_y),
         font, label_scale, (180, 180, 180), 1, cv2.LINE_AA
@@ -1132,17 +1133,31 @@ def draw_storage_bar(
     total_text_h = 3 * line_h + gap_between_blocks + 3 * line_h
     text_block_top = bar_y + (BAR_HEIGHT - total_text_h) // 2
 
-    # FREE: label, percentage, size (3 lines)
+    # Legend square size and gap
+    LEGEND_SQ = 6
+    LEGEND_GAP = 4
+    legend_free_color = (140, 140, 145)  # grey (BGR)
+    legend_used_color = MENU_ACTIVE_BLUE_LIGHT  # blue
+
     y = text_block_top
-    cv2.putText(frame, "Free", (text_left, y), font, 0.45, label_color, 1, cv2.LINE_AA)
+    sq_y = y - LEGEND_SQ - 2  # vertically center square with text
+    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
+                  legend_free_color, -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
+                  (180, 180, 185), 1, cv2.LINE_AA)
+    cv2.putText(frame, "Free", (text_left + LEGEND_SQ + LEGEND_GAP, y), font, 0.45, label_color, 1, cv2.LINE_AA)
     y += line_h
     cv2.putText(frame, free_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
     y += line_h
     cv2.putText(frame, free_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
 
-    # USED: label blue, percentage and size white (to match Free)
     y += line_h + gap_between_blocks
-    cv2.putText(frame, "Used", (text_left, y), font, 0.45, text_color_used, 1, cv2.LINE_AA)
+    sq_y = y - LEGEND_SQ - 2
+    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
+                  legend_used_color, -1, cv2.LINE_AA)
+    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
+                  (200, 200, 220), 1, cv2.LINE_AA)
+    cv2.putText(frame, "Used", (text_left + LEGEND_SQ + LEGEND_GAP, y), font, 0.45, text_color_used, 1, cv2.LINE_AA)
     y += line_h
     cv2.putText(frame, used_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
     y += line_h

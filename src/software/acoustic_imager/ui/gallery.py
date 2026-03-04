@@ -28,6 +28,7 @@ from .grid_side_dock import (
     DOCK_ROW_TOP_HIGHLIGHT,
     DOCK_ROW_WHITE_BORDER,
     SEARCH_BAR_TEXT_COLOR,
+    _format_size,
 )
 from .keyboard import (
     ROWS_QWERTY as _TK_ROWS,
@@ -1078,7 +1079,16 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     if button_state.gallery_select_mode:
         selected_count = len(button_state.gallery_selected_items)
         if selected_count > 0:
-            info_text = f"Total: {len(items)} items | Selected: {selected_count} | Click to select | Swipe to scroll"
+            # Total size of selected files
+            selected_size = 0
+            for idx in button_state.gallery_selected_items:
+                if 0 <= idx < len(items):
+                    try:
+                        selected_size += items[idx][0].stat().st_size
+                    except OSError:
+                        pass
+            size_str = _format_size(selected_size)
+            info_text = f"Total: {len(items)} items | Selected: {selected_count} ({size_str}) | Click to select | Swipe to scroll"
         else:
             info_text = f"Total: {len(items)} items | Click to select | Swipe to scroll"
     else:
