@@ -1097,35 +1097,33 @@ def draw_storage_bar(
             ridge_color, 2, cv2.LINE_AA
         )
 
-    # Text outside bar: label on one line, value underneath (always readable)
+    # Text outside bar: label, percentage, size on separate lines
     percent_scale = 0.46
     used_pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
     free_pct = 100.0 - used_percent
     free_pct_str = f"{free_pct:.1f}%" if free_pct >= 0.1 else f"{free_pct:.2f}%"
-    used_size_str = f"({_format_size(used_space)})"
-    free_size_str = f"({_format_size(free_space)})"
+    used_size_str = _format_size(used_space)
+    free_size_str = _format_size(free_space)
     text_color_used = (255, 255, 255)
     text_color_free = (230, 230, 230)
     label_color = (160, 160, 165)
-    line_gap = 6  # gap between label and value
+    line_h = 14  # vertical spacing between lines
 
-    # FREE: label on top, value underneath
-    free_label_y = bar_y + 16
-    cv2.putText(frame, "FREE", (text_left, free_label_y),
-                font, 0.45, label_color, 1, cv2.LINE_AA)
-    free_value_y = free_label_y + 16 + line_gap
-    free_value_line = f"{free_pct_str} {free_size_str}"
-    cv2.putText(frame, free_value_line, (text_left, free_value_y),
-                font, percent_scale, text_color_free, 1, cv2.LINE_AA)
+    # FREE: label, percentage, size (3 lines)
+    y = bar_y + 14
+    cv2.putText(frame, "Free", (text_left, y), font, 0.45, label_color, 1, cv2.LINE_AA)
+    y += line_h
+    cv2.putText(frame, free_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
+    y += line_h
+    cv2.putText(frame, free_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
 
-    # USED: label on top, value underneath
-    used_label_y = free_value_y + 20
-    cv2.putText(frame, "USED", (text_left, used_label_y),
-                font, 0.45, label_color, 1, cv2.LINE_AA)
-    used_value_y = used_label_y + 16 + line_gap
-    used_value_line = f"{used_pct_str} {used_size_str}"
-    cv2.putText(frame, used_value_line, (text_left, used_value_y),
-                font, percent_scale, text_color_used, 1, cv2.LINE_AA)
+    # USED: label, percentage, size (3 lines)
+    y += line_h + 4
+    cv2.putText(frame, "Used", (text_left, y), font, 0.45, label_color, 1, cv2.LINE_AA)
+    y += line_h
+    cv2.putText(frame, used_pct_str, (text_left, y), font, percent_scale, text_color_used, 1, cv2.LINE_AA)
+    y += line_h
+    cv2.putText(frame, used_size_str, (text_left, y), font, 0.42, text_color_used, 1, cv2.LINE_AA)
 
 
 def draw_grid_side_dock(
