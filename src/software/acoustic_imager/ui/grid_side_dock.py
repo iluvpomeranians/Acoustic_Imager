@@ -52,9 +52,10 @@ SEARCH_BAR_TEXT_COLOR = (255, 255, 255)
 BAR_BOTTOM_MARGIN_PX = 2
 BAR_HEIGHT = 200
 BAR_INSET = 2
-# Slim bar right-aligned: fixed width (thinner, more aesthetic)
-BAR_WIDTH_PX = 14
+# Bar: width and margins (centered between text and dock right edge)
+BAR_WIDTH_PX = 22
 BAR_RIGHT_MARGIN_PX = 4
+BAR_TEXT_GAP_PX = 8  # gap between end of text and bar
 
 # Priority colours (BGR)
 PRIORITY_COLORS = {
@@ -1029,12 +1030,30 @@ def draw_storage_bar(
 
     frame_h = frame.shape[0]
     bar_w = BAR_WIDTH_PX
-    # Right-align bar: bar sits at right edge of dock with small margin
-    bar_x = dock_x + dock_w - bar_w - BAR_RIGHT_MARGIN_PX
     bar_y = frame_h - BAR_BOTTOM_MARGIN_PX - BAR_HEIGHT
 
-    # Text area: left of the bar (fixed layout, always readable)
+    used_percent = (used_space / total_space * 100) if total_space > 0 else 0
+    free_space = total_space - used_space
+
+    # Text area: left of the bar
     text_left = dock_x + 4
+
+    # Compute text strings and measure max width (for bar centering)
+    used_pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
+    free_pct = 100.0 - used_percent
+    free_pct_str = f"{free_pct:.1f}%" if free_pct >= 0.1 else f"{free_pct:.2f}%"
+    used_size_str = _format_size(used_space)
+    free_size_str = _format_size(free_space)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    max_text_w = 0
+    for s in ("Free", "Used", free_pct_str, used_pct_str, free_size_str, used_size_str):
+        (w, _), _ = cv2.getTextSize(s, font, 0.46, 1)
+        max_text_w = max(max_text_w, w)
+    text_right = text_left + max_text_w + BAR_TEXT_GAP_PX
+    dock_right = dock_x + dock_w - BAR_RIGHT_MARGIN_PX
+    bar_center = (text_right + dock_right) / 2
+    bar_x = int(bar_center - bar_w / 2)
 
     label_text = "STORAGE"
     label_scale = 0.52
@@ -1046,10 +1065,7 @@ def draw_storage_bar(
         font, label_scale, (180, 180, 180), 1, cv2.LINE_AA
     )
 
-    used_percent = (used_space / total_space * 100) if total_space > 0 else 0
-    free_space = total_space - used_space
-
-    # Slim vertical bar (right-aligned)
+    # Vertical bar (centered between text and dock right edge)
     cv2.rectangle(
         frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + BAR_HEIGHT),
         (45, 45, 50), -1
@@ -1099,11 +1115,6 @@ def draw_storage_bar(
 
     # Text outside bar: label, percentage, size on separate lines
     percent_scale = 0.46
-    used_pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
-    free_pct = 100.0 - used_percent
-    free_pct_str = f"{free_pct:.1f}%" if free_pct >= 0.1 else f"{free_pct:.2f}%"
-    used_size_str = _format_size(used_space)
-    free_size_str = _format_size(free_space)
     text_color_used = (255, 255, 255)
     text_color_free = (230, 230, 230)
     label_color = (160, 160, 165)
