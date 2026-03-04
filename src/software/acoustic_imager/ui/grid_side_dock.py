@@ -1053,7 +1053,7 @@ def draw_storage_bar(
     text_right = text_left + max_text_w + BAR_TEXT_GAP_PX
     dock_right = dock_x + dock_w - BAR_RIGHT_MARGIN_PX
     bar_center = (text_right + dock_right) / 2
-    bar_x = int(bar_center - bar_w / 2)
+    bar_x = int(bar_center - bar_w / 2) - 8  # shift slightly left
 
     label_text = "STORAGE"
     label_scale = 0.52
@@ -1114,23 +1114,29 @@ def draw_storage_bar(
         )
 
     # Text outside bar: label, percentage, size on separate lines
+    # Vertically center the Free/Used block between STORAGE and bottom of bar
     percent_scale = 0.46
-    text_color_used = (255, 255, 255)
+    text_color_used = MENU_ACTIVE_BLUE_LIGHT  # blue to match buttons
     text_color_free = (230, 230, 230)
     label_color = (160, 160, 165)
-    line_h = 14  # vertical spacing between lines
+    line_h = 14
+    gap_between_blocks = 4
+
+    # Total height of text block: Free (3 lines) + gap + Used (3 lines)
+    total_text_h = 3 * line_h + gap_between_blocks + 3 * line_h
+    text_block_top = bar_y + (BAR_HEIGHT - total_text_h) // 2
 
     # FREE: label, percentage, size (3 lines)
-    y = bar_y + 14
+    y = text_block_top
     cv2.putText(frame, "Free", (text_left, y), font, 0.45, label_color, 1, cv2.LINE_AA)
     y += line_h
     cv2.putText(frame, free_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
     y += line_h
     cv2.putText(frame, free_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
 
-    # USED: label, percentage, size (3 lines)
-    y += line_h + 4
-    cv2.putText(frame, "Used", (text_left, y), font, 0.45, label_color, 1, cv2.LINE_AA)
+    # USED: label, percentage, size (3 lines) — blue
+    y += line_h + gap_between_blocks
+    cv2.putText(frame, "Used", (text_left, y), font, 0.45, text_color_used, 1, cv2.LINE_AA)
     y += line_h
     cv2.putText(frame, used_pct_str, (text_left, y), font, percent_scale, text_color_used, 1, cv2.LINE_AA)
     y += line_h
