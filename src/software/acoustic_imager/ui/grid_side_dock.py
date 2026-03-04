@@ -433,6 +433,7 @@ KEYBOARD_MARGIN_BOTTOM = 24
 # Modal as extension of dock: gap west of dock, no overlay.
 # Connector width so modal blue meets the row (continuous from button to modal).
 MODAL_GAP_WEST = 8
+MODAL_EDGE_MARGIN = 6  # left edge of screen; modals extend from here to dock
 MODAL_CONNECTOR_WIDTH = MODAL_GAP_WEST + DOCK_TOP_INSET_X  # 10px: modal extends to row start
 
 
@@ -448,8 +449,9 @@ def _get_active_modal_info(
     if button_state.gallery_select_mode:
         if button_state.gallery_tag_modal_open:
             row_y = dock_y + inset_y
-            px = dock_x - MODAL_GAP_WEST - TAGS_FORM_W
-            total_w = TAGS_FORM_W + MODAL_CONNECTOR_WIDTH
+            content_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
+            px = MODAL_EDGE_MARGIN
+            total_w = content_w + MODAL_CONNECTOR_WIDTH
             return ("tags", row_y, row_h, px, total_w, 280)
         if button_state.gallery_priority_modal_open:
             panel_h = MODAL_TITLE_H + len(PRIORITY_OPTIONS) * MODAL_OPTION_H + 10
@@ -463,13 +465,9 @@ def _get_active_modal_info(
             total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
             panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
             row_y = dock_y + inset_y + 2 * (row_h + div)
-            max_letters = max(len(r) for r in KEYBOARD_ROWS_QWERTY)
-            max_row_w = max(max_letters, len(KEYBOARD_ROW_NUMBERS)) * (KEY_W + KEY_GAP) + KEY_GAP
-            special_w = KEY_W * 2
-            special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
-            panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
-            px = dock_x - MODAL_GAP_WEST - panel_w
-            total_w = panel_w + MODAL_CONNECTOR_WIDTH
+            content_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
+            px = MODAL_EDGE_MARGIN
+            total_w = content_w + MODAL_CONNECTOR_WIDTH
             return ("rename", row_y, row_h, px, total_w, panel_h)
     else:
         if button_state.gallery_search_keyboard_open:
@@ -477,14 +475,10 @@ def _get_active_modal_info(
             num_rows = num_letter_rows + 1 + 1
             total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
             panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
-            max_letters = max(len(r) for r in KEYBOARD_ROWS_QWERTY)
-            max_row_w = max(max_letters, len(KEYBOARD_ROW_NUMBERS)) * (KEY_W + KEY_GAP) + KEY_GAP
-            special_w = KEY_W * 2
-            special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
-            panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
             row_y = dock_y + inset_y
-            px = dock_x - MODAL_GAP_WEST - panel_w
-            total_w = panel_w + MODAL_CONNECTOR_WIDTH
+            content_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
+            px = MODAL_EDGE_MARGIN
+            total_w = content_w + MODAL_CONNECTOR_WIDTH
             return ("search", row_y, row_h, px, total_w, panel_h)
         if button_state.gallery_filter_modal_open:
             row_y = dock_y + inset_y + row_h + div
@@ -868,25 +862,20 @@ def _draw_rename_keyboard(
     frame: np.ndarray, dock_x: int, dock_y: int, vis_left: int = -1, draw_panel: bool = True,
     content_visible: bool = True,
 ) -> None:
-    """Rename keyboard aligned with Row 3 (Rename button) in select mode."""
+    """Rename keyboard aligned with Row 3 (Rename button) in select mode. Extends from left edge to dock."""
     fh, fw = frame.shape[:2]
     num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
     num_rows = num_letter_rows + 1 + 1
     total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
-    max_letters = max(len(r) for r in KEYBOARD_ROWS_QWERTY)
-    max_row_w = max(max_letters, len(KEYBOARD_ROW_NUMBERS)) * (KEY_W + KEY_GAP) + KEY_GAP
-    special_w = KEY_W * 2
-    special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
-    panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
+    panel_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
     panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
+    special_w = KEY_W * 2
 
     row3_top_y = dock_y + DOCK_TOP_INSET_Y + 2 * (DOCK_ROW_HEIGHT + DOCK_DIVIDER_THICKNESS)
     py = row3_top_y
     if py + panel_h > fh - 2:
         py = fh - panel_h - 2
-    px = dock_x - MODAL_GAP_WEST - panel_w
-    if px < 10:
-        px = 10
+    px = MODAL_EDGE_MARGIN
     if draw_panel and content_visible and vis_left < 0:
         _draw_modal_panel_connected(
             frame, px, py, panel_w, panel_h,
@@ -969,24 +958,19 @@ def _draw_search_keyboard(
     frame: np.ndarray, dock_x: int, dock_y: int, vis_left: int = -1, draw_panel: bool = True,
     content_visible: bool = True,
 ) -> None:
-    """Draw on-screen keyboard aligned with top of Search button (like Filter/Sort modals)."""
+    """Draw on-screen keyboard aligned with top of Search button. Extends from left edge to dock."""
     fh, fw = frame.shape[:2]
     num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
     num_rows = num_letter_rows + 1 + 1  # letters + number row + special
     total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
-    max_letters = max(len(r) for r in KEYBOARD_ROWS_QWERTY)
-    max_row_w = max(max_letters, len(KEYBOARD_ROW_NUMBERS)) * (KEY_W + KEY_GAP) + KEY_GAP
-    special_w = KEY_W * 2
-    special_row_w = len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) + KEY_GAP
-    panel_w = max(max_row_w, special_row_w, int(220 * KEY_SCALE))
+    panel_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
     panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
+    special_w = KEY_W * 2
     search_row_top = dock_y + DOCK_TOP_INSET_Y
     py = search_row_top
     if py + panel_h > fh - 2:
         py = fh - panel_h - 2
-    px = dock_x - MODAL_GAP_WEST - panel_w
-    if px < 10:
-        px = 10
+    px = MODAL_EDGE_MARGIN
     if draw_panel and content_visible and vis_left < 0:
         _draw_modal_panel_connected(
             frame, px, py, panel_w, panel_h,

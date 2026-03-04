@@ -5,7 +5,7 @@ Keys use a standard legible gray gradient with good accessibility
 (dark text on light gray, WCAG-friendly contrast).
 """
 
-from typing import Tuple, List
+from typing import Tuple, List, Optional
 
 import numpy as np
 
@@ -30,6 +30,9 @@ SPECIAL_KEYS_COMPACT: List[Tuple[str, str]] = [
 # ─── Scale presets ─────────────────────────────────────────────────────────
 FULL_KEY_SCALE = 1.875   # Search & Rename keyboards (dock)
 COMPACT_KEY_SCALE = 1.3  # Edit Tags modal keyboard
+# Widen keys (touch targets) without changing height
+KEY_WIDTH_MULT = 1.4
+KEY_WIDTH_MULT_COMPACT = 1.82  # Edit Tags keyboard: wider touch targets
 
 
 # ─── Accessible key styling: legible gray gradient ─────────────────────────
@@ -73,13 +76,15 @@ def draw_key_bg_clipped(
     )
 
 
-def dimensions_for_scale(scale: float) -> dict:
+def dimensions_for_scale(scale: float, width_mult: Optional[float] = None) -> dict:
     """
     Return key dimensions and font scales for a given scale factor.
     Keys: key_w, key_h, key_gap, bar_h, footer_gap, font_bar, font_key, font_special,
     special_key_w_mult (e.g. 2 for double-width special keys).
+    Key width is scaled by width_mult (default KEY_WIDTH_MULT); height unchanged.
     """
-    key_w = int(28 * scale)
+    w_mult = width_mult if width_mult is not None else KEY_WIDTH_MULT
+    key_w = int(28 * scale * w_mult)
     key_h = int(28 * scale)
     key_gap = int(4 * scale)
     bar_h = int(22 * scale) if scale >= 1.5 else int(36 * scale)

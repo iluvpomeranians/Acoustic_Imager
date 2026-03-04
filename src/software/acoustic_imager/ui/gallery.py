@@ -25,6 +25,8 @@ from .grid_side_dock import (
     GRID_SIDE_DOCK_WIDTH,
     DOCK_ROW_HEIGHT,
     DOCK_TOP_INSET_X,
+    MODAL_EDGE_MARGIN,
+    MODAL_GAP_WEST,
     PRIORITY_COLORS,
     DOCK_ROW_BORDER,
     DOCK_ROW_TOP_HIGHLIGHT,
@@ -33,6 +35,7 @@ from .grid_side_dock import (
 )
 from .storage_bar import _format_size
 from .keyboard import (
+    KEY_WIDTH_MULT_COMPACT,
     ROWS_QWERTY as _TK_ROWS,
     ROW_NUMBERS as _TK_NUMS,
     SPECIAL_KEYS_COMPACT as _TK_SPECIAL,
@@ -118,7 +121,7 @@ VIEWER_EDGE_PEEK_THRESHOLD_PX = 18
 _video_first_frame_cache: Dict[Path, np.ndarray] = {}
 
 # Tag keyboard uses .keyboard module (COMPACT_KEY_SCALE); _TK_* aliases set after import
-_TK_DIMS = dimensions_for_scale(COMPACT_KEY_SCALE)
+_TK_DIMS = dimensions_for_scale(COMPACT_KEY_SCALE, width_mult=KEY_WIDTH_MULT_COMPACT)
 _TK_W = _TK_DIMS["key_w"]
 _TK_H = _TK_DIMS["key_h"]
 _TK_GAP = _TK_DIMS["key_gap"]
@@ -230,16 +233,13 @@ def draw_tag_info_panel(frame: np.ndarray, filepath: Path) -> None:
         b.x, b.y, b.w, b.h = panel_x, panel_y, panel_w, panel_h
 
 
-def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
-    """Compact QWERTY keyboard for tag field editing. Appears below the tag form."""
-    fh, fw = frame.shape[:2]
-    # Compute panel dimensions
-    max_row_w = max(len(r) for r in _TK_ROWS + [_TK_NUMS]) * (_TK_W + _TK_GAP) - _TK_GAP
-    special_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
-    panel_w = max(max_row_w, special_row_w) + 22
+def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) -> None:
+    """Compact QWERTY keyboard for tag field editing. Same width as Edit Tags modal, below the form."""
+    fh, _ = frame.shape[:2]
     n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
+    panel_w = form_w
     panel_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
-    px = (fw - panel_w) // 2
+    px = form_x
     py = min(y_top, fh - panel_h - 4)
 
     roi = frame[py: py + panel_h, px: px + panel_w]
@@ -316,14 +316,13 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int) -> None:
 
 
 def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int) -> None:
-    """Edit Tags form: 3 input fields + keyboard. Styling matches dock modals (gradient, white border)."""
+    """Edit Tags form: 3 input fields + keyboard. Extends from left edge to dock."""
     fh, fw = frame.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
-    form_w, form_h = 590, 280
     dock_x = fw - GRID_SIDE_DOCK_WIDTH
-    # Align with dock strip (same left as side-dock modal so it doesn’t look like two modals)
-    MODAL_GAP_WEST = 8
-    form_x = max(10, dock_x - MODAL_GAP_WEST - form_w)
+    form_x = MODAL_EDGE_MARGIN
+    form_w = dock_x - form_x  # extend to kiss dock (no gap west of storage)
+    form_h = 280
     tags_row_top = header_h + 3
     form_y = min(tags_row_top, fh - form_h - 4)
     # No form background: dock draws strip + panel with same growth animation as other modals
@@ -449,9 +448,9 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
         b = menu_buttons["tag_modal_panel"]
         b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h
 
-    # ── Keyboard (below form, flush — no black gap) ───────────────────────────────
+    # ── Keyboard (below form, same width as modal) ───────────────────────────────
     if button_state.gallery_tag_keyboard_open:
-        _draw_tag_keyboard(frame, form_y + form_h)
+        _draw_tag_keyboard(frame, form_y + form_h, form_x, form_w)
 
 
 def _viewer_rubber_band_offset(offset: float, idx: int, n: int) -> float:
