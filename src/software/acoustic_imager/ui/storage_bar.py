@@ -19,6 +19,18 @@ import numpy as np
 
 from ..state import button_state
 
+try:
+    from ..config import STORAGE_BAR_GLOW, STORAGE_BAR_BRIGHTNESS
+except Exception:
+    STORAGE_BAR_GLOW = 0.35
+    STORAGE_BAR_BRIGHTNESS = 1.0
+
+
+def _brighten(bgr: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    """Apply global brightness multiplier to a BGR color."""
+    b, g, r = bgr
+    return (min(255, int(b * STORAGE_BAR_BRIGHTNESS)), min(255, int(g * STORAGE_BAR_BRIGHTNESS)), min(255, int(r * STORAGE_BAR_BRIGHTNESS)))
+
 
 # Neon gradient stops (angle 0 = right; we use 270 = top so gradient runs top->right->bottom->left)
 # BGR: cyan/blue, purple, magenta/pink
@@ -41,12 +53,18 @@ def _angle_to_bgr(angle_deg: float) -> Tuple[int, int, int]:
     angle_deg = angle_deg % 360.0
     if angle_deg < 120:
         t = angle_deg / 120.0
-        return tuple(int(NEON_BLUE_BGR[c] * (1 - t) + NEON_PURPLE_BGR[c] * t) for c in range(3))
+        return (int(NEON_BLUE_BGR[0] * (1 - t) + NEON_PURPLE_BGR[0] * t),
+                int(NEON_BLUE_BGR[1] * (1 - t) + NEON_PURPLE_BGR[1] * t),
+                int(NEON_BLUE_BGR[2] * (1 - t) + NEON_PURPLE_BGR[2] * t))
     if angle_deg < 240:
         t = (angle_deg - 120) / 120.0
-        return tuple(int(NEON_PURPLE_BGR[c] * (1 - t) + NEON_PINK_BGR[c] * t) for c in range(3))
+        return (int(NEON_PURPLE_BGR[0] * (1 - t) + NEON_PINK_BGR[0] * t),
+                int(NEON_PURPLE_BGR[1] * (1 - t) + NEON_PINK_BGR[1] * t),
+                int(NEON_PURPLE_BGR[2] * (1 - t) + NEON_PINK_BGR[2] * t))
     t = (angle_deg - 240) / 120.0
-    return tuple(int(NEON_PINK_BGR[c] * (1 - t) + NEON_BLUE_BGR[c] * t) for c in range(3))
+    return (int(NEON_PINK_BGR[0] * (1 - t) + NEON_BLUE_BGR[0] * t),
+            int(NEON_PINK_BGR[1] * (1 - t) + NEON_BLUE_BGR[1] * t),
+            int(NEON_PINK_BGR[2] * (1 - t) + NEON_BLUE_BGR[2] * t))
 
 
 def _feathered_composite(
@@ -69,6 +87,17 @@ def _feathered_composite(
     blended = (patch.astype(np.float32) * blend_patch + crop.astype(np.float32) * (1 - blend_patch))
     out = (blended * mask + crop.astype(np.float32) * (1 - mask)).clip(0, 255).astype(np.uint8)
     frame[y0:y1, x0:x1] = out
+
+
+def feathered_composite(
+    frame: np.ndarray,
+    y0: int, y1: int, x0: int, x1: int,
+    patch: np.ndarray,
+    blend_patch: float,
+    feather_px: int = 28,
+) -> None:
+    """Composite patch onto frame with soft edges (public for use by dock/buttons)."""
+    _feathered_composite(frame, y0, y1, x0, x1, patch, blend_patch, feather_px)
 
 
 def _draw_arc_segment(
@@ -122,7 +151,7 @@ def draw_storage_circle(
     arc_angle = 360.0 * (used_percent / 100.0)
 
     # 1) Track: full circle (muted)
-    _draw_arc_segment(frame, (cx, cy), radius, ring_thickness, 0, 360, TRACK_BGR)
+    _draw_arc_segment(frame, (cx, cy), radius, ring_thickness, 0, 360, _brighten(TRACK_BGR))
 
     # 1b) "Storage" label above the ring (same gap as below); ~20% larger, lighter color, subtle glow
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -142,10 +171,10 @@ def draw_storage_circle(
             spatch = frame[sy0:sy1, sx0:sx1].copy()
             slx, sly = label_x - sx0, label_y - sy0
             for thickness in (3, 2):
-                cv2.putText(spatch, label_text, (slx, sly), font, label_scale, STORAGE_LABEL_BGR, thickness, cv2.LINE_AA)
+                cv2.putText(spatch, label_text, (slx, sly), font, label_scale, _brighten(STORAGE_LABEL_BGR), thickness, cv2.LINE_AA)
             spatch = cv2.GaussianBlur(spatch, (0, 0), 2.5)
-            _feathered_composite(frame, sy0, sy1, sx0, sx1, spatch, 0.45, feather_px=18)
-        cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, STORAGE_LABEL_BGR, 1, cv2.LINE_AA)
+            _feathered_composite(frame, sy0, sy1, sx0, sx1, spatch, STORAGE_BAR_GLOW * 0.55, feather_px=18)  # lighter glow on label
+        cv2.putText(frame, label_text, (label_x, label_y), font, label_scale, _brighten(STORAGE_LABEL_BGR), 1, cv2.LINE_AA)
 
     # 2) Filled arc (snake): from top (270°) clockwise by arc_angle, with gradient
     # Draw in small segments so we can vary color along the arc
@@ -158,7 +187,7 @@ def draw_storage_circle(
             seg_end = min(d + segment_deg, end_deg)
             # Gradient by position along circle (0 = top, 90 = right, ...)
             angle_for_color = (d - 270.0) % 360.0
-            color = _angle_to_bgr(angle_for_color)
+            color = _brighten(_angle_to_bgr(angle_for_color))
             _draw_arc_segment(frame, (cx, cy), radius, ring_thickness, d, seg_end, color)
             d = seg_end
 
@@ -176,10 +205,10 @@ def draw_storage_circle(
             for d in np.arange(270.0, 270.0 + arc_angle, 6.0):
                 seg_end = min(float(d + 6.0), 270.0 + arc_angle)
                 angle_for_color = float((d - 270.0) % 360.0)
-                color = _angle_to_bgr(angle_for_color)
+                color = _brighten(_angle_to_bgr(angle_for_color))
                 cv2.ellipse(patch, (lcx, lcy), (radius, radius), 0.0, d, seg_end, color, glow_thickness, cv2.LINE_AA)
             patch = cv2.GaussianBlur(patch, (0, 0), 4.5)
-            _feathered_composite(frame, y0, y1, x0, x1, patch, 0.46)
+            _feathered_composite(frame, y0, y1, x0, x1, patch, STORAGE_BAR_GLOW)
 
     # 4) Redraw filled arc on top of glow so it stays sharp
     if arc_angle >= 0.5:
@@ -187,7 +216,7 @@ def draw_storage_circle(
         while d < end_deg:
             seg_end = min(d + segment_deg, end_deg)
             angle_for_color = (d - 270.0) % 360.0
-            color = _angle_to_bgr(angle_for_color)
+            color = _brighten(_angle_to_bgr(angle_for_color))
             _draw_arc_segment(frame, (cx, cy), radius, ring_thickness, d, seg_end, color)
             d = seg_end
 
@@ -208,13 +237,10 @@ def draw_storage_circle(
         glow_patch = frame[gy0:gy1, gx0:gx1].copy()
         ltx, lty = tx - gx0, ty - gy0
         for thickness in (5, 4, 3, 2):
-            cv2.putText(glow_patch, pct_str, (ltx, lty), font, scale, TEXT_BGR, thickness, cv2.LINE_AA)
+            cv2.putText(glow_patch, pct_str, (ltx, lty), font, scale, _brighten(TEXT_BGR), thickness, cv2.LINE_AA)
         glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 3.5)
-        _feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, 0.46)
-    # Dark outline then sharp text on top
-    # for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-    #     cv2.putText(frame, pct_str, (tx + dx, ty + dy), font, scale, (0, 0, 0), 2, cv2.LINE_AA)
-    cv2.putText(frame, pct_str, (tx, ty), font, scale, TEXT_BGR, 1, cv2.LINE_AA)
+        _feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, STORAGE_BAR_GLOW)
+    cv2.putText(frame, pct_str, (tx, ty), font, scale, _brighten(TEXT_BGR), 1, cv2.LINE_AA)
 
     # 6) Optional: "Used: X" and "Free: Y" on two lines, aligned; colors and glows match bar (Used=neon purple, Free=track blue–gray)
     if used_gb_str is not None or free_gb_str is not None:
@@ -240,15 +266,14 @@ def draw_storage_circle(
                 patch = frame[gy0:gy1, gx0:gx1].copy()
                 lx1, ly1 = start_x - gx0, base_ly - gy0
                 for thickness in (4, 3, 2):
-                    cv2.putText(patch, "Used: ", (lx1, ly1), font, label_font_scale, USED_TEXT_LIGHT_BGR, thickness, cv2.LINE_AA)
-                    cv2.putText(patch, used_gb_str, (lx1 + label_w, ly1), font, label_font_scale, USED_TEXT_LIGHT_BGR, thickness, cv2.LINE_AA)
+                    ucolor = _brighten(USED_TEXT_LIGHT_BGR)
+                    cv2.putText(patch, "Used: ", (lx1, ly1), font, label_font_scale, ucolor, thickness, cv2.LINE_AA)
+                    cv2.putText(patch, used_gb_str, (lx1 + label_w, ly1), font, label_font_scale, ucolor, thickness, cv2.LINE_AA)
                 patch = cv2.GaussianBlur(patch, (0, 0), 2.5)
-                _feathered_composite(frame, gy0, gy1, gx0, gx1, patch, 0.4, feather_px=14)
-            #for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-            #    cv2.putText(frame, "Used: ", (start_x + dx, base_ly + dy), font, label_font_scale, (0, 0, 0), 1, cv2.LINE_AA)
-            #    cv2.putText(frame, used_gb_str, (start_x + label_w + dx, base_ly + dy), font, label_font_scale, (0, 0, 0), 1, cv2.LINE_AA)
-            cv2.putText(frame, "Used: ", (start_x, base_ly), font, label_font_scale, USED_TEXT_LIGHT_BGR, 1, cv2.LINE_AA)
-            cv2.putText(frame, used_gb_str, (start_x + (label_w - 3), base_ly), font, label_font_scale, USED_TEXT_LIGHT_BGR, 1, cv2.LINE_AA)
+                _feathered_composite(frame, gy0, gy1, gx0, gx1, patch, STORAGE_BAR_GLOW, feather_px=14)
+            ucolor = _brighten(USED_TEXT_LIGHT_BGR)
+            cv2.putText(frame, "Used: ", (start_x, base_ly), font, label_font_scale, ucolor, 1, cv2.LINE_AA)
+            cv2.putText(frame, used_gb_str, (start_x + (label_w - 3), base_ly), font, label_font_scale, ucolor, 1, cv2.LINE_AA)
         # Free line: track color + glow (match unfilled ring)
         if free_gb_str:
             ly2 = base_ly + (line_h if used_gb_str else 0)
@@ -260,16 +285,15 @@ def draw_storage_circle(
                 if gx1 > gx0 and gy1 > gy0:
                     patch = frame[gy0:gy1, gx0:gx1].copy()
                     lx1, ly1 = start_x - gx0, ly2 - gy0
+                    fcolor = _brighten(FREE_TEXT_LIGHT_BGR)
                     for thickness in (4, 3, 2):
-                        cv2.putText(patch, "Free: ", (lx1, ly1), font, label_font_scale, FREE_TEXT_LIGHT_BGR, thickness, cv2.LINE_AA)
-                        cv2.putText(patch, free_gb_str, (lx1 + label_w, ly1), font, label_font_scale, FREE_TEXT_LIGHT_BGR, thickness, cv2.LINE_AA)
+                        cv2.putText(patch, "Free: ", (lx1, ly1), font, label_font_scale, fcolor, thickness, cv2.LINE_AA)
+                        cv2.putText(patch, free_gb_str, (lx1 + label_w, ly1), font, label_font_scale, fcolor, thickness, cv2.LINE_AA)
                     patch = cv2.GaussianBlur(patch, (0, 0), 2.5)
-                    _feathered_composite(frame, gy0, gy1, gx0, gx1, patch, 0.4, feather_px=14)
-                # for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
-                #     cv2.putText(frame, "Free: ", (start_x + dx, ly2 + dy), font, label_font_scale, (0, 0, 0), 1, cv2.LINE_AA)
-                #     cv2.putText(frame, free_gb_str, (start_x + label_w + dx, ly2 + dy), font, label_font_scale, (0, 0, 0), 1, cv2.LINE_AA)
-                cv2.putText(frame, "Free: ", (start_x, ly2), font, label_font_scale, FREE_TEXT_LIGHT_BGR, 1, cv2.LINE_AA)
-                cv2.putText(frame, free_gb_str, (start_x + (label_w - 3), ly2), font, label_font_scale, FREE_TEXT_LIGHT_BGR, 1, cv2.LINE_AA)
+                    _feathered_composite(frame, gy0, gy1, gx0, gx1, patch, STORAGE_BAR_GLOW, feather_px=14)
+                fcolor = _brighten(FREE_TEXT_LIGHT_BGR)
+                cv2.putText(frame, "Free: ", (start_x, ly2), font, label_font_scale, fcolor, 1, cv2.LINE_AA)
+                cv2.putText(frame, free_gb_str, (start_x + (label_w - 3), ly2), font, label_font_scale, fcolor, 1, cv2.LINE_AA)
 
 
 def _format_size(size_bytes: float) -> str:

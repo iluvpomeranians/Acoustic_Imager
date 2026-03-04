@@ -4,7 +4,7 @@ Top HUD: network, FPS, and time pills at the top of the main view.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple, Optional  # noqa: F401 Optional used in _draw_pill
 import time
 import cv2
 import numpy as np
@@ -20,13 +20,15 @@ class HudRects:
 
 
 def _draw_pill(frame: np.ndarray, x: int, y: int, w: int, h: int,
-               bg=(0,0,0), alpha: float = 0.35, border=(255,255,255), is_active: bool = False) -> None:
+               bg=(0,0,0), alpha: Optional[float] = None, border=(255,255,255), is_active: bool = False) -> None:
     H, W = frame.shape[:2]
     x0 = max(0, x); y0 = max(0, y)
     x1 = min(W, x + w); y1 = min(H, y + h)
     if x1 <= x0 or y1 <= y0:
         return
 
+    if alpha is None:
+        alpha = BUTTON_ALPHA  # same as bottom HUD
     if is_active:
         alpha = BUTTON_ALPHA  # same as menu so blue matches
         border = (255, 255, 255)
@@ -172,7 +174,7 @@ def draw_hud(
         line_h = 18
         panel_w = max(220, max(tw(s, 0.5, 1) for s in lines) + 20)
         panel_h = 10 + line_h * len(lines)
-        _draw_pill(frame, anchor_x, panel_y, panel_w, panel_h, alpha=0.45)
+        _draw_pill(frame, anchor_x, panel_y, panel_w, panel_h)  # same opacity as bottom HUD (BUTTON_ALPHA)
         yy = panel_y + 22
         for s in lines:
             cv2.putText(frame, s, (anchor_x + 10, yy),

@@ -33,6 +33,17 @@ BUTTON_HITPAD_PX = 14
 MENU_ACTIVE_BLUE = (130, 82, 32)       # slightly darker blue
 MENU_ACTIVE_BLUE_LIGHT = (165, 110, 48)  # gradient end
 
+# Single point of control for action button neon glow (0=off, ~0.32=default, 1=full)
+ACTION_BTN_GLOW = 0.20
+
+# Storage bar: one glow amount for all subelements (label, ring glow, % text, Used/Free); 0=off
+STORAGE_BAR_GLOW = 0.28
+# Storage bar brightness multiplier for colors (1.0=unchanged, >1 brighter)
+STORAGE_BAR_BRIGHTNESS = 1.15
+
+# Border thickness for all action buttons (dock rows + gallery DONE/SELECT/DELETE)
+ACTION_BTN_BORDER_THICKNESS = 1
+
 # Freq bar / bandpass: lighter neon blue so it stands out on dark bar
 FREQ_BAR_BLUE = (230, 170, 80)  # BGR slightly darker blue for sliding window
 # Gallery filter/sort modal: goldish yellow for selected option (bandpass-style accent)

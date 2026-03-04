@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-from ..config import DB_BAR_WIDTH, UI_PILL_H, UI_PILL_W, BUTTON_ALPHA
+from ..config import DB_BAR_WIDTH, UI_PILL_H, UI_PILL_W, BUTTON_ALPHA, ACTION_BTN_GLOW
 from ..state import button_state
 from .button import (
     menu_buttons,
@@ -21,6 +21,7 @@ from .button import (
     _draw_rec_icon,
     _draw_pause_icon,
 )
+from .storage_bar import feathered_composite
 from .top_hud import _draw_pill
 
 # Same size as top HUD (UI_PILL_H, UI_PILL_W) for consistency and clickability
@@ -209,7 +210,22 @@ def draw_bottom_hud(
 
     # ── Gallery pill ──
     _draw_pill(frame, x_gallery, y, PILL_W, PILL_H, is_active=button_state.gallery_open, alpha=BOTTOM_PILL_ALPHA)
-    (gal_tw, _), _ = cv2.getTextSize("GALLERY", font, 0.48, 1)
+    (gal_tw, gal_th), _ = cv2.getTextSize("GALLERY", font, 0.48, 1)
     gal_start_x = x_gallery + (PILL_W - (icon_w + gap_icon_text + gal_tw)) // 2
     _draw_gallery_icon(frame, gal_start_x + icon_w // 2, cy, size=ICON_SIZE)
-    cv2.putText(frame, "GALLERY", (gal_start_x + icon_w + gap_icon_text, text_baseline), font, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
+    gal_tx = gal_start_x + icon_w + gap_icon_text
+    gal_ty = text_baseline
+    # Very slight neon glow for "GALLERY" text
+    pad_g = 8
+    fh, fw = frame.shape[:2]
+    gx0 = max(0, gal_tx - pad_g)
+    gy0 = max(0, gal_ty - gal_th - pad_g)
+    gx1 = min(fw, gal_tx + gal_tw + pad_g)
+    gy1 = min(fh, gal_ty + pad_g)
+    if gx1 > gx0 and gy1 > gy0:
+        gpatch = frame[gy0:gy1, gx0:gx1].copy()
+        ltx, lty = gal_tx - gx0, gal_ty - gy0
+        cv2.putText(gpatch, "GALLERY", (ltx, lty), font, 0.48, (255, 255, 255), 2, cv2.LINE_AA)
+        gpatch = cv2.GaussianBlur(gpatch, (0, 0), 2.0)
+        feathered_composite(frame, gy0, gy1, gx0, gx1, gpatch, ACTION_BTN_GLOW * 0.6, feather_px=8)
+    cv2.putText(frame, "GALLERY", (gal_tx, gal_ty), font, 0.48, (255, 255, 255), 1, cv2.LINE_AA)

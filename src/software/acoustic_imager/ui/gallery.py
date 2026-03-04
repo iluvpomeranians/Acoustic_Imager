@@ -23,6 +23,8 @@ from .viewer_dock import (
 from .grid_side_dock import (
     draw_grid_side_dock,
     GRID_SIDE_DOCK_WIDTH,
+    DOCK_ROW_HEIGHT,
+    DOCK_TOP_INSET_X,
     PRIORITY_COLORS,
     DOCK_ROW_BORDER,
     DOCK_ROW_TOP_HIGHLIGHT,
@@ -1052,17 +1054,21 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     frame[0:header_h, 0:fw] = _vertical_gradient(header_h, fw, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT)
     cv2.line(frame, (0, header_h), (frame.shape[1], header_h), (80, 80, 80), 2)
 
+    # Top dock: action strip from y=0; back + title sit inside this strip (not below it)
+    dock_row_h = DOCK_ROW_HEIGHT
+    action_strip_h = dock_row_h - 2
+    back_btn_y = 3
     title = "GALLERY"
     font = cv2.FONT_HERSHEY_SIMPLEX
     title_scale = 1.2
     title_thick = 2
     (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
     title_x = (frame.shape[1] - title_w) // 2
-    title_y = title_h + 14
+    title_y = (action_strip_h + int(title_h)) // 2
     cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
 
-    hint_line_y = 2 * title_h + 16
-    info_y = hint_line_y + 26
+    hint_line_y = action_strip_h + 8
+    info_y = hint_line_y + 12  # 6 px north of original
 
     # When user clicked Tags/Priority/Rename with no selection, show brief hint between GALLERY and info
     if button_state.gallery_select_mode and getattr(button_state, "gallery_select_first_hint_until", 0) > 0:
@@ -1071,7 +1077,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             hint_scale = 0.65
             (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
             hint_x = (frame.shape[1] - hint_w) // 2
-            hint_y = hint_line_y + max(0, (26 - hint_h) // 2)
+            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 6  # 6 px north
             cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
         else:
             button_state.gallery_select_first_hint_until = 0.0
@@ -1100,8 +1106,22 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
     back_btn_x = 10
-    back_btn_y = 15
     back_btn_w = back_btn_h = BACK_BTN_SIZE
+
+    # DONE/SELECT and SELECT ALL: same dimensions as dock rows; strip extends to y=0
+    fw = frame.shape[1]
+    dock_x = fw - GRID_SIDE_DOCK_WIDTH
+    dock_row_w = GRID_SIDE_DOCK_WIDTH - 2 * DOCK_TOP_INSET_X
+    dock_top_y = header_h + 3  # top of first dock row (Tags in select mode)
+    action_btn_y = 0
+    action_btn_x0 = dock_x + DOCK_TOP_INSET_X  # same x as dock rows
+
+    # Delete: equidistant between back button (right edge) and Total text (left edge)
+    back_right = back_btn_x + back_btn_w
+    delete_btn_x = (back_right + info_x - dock_row_w) // 2
+    delete_btn_y = action_btn_y
+    delete_btn_w = dock_row_w
+    delete_btn_h = dock_row_h - 6  # slightly shorter than other action buttons
 
     if "gallery_back" not in menu_buttons:
         menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
@@ -1115,19 +1135,15 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
     if button_state.gallery_select_mode and button_state.gallery_selected_items:
         selected_count = len(button_state.gallery_selected_items)
-        delete_btn_w = 140
-        delete_btn_x = back_btn_x + back_btn_w + 10
-        delete_btn_y = back_btn_y
-
         delete_text = f"DELETE ({selected_count})"
 
         if "gallery_delete_selected" not in menu_buttons:
-            menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, back_btn_h, delete_text)
+            menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, delete_text)
         else:
             menu_buttons["gallery_delete_selected"].x = delete_btn_x
             menu_buttons["gallery_delete_selected"].y = delete_btn_y
             menu_buttons["gallery_delete_selected"].w = delete_btn_w
-            menu_buttons["gallery_delete_selected"].h = back_btn_h
+            menu_buttons["gallery_delete_selected"].h = delete_btn_h
             menu_buttons["gallery_delete_selected"].text = delete_text
 
         menu_buttons["gallery_delete_selected"].is_active = True
@@ -1135,26 +1151,21 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
             gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
             active_border_color=(255, 255, 255),
+            neon_glow=True,
         )
 
     if items:
-        btn_gap = 10
-        btn_h = 40
-
-        right_margin = 20
-        current_x = frame.shape[1] - right_margin
-
-        select_mode_btn_w = 100
-        select_mode_btn_x = current_x - select_mode_btn_w
-        select_mode_btn_y = 20
+        # DONE/SELECT: same dimensions as Tags row, rightmost (flush with dock)
+        select_mode_btn_x = action_btn_x0
+        select_mode_btn_y = action_btn_y
 
         if "gallery_select_mode" not in menu_buttons:
-            menu_buttons["gallery_select_mode"] = Button(select_mode_btn_x, select_mode_btn_y, select_mode_btn_w, btn_h, "SELECT")
+            menu_buttons["gallery_select_mode"] = Button(select_mode_btn_x, select_mode_btn_y, dock_row_w, dock_row_h, "SELECT")
         else:
             menu_buttons["gallery_select_mode"].x = select_mode_btn_x
             menu_buttons["gallery_select_mode"].y = select_mode_btn_y
-            menu_buttons["gallery_select_mode"].w = select_mode_btn_w
-            menu_buttons["gallery_select_mode"].h = btn_h
+            menu_buttons["gallery_select_mode"].w = dock_row_w
+            menu_buttons["gallery_select_mode"].h = dock_row_h
             menu_buttons["gallery_select_mode"].text = "DONE" if button_state.gallery_select_mode else "SELECT"
 
         menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
@@ -1163,22 +1174,20 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
             gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
             active_border_color=(255, 255, 255),
+            neon_glow=True,
         )
 
-        current_x = select_mode_btn_x - btn_gap
-
         if button_state.gallery_select_mode:
-            select_all_btn_w = 120
-            select_all_btn_x = current_x - select_all_btn_w
-            select_all_btn_y = 20
+            # SELECT ALL: same dimensions, directly to the left of DONE, flush
+            select_all_btn_x = action_btn_x0 - dock_row_w
 
             if "gallery_select_all" not in menu_buttons:
-                menu_buttons["gallery_select_all"] = Button(select_all_btn_x, select_all_btn_y, select_all_btn_w, btn_h, "SELECT ALL")
+                menu_buttons["gallery_select_all"] = Button(select_all_btn_x, action_btn_y, dock_row_w, dock_row_h, "SELECT ALL")
             else:
                 menu_buttons["gallery_select_all"].x = select_all_btn_x
-                menu_buttons["gallery_select_all"].y = select_all_btn_y
-                menu_buttons["gallery_select_all"].w = select_all_btn_w
-                menu_buttons["gallery_select_all"].h = btn_h
+                menu_buttons["gallery_select_all"].y = action_btn_y
+                menu_buttons["gallery_select_all"].w = dock_row_w
+                menu_buttons["gallery_select_all"].h = dock_row_h
                 all_selected = len(button_state.gallery_selected_items) == len(items)
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
 
@@ -1187,6 +1196,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
                 gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
                 active_border_color=(255, 255, 255),
+                neon_glow=True,
             )
 
     if not items:
@@ -1432,7 +1442,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 display_name = display_name[: max_fname_chars - 3] + "..."
             fname_scale = 0.45  # 5% larger than 0.43
             (fname_w, _), _ = cv2.getTextSize(display_name, font, fname_scale, 1)
-            cv2.putText(frame, display_name, (filename_x, label_y), font, fname_scale, (200, 200, 200), 1, cv2.LINE_AA)
+            cv2.putText(frame, display_name, (filename_x, label_y), font, fname_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
             priority_radius = 7  # 15% larger than 5
             dot_cy = label_y - text_h // 2  # align circle with type/filename baseline

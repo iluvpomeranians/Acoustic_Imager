@@ -18,12 +18,21 @@ def _vertical_gradient_uint8(h: int, w: int, top_bgr: Tuple[int, int, int], bot_
     return out
 
 from . import ui_cache
+from .storage_bar import feathered_composite
 from ..state import button_state
 
 try:
-    from ..config import BUTTON_HITPAD_PX, BUTTON_ALPHA
+    from ..config import (
+        BUTTON_HITPAD_PX,
+        BUTTON_ALPHA,
+        ACTION_BTN_GLOW,
+        ACTION_BTN_BORDER_THICKNESS,
+    )
 except Exception:
     BUTTON_HITPAD_PX = ui_cache.BUTTON_HITPAD_PX
+    BUTTON_ALPHA = 0.92
+    ACTION_BTN_GLOW = 0.45
+    ACTION_BTN_BORDER_THICKNESS = 1
 
 buttons: Dict[str, "Button"] = {}
 menu_buttons: Dict[str, "Button"] = {}
@@ -32,14 +41,8 @@ FPS_MODE_TO_TARGET = {"30": 30, "60": 60}
 
 
 def _rounded_rect(img, x, y, w, h, r, color, thickness=-1):
-    cv2.rectangle(
-        img,
-        (x, y),
-        (x + w, y + h),
-        color,
-        thickness,
-        lineType=cv2.LINE_8
-    )
+    """Draw rectangle (r unused; kept for API compatibility)."""
+    cv2.rectangle(img, (x, y), (x + w, y + h), color, thickness, lineType=cv2.LINE_AA)
 
 
 def _draw_camera_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
@@ -164,6 +167,7 @@ class Button:
         active_border_color: Optional[tuple] = None,
         icon_type: Optional[str] = None,
         gradient_colors: Optional[Tuple[tuple, tuple]] = None,
+        neon_glow: bool = False,
     ) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
@@ -211,6 +215,24 @@ class Button:
                     roi_h, roi_w = roi.shape[:2]
                     if gradient_colors is not None:
                         top_bgr, bot_bgr = gradient_colors
+                        if neon_glow:
+                            pad = 14
+                            gx0 = max(0, x - pad)
+                            gy0 = max(0, y - pad)
+                            gx1 = min(frame.shape[1], x + w + pad)
+                            gy1 = min(frame.shape[0], y + h + pad)
+                            if gx1 > gx0 and gy1 > gy0:
+                                glow_patch = frame[gy0:gy1, gx0:gx1].copy()
+                                gh, gw = glow_patch.shape[:2]
+                                ly0, lx0 = y - gy0, x - gx0
+                                ly1, lx1 = min(gh, ly0 + h), min(gw, lx0 + w)
+                                ly0, lx0 = max(0, ly0), max(0, lx0)
+                                if ly1 > ly0 and lx1 > lx0:
+                                    glow_patch[ly0:ly1, lx0:lx1] = _vertical_gradient_uint8(
+                                        ly1 - ly0, lx1 - lx0, top_bgr, bot_bgr
+                                    )
+                                glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 10.0)
+                                feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_GLOW, feather_px=18)
                         overlay = _vertical_gradient_uint8(roi_h, roi_w, top_bgr, bot_bgr)
                     else:
                         overlay = np.empty_like(roi)
@@ -234,7 +256,7 @@ class Button:
                     border_color = (80, 255, 100)
             else:
                 border_color = (255, 255, 255)
-            _rounded_rect(frame, x, y, w, h, r=10, color=border_color, thickness=2)
+            _rounded_rect(frame, x, y, w, h, 10, color=border_color, thickness=ACTION_BTN_BORDER_THICKNESS)
 
         if icon_type:
             cx = x + w // 2
@@ -254,24 +276,74 @@ class Button:
             font = cv2.FONT_HERSHEY_SIMPLEX
             scale = 0.42 if "LOOP" in self.text else 0.52
             thick = 1
-            tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
-            tx = x + (w - tw) // 2
-            ty = y + (h + th) // 2
-
-            # cv2.putText(frame, self.text, (tx, ty),
-            #             font, scale, (0, 0, 0),
-            #             thick + 1, cv2.LINE_AA)
-
-            cv2.putText(frame, self.text, (tx, ty),
-                        font, scale, (255, 255, 255),
-                        thick, cv2.LINE_AA)
+            white = (255, 255, 255)
+            # Word-wrap: "SELECT ALL" -> "SELECT"/"ALL", "DESELECT ALL" -> "DESELECT"/"ALL", "DELETE (N)" -> "DELETE"/"(N)"
+            if self.text in ("SELECT ALL", "DESELECT ALL"):
+                line1 = self.text.split()[0]   # "SELECT" or "DESELECT"
+                line2 = "ALL"
+            elif self.text.startswith("DELETE (") and self.text.endswith(")"):
+                line1 = "DELETE"
+                line2 = self.text[7:]  # "(1)" or "(12)" etc.
+            else:
+                line1, line2 = None, None
+            if line1 is not None and line2 is not None:
+                (tw1, th1), _ = cv2.getTextSize(line1, font, scale, thick)
+                (tw2, th2), _ = cv2.getTextSize(line2, font, scale, thick)
+                gap = 2
+                # DELETE (N): push count line a tad more south
+                line2_south = 4 if self.text.startswith("DELETE (") else 0
+                total_h = th1 + gap + th2 + line2_south
+                ty1 = y + (h - total_h) // 2 + th1
+                ty2 = ty1 + gap + th2 + line2_south
+                tx1 = x + (w - tw1) // 2
+                tx2 = x + (w - tw2) // 2
+                if neon_glow and gradient_colors is not None:
+                    pad_t = 14
+                    fh, fw = frame.shape[:2]
+                    ty0 = max(0, y + (h - total_h) // 2 - pad_t)
+                    ty1_end = min(fh, ty2 + th2 + pad_t)
+                    tx0 = max(0, min(tx1, tx2) - pad_t)
+                    tx1_end = min(fw, max(tx1 + tw1, tx2 + tw2) + pad_t)
+                    if tx1_end > tx0 and ty1_end > ty0:
+                        tpatch = frame[ty0:ty1_end, tx0:tx1_end].copy()
+                        ltx1, lty1 = tx1 - tx0, ty1 - ty0
+                        ltx2, lty2 = tx2 - tx0, ty2 - ty0
+                        cv2.putText(tpatch, line1, (ltx1, lty1), font, scale, white, 2, cv2.LINE_AA)
+                        cv2.putText(tpatch, line1, (ltx1, lty1), font, scale, white, 1, cv2.LINE_AA)
+                        cv2.putText(tpatch, line2, (ltx2, lty2), font, scale, white, 2, cv2.LINE_AA)
+                        cv2.putText(tpatch, line2, (ltx2, lty2), font, scale, white, 1, cv2.LINE_AA)
+                        tpatch = cv2.GaussianBlur(tpatch, (0, 0), 2.5)
+                        feathered_composite(frame, ty0, ty1_end, tx0, tx1_end, tpatch, ACTION_BTN_GLOW, feather_px=12)
+                cv2.putText(frame, line1, (tx1, ty1), font, scale, white, thick, cv2.LINE_AA)
+                cv2.putText(frame, line2, (tx2, ty2), font, scale, white, thick, cv2.LINE_AA)
+            else:
+                tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
+                tx = x + (w - tw) // 2
+                ty = y + (h + th) // 2
+                if neon_glow and gradient_colors is not None:
+                    pad_t = 14
+                    fh, fw = frame.shape[:2]
+                    tx0 = max(0, tx - pad_t)
+                    ty0 = max(0, ty - th - pad_t)
+                    tx1 = min(fw, tx + tw + pad_t)
+                    ty1 = min(fh, ty + pad_t)
+                    if tx1 > tx0 and ty1 > ty0:
+                        tpatch = frame[ty0:ty1, tx0:tx1].copy()
+                        ltx, lty = tx - tx0, ty - ty0
+                        cv2.putText(tpatch, self.text, (ltx, lty), font, scale, white, 2, cv2.LINE_AA)
+                        cv2.putText(tpatch, self.text, (ltx, lty), font, scale, white, 1, cv2.LINE_AA)
+                        tpatch = cv2.GaussianBlur(tpatch, (0, 0), 2.5)
+                        feathered_composite(frame, ty0, ty1, tx0, tx1, tpatch, ACTION_BTN_GLOW, feather_px=12)
+                cv2.putText(frame, self.text, (tx, ty),
+                            font, scale, white,
+                            thick, cv2.LINE_AA)
 
 
 def init_buttons(left_width: int, camera_available: bool) -> None:
     buttons.clear()
 
 
-def init_menu_buttons(left_width: int, frame_height: int = None) -> None:
+def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> None:
     menu_buttons.clear()
 
     actual_height = frame_height if frame_height is not None else ui_cache.HEIGHT
