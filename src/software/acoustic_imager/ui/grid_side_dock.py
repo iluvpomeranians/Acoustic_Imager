@@ -1030,7 +1030,13 @@ def draw_storage_bar(
 
     frame_h = frame.shape[0]
     bar_w = BAR_WIDTH_PX
-    bar_y = frame_h - BAR_BOTTOM_MARGIN_PX - BAR_HEIGHT
+    # Center storage block between Sort button bottom and frame bottom
+    dock_y = header_h + 3
+    sort_bottom = dock_y + 3 * DOCK_ROW_HEIGHT + 2 * DOCK_DIVIDER_THICKNESS
+    storage_block_h = 6 + BAR_HEIGHT  # label gap + bar
+    available_h = frame_h - sort_bottom
+    block_top = sort_bottom + max(0, (available_h - storage_block_h) // 2)
+    bar_y = block_top + 6
 
     used_percent = (used_space / total_space * 100) if total_space > 0 else 0
     free_space = total_space - used_space
