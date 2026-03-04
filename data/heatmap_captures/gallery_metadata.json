@@ -3,7 +3,12 @@
   "priorities": {
     "testd.mp4": "high",
     "recording_20260301_220627.mp4": "medium",
-    "screenshot_20260301_232107.png": "low"
+    "screenshot_20260301_232107.png": "low",
+    "recording_20260303_025620yy.mp4": "high",
+    "recording_20260303_031631.mp4": "medium",
+    "ddd_1.png": "medium",
+    "ddd_2.png": "medium",
+    "screenshot_20260303_031915009.png": "high"
   },
   "file_tags": {},
   "tag_data": {
@@ -22,6 +27,18 @@
     "screenshot_20260301_232107.png": {
       "asset_type": "cvv",
       "leak_type": "zz"
+    },
+    "screenshot_20260303_031916.png": {
+      "asset_type": "fcc",
+      "leak_type": ""
+    },
+    "ddd_1.png": {
+      "asset_type": "fcc",
+      "leak_type": ""
+    },
+    "screenshot_20260303_031915009.png": {
+      "asset_type": "",
+      "leak_type": ""
     }
   }
 }

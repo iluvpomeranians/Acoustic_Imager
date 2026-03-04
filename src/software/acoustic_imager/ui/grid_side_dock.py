@@ -5,12 +5,10 @@ Dock is delimited from the grid; the storage bar floats with the viewport
 (stays visible) as you scroll up/down.
 """
 
-import os
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List, Tuple
-import shutil
 
 import cv2
 import numpy as np
@@ -29,6 +27,7 @@ from .keyboard import (
     KEY_TEXT_BGR as KEYBOARD_KEY_TEXT,
 )
 from .priority_circle import draw_priority_circle_neon
+from .storage_bar import draw_storage_bar
 
 GRID_SIDE_DOCK_WIDTH = 113
 
@@ -48,14 +47,6 @@ SEARCH_BAR_PLACEHOLDER = "Search"
 DOCK_ROW_FILTER_LABEL = "Filter"
 DOCK_ROW_THIRD_LABEL = "Sort"
 SEARCH_BAR_TEXT_COLOR = (255, 255, 255)
-
-BAR_BOTTOM_MARGIN_PX = 2
-BAR_HEIGHT = 200
-BAR_INSET = 2
-# Bar: width and margins (centered between text and dock right edge)
-BAR_WIDTH_PX = 22
-BAR_RIGHT_MARGIN_PX = 4
-BAR_TEXT_GAP_PX = 8  # gap between end of text and bar
 
 # Priority colours (BGR)
 PRIORITY_COLORS = {
@@ -978,187 +969,6 @@ def _draw_search_keyboard(
     else:
         menu_buttons["search_keyboard_panel"].x, menu_buttons["search_keyboard_panel"].y = px, py
         menu_buttons["search_keyboard_panel"].w, menu_buttons["search_keyboard_panel"].h = total_w, panel_h
-
-
-def _format_size(size_bytes: float) -> str:
-    for unit in ["B", "KB", "MB", "GB", "TB"]:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.1f} PB"
-
-
-def draw_storage_bar(
-    frame: np.ndarray,
-    dock_x: int,
-    dock_w: int,
-    header_h: int,
-    items: List[Tuple[Path, str, datetime]],
-    output_dir: Optional[Path],
-) -> None:
-    """
-    Draw the storage bar inside the dock. Position is viewport-fixed so it
-    stays visible (floats with you) as the grid scrolls. Uses live disk usage
-    so the bar updates immediately after deletes.
-    """
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    total_media_size = 0
-    if items:
-        try:
-            total_media_size = sum(p.stat().st_size for p, _, _ in items)
-        except OSError:
-            pass
-
-    if output_dir and output_dir.exists():
-        try:
-            path_str = os.path.realpath(str(output_dir))
-            # After a delete, sync so filesystem reports updated usage (e.g. on SD card)
-            if button_state.gallery_storage_dirty:
-                os.sync()
-                button_state.gallery_storage_dirty = False
-            disk_usage = shutil.disk_usage(path_str)
-            total_space = disk_usage.total
-            used_space = disk_usage.used
-        except OSError:
-            total_space = 128 * 1024 * 1024 * 1024
-            used_space = total_media_size
-    else:
-        if not items:
-            return
-        total_space = 128 * 1024 * 1024 * 1024
-        used_space = total_media_size
-
-    frame_h = frame.shape[0]
-    bar_w = BAR_WIDTH_PX
-    # Center storage block between Sort button bottom and frame bottom
-    dock_y = header_h + 3
-    sort_bottom = dock_y + 3 * DOCK_ROW_HEIGHT + 2 * DOCK_DIVIDER_THICKNESS
-    storage_block_h = 6 + BAR_HEIGHT  # label gap + bar
-    available_h = frame_h - sort_bottom
-    block_top = sort_bottom + max(0, (available_h - storage_block_h) // 2)
-    bar_y = block_top + 6
-
-    used_percent = (used_space / total_space * 100) if total_space > 0 else 0
-    free_space = total_space - used_space
-
-    text_left = dock_x + 4
-
-    # Compute text strings and measure max width (for bar centering)
-    used_pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
-    free_pct = 100.0 - used_percent
-    free_pct_str = f"{free_pct:.1f}%" if free_pct >= 0.1 else f"{free_pct:.2f}%"
-    used_size_str = _format_size(used_space)
-    free_size_str = _format_size(free_space)
-
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    max_text_w = 0
-    for s in ("Free", "Used", free_pct_str, used_pct_str, free_size_str, used_size_str):
-        (w, _), _ = cv2.getTextSize(s, font, 0.46, 1)
-        max_text_w = max(max_text_w, w)
-    text_right = text_left + max_text_w + BAR_TEXT_GAP_PX
-    dock_right = dock_x + dock_w - BAR_RIGHT_MARGIN_PX
-    bar_center = (text_right + dock_right) / 2
-    bar_x = int(bar_center - bar_w / 2) - 8  # shift slightly left
-
-    label_text = "STORAGE"
-    label_scale = 0.52
-    (label_w, _), _ = cv2.getTextSize(label_text, font, label_scale, 1)
-    label_x = dock_x + (dock_w - label_w) // 2
-    label_y = bar_y - 6
-    cv2.putText(
-        frame, label_text, (label_x, label_y),
-        font, label_scale, (180, 180, 180), 1, cv2.LINE_AA
-    )
-
-    # Vertical bar (centered between text and dock right edge)
-    cv2.rectangle(
-        frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + BAR_HEIGHT),
-        (45, 45, 50), -1
-    )
-    cv2.rectangle(
-        frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + BAR_HEIGHT),
-        (70, 70, 78), 2, cv2.LINE_AA
-    )
-
-    fill_x0 = bar_x + BAR_INSET
-    fill_x1 = bar_x + bar_w - BAR_INSET
-    fill_y0 = bar_y + BAR_INSET
-    fill_y1 = bar_y + BAR_HEIGHT - BAR_INSET
-    fill_area_h = fill_y1 - fill_y0
-
-    filled_h = int(fill_area_h * min(used_percent / 100.0, 1.0))
-    if used_space > 0 and filled_h < 2:
-        filled_h = 2
-    used_top = fill_y1 - filled_h
-    used_color_top = MENU_ACTIVE_BLUE
-    used_color_bot = MENU_ACTIVE_BLUE_LIGHT
-    free_color_top = (115, 115, 120)
-    free_color_bot = (145, 145, 150)
-    if filled_h > 0:
-        used_h = fill_y1 - used_top
-        used_w = fill_x1 - fill_x0
-        used_grad = np.zeros((used_h, used_w, 3), dtype=np.uint8)
-        for c in range(3):
-            used_grad[:, :, c] = np.linspace(
-                used_color_top[c], used_color_bot[c], used_h, dtype=np.uint8
-            ).reshape(-1, 1)
-        frame[used_top:fill_y1, fill_x0:fill_x1] = used_grad
-        free_h = used_top - fill_y0
-        if free_h > 0:
-            free_grad = np.zeros((free_h, used_w, 3), dtype=np.uint8)
-            for c in range(3):
-                free_grad[:, :, c] = np.linspace(
-                    free_color_top[c], free_color_bot[c], free_h, dtype=np.uint8
-                ).reshape(-1, 1)
-            frame[fill_y0:used_top, fill_x0:fill_x1] = free_grad
-        ridge_color = (90, 100, 120)  # blue-tinted ridge
-        cv2.line(
-            frame, (fill_x0, used_top), (fill_x1, used_top),
-            ridge_color, 2, cv2.LINE_AA
-        )
-
-    # Text outside bar: label, percentage, size on separate lines
-    # Vertically center the Free/Used block between STORAGE and bottom of bar
-    percent_scale = 0.46
-    text_color_used = MENU_ACTIVE_BLUE_LIGHT  # blue to match buttons
-    text_color_free = (230, 230, 230)
-    label_color = (160, 160, 165)
-    line_h = 14
-    gap_between_blocks = 4
-
-    # Total height of text block: Free (3 lines) + gap + Used (3 lines)
-    total_text_h = 3 * line_h + gap_between_blocks + 3 * line_h
-    text_block_top = bar_y + (BAR_HEIGHT - total_text_h) // 2
-
-    # Legend square size and gap
-    LEGEND_SQ = 6
-    LEGEND_GAP = 4
-    legend_free_color = (140, 140, 145)  # grey (BGR)
-    legend_used_color = MENU_ACTIVE_BLUE_LIGHT  # blue
-
-    y = text_block_top
-    sq_y = y - LEGEND_SQ - 2  # vertically center square with text
-    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
-                  legend_free_color, -1, cv2.LINE_AA)
-    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
-                  (180, 180, 185), 1, cv2.LINE_AA)
-    cv2.putText(frame, "Free", (text_left + LEGEND_SQ + LEGEND_GAP, y), font, 0.45, label_color, 1, cv2.LINE_AA)
-    y += line_h
-    cv2.putText(frame, free_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
-    y += line_h
-    cv2.putText(frame, free_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
-
-    y += line_h + gap_between_blocks
-    sq_y = y - LEGEND_SQ - 2
-    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
-                  legend_used_color, -1, cv2.LINE_AA)
-    cv2.rectangle(frame, (text_left, sq_y), (text_left + LEGEND_SQ, sq_y + LEGEND_SQ),
-                  (200, 200, 220), 1, cv2.LINE_AA)
-    cv2.putText(frame, "Used", (text_left + LEGEND_SQ + LEGEND_GAP, y), font, 0.45, text_color_used, 1, cv2.LINE_AA)
-    y += line_h
-    cv2.putText(frame, used_pct_str, (text_left, y), font, percent_scale, text_color_free, 1, cv2.LINE_AA)
-    y += line_h
-    cv2.putText(frame, used_size_str, (text_left, y), font, 0.42, text_color_free, 1, cv2.LINE_AA)
 
 
 def draw_grid_side_dock(

@@ -28,8 +28,8 @@ from .grid_side_dock import (
     DOCK_ROW_TOP_HIGHLIGHT,
     DOCK_ROW_WHITE_BORDER,
     SEARCH_BAR_TEXT_COLOR,
-    _format_size,
 )
+from .storage_bar import _format_size
 from .keyboard import (
     ROWS_QWERTY as _TK_ROWS,
     ROW_NUMBERS as _TK_NUMS,
