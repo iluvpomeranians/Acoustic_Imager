@@ -51,7 +51,9 @@ def _battery_position_for_view(frame: np.ndarray) -> Tuple[int, int]:
     pad = 12
 
     if not button_state.gallery_open:
-        return (pad, pad)  # Main heatmap: top-left
+        # Main heatmap: top-left of camera feed segment (right of dB bar)
+        from ..config import DB_BAR_WIDTH
+        return (DB_BAR_WIDTH + pad, pad)
 
     if button_state.gallery_viewer_mode in ("image", "video"):
         return (w - pad - bw, pad)  # Single media viewer: top-right

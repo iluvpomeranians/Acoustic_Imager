@@ -9,7 +9,15 @@ import time
 import cv2
 import numpy as np
 
-from ..config import HUD_MENU_OPACITY, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, UI_PILL_H, UI_PILL_W
+from ..config import (
+    HUD_MENU_OPACITY,
+    MENU_ACTIVE_BLUE,
+    MENU_ACTIVE_BLUE_LIGHT,
+    UI_PILL_H,
+    UI_PILL_W,
+    DB_BAR_WIDTH,
+    FREQ_BAR_WIDTH,
+)
 from .menu import _blue_gradient_overlay
 
 @dataclass
@@ -123,9 +131,11 @@ def draw_hud(
     fps_w  = UI_PILL_W
     time_w = UI_PILL_W
 
-    # Calculate total width and center horizontally
+    # Center HUD within the camera feed segment (between dB bar and freq bar)
+    camera_feed_left = DB_BAR_WIDTH
+    camera_feed_width = w - DB_BAR_WIDTH - FREQ_BAR_WIDTH
     total_width = net_w + gap + fps_w + gap + time_w
-    start_x = (w - total_width) // 2
+    start_x = camera_feed_left + (camera_feed_width - total_width) // 2
 
     x_net  = start_x
     x_fps  = x_net + net_w + gap
