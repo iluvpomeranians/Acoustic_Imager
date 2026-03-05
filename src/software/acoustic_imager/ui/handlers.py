@@ -392,9 +392,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 return True
         # Absorb clicks on modal/rename panels
         if in_rename:
-            if ("archive_rename_form_panel" in menu_buttons and menu_buttons["archive_rename_form_panel"].contains(x, y)) or (
-                "archive_rename_keyboard_panel" in menu_buttons and menu_buttons["archive_rename_keyboard_panel"].contains(x, y)
-            ):
+            if "archive_rename_keyboard_panel" in menu_buttons and menu_buttons["archive_rename_keyboard_panel"].contains(x, y):
                 return True
         elif "archive_folder_modal_panel" in menu_buttons and menu_buttons["archive_folder_modal_panel"].contains(x, y):
             return True

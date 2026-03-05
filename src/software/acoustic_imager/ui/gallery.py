@@ -1249,11 +1249,14 @@ def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
 
 def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) -> None:
-    """Tag-style keyboard for folder rename: at bottom, Back/Clear/Done. Done applies and closes."""
+    """Unified blue panel for folder rename: title + input at top, keyboard below. Text only in input bar."""
     fh, _ = frame.shape[:2]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    form_h = 80  # title + input row
     n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
+    keyboard_h = n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
+    panel_h = form_h + keyboard_h
     panel_w = form_w
-    panel_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
     px = form_x
     py = min(y_top, fh - panel_h - 4)
 
@@ -1279,15 +1282,30 @@ def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, fo
             feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
     cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
+    # Form section at top of panel: title + Rename input (text only here, not on keyboard)
+    form_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
+    title = "Rename folder"
+    (tw, th), _ = cv2.getTextSize(title, font, 0.60, 1)
+    cv2.putText(frame, title, (px + (panel_w - tw) // 2, py + 34),
+                font, 0.60, form_text_color, 1, cv2.LINE_AA)
+
     query = getattr(button_state, "gallery_archive_rename_query", "") or ""
-    bar_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
-    bar_text = f"Rename: {query[:30]}"
-    cv2.putText(frame, bar_text, (px + 8, py + _TK_BAR_H - 10),
-                font, 0.48, bar_text_color, 1, cv2.LINE_AA)
+    lbl_w = 80
+    input_x = px + lbl_w + 20
+    input_w = panel_w - lbl_w - 36
+    input_h = 40
+    ry = py + 50
+    border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+    cv2.putText(frame, "Rename:", (px + 14, ry + input_h // 2 + 7),
+                font, 0.48, form_text_color, 1, cv2.LINE_AA)
+    input_bg = (28, 28, 34)
+    cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), input_bg, -1)
+    cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), border, 2, cv2.LINE_AA)
+    cv2.putText(frame, query[:40], (input_x + 9, ry + input_h // 2 + 7),
+                font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
     key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
-    key_y = py + _TK_BAR_H + _TK_GAP
+    key_y = py + form_h + _TK_GAP
     for row in _TK_ROWS:
         row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
         key_x = px + (panel_w - row_w) // 2
@@ -1361,44 +1379,12 @@ def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Pat
     font = cv2.FONT_HERSHEY_SIMPLEX
 
     if in_rename_mode:
-        # Rename mode: Tags-style layout - form at top, keyboard at bottom (no overlay)
+        # Rename mode: unified blue panel at bottom (title + input + keyboard)
         fh, fw = frame.shape[:2]
         dock_x = fw - GRID_SIDE_DOCK_WIDTH
         form_x = MODAL_EDGE_MARGIN
         form_w = dock_x - form_x
-        form_h = 80  # title + one input row
-        form_y = min(header_h + 3, fh - form_h - 4)
 
-        # Form: title + Rename input (like Tags modal)
-        title = "Rename folder"
-        title_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
-        (tw, th), _ = cv2.getTextSize(title, font, 0.60, 1)
-        cv2.putText(frame, title, (form_x + (form_w - tw) // 2, form_y + 34),
-                    font, 0.60, title_color, 1, cv2.LINE_AA)
-
-        query = getattr(button_state, "gallery_archive_rename_query", "") or ""
-        lbl_w = 80
-        input_x = form_x + lbl_w + 20
-        input_w = form_w - lbl_w - 36
-        input_h = 40
-        ry = form_y + 50
-        form_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
-        border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
-        cv2.putText(frame, "Rename:", (form_x + 14, ry + input_h // 2 + 7),
-                    font, 0.48, form_text_color, 1, cv2.LINE_AA)
-        input_bg = (28, 28, 34)
-        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), input_bg, -1)
-        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), border, 2, cv2.LINE_AA)
-        cv2.putText(frame, query[:40], (input_x + 9, ry + input_h // 2 + 7),
-                    font, 0.48, form_text_color, 1, cv2.LINE_AA)
-
-        if "archive_rename_form_panel" not in menu_buttons:
-            menu_buttons["archive_rename_form_panel"] = Button(form_x, form_y, form_w, form_h, "")
-        else:
-            menu_buttons["archive_rename_form_panel"].x, menu_buttons["archive_rename_form_panel"].y = form_x, form_y
-            menu_buttons["archive_rename_form_panel"].w, menu_buttons["archive_rename_form_panel"].h = form_w, form_h
-
-        # Keyboard at bottom of screen (same style as Tags, allows viewing gallery above)
         _draw_archive_rename_keyboard(frame, fh, form_x, form_w)
     else:
         # Action mode: Rename | Delete | Cancel
