@@ -55,6 +55,8 @@ static arm_rfft_fast_instance_f32 fft_instance;
 static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
 static spi_stream_t spi_stream_ctx;
 
+static uint8_t spi_packet[70000];
+
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
 volatile uint32_t adc_ready_mask = 0;
@@ -102,6 +104,8 @@ void app_init(void) {
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
   spi_stream_init(&spi_stream_ctx);
 }
+
+
 
 void app_start(void) {
 // Any additional startup logic can go here

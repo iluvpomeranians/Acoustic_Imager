@@ -88,6 +88,72 @@ size_t spi_stream_build_fft_packet(
   return total_len;
 }
 
+size_t spi_stream_build_frame_packet(
+    spi_stream_t *s,
+    uint8_t *dst,
+    size_t dst_cap,
+    const float *fft_data,
+    uint16_t mic_count,
+    uint16_t fft_size,
+    uint32_t sample_rate,
+    uint16_t bin_count)
+{
+    if (!s || !dst || !fft_data)
+        return 0;
+
+    SPI_FrameHeader_t hdr = {0};
+
+    const size_t header_len = sizeof(hdr);
+
+    const size_t payload_len =
+        (size_t)mic_count *
+        2 * (size_t)bin_count *
+        sizeof(float);
+
+    const size_t checksum_len = sizeof(uint16_t);
+
+    const size_t total_len =
+        header_len + payload_len + checksum_len;
+
+    if (dst_cap < total_len)
+        return 0;
+
+    /* ===== HEADER ===== */
+
+    hdr.magic         = SPI_MAGIC;
+    hdr.version       = SPI_VERSION;
+    hdr.header_len    = header_len;
+    hdr.frame_counter = s->frame_counter++;
+
+    hdr.mic_count     = mic_count;
+    hdr.fft_size      = fft_size;
+    hdr.sample_rate   = sample_rate;
+
+    hdr.bin_count     = bin_count;
+    hdr.reserved      = 0;
+
+    hdr.payload_len   = payload_len;
+
+    memcpy(dst, &hdr, header_len);
+
+    /* ===== PAYLOAD ===== */
+
+    uint8_t *payload_ptr = dst + header_len;
+
+    memcpy(payload_ptr, fft_data, payload_len);
+
+    /* ===== CHECKSUM ===== */
+
+    uint16_t checksum =
+        checksum16_sum_bytes(dst, header_len + payload_len);
+
+    memcpy(payload_ptr + payload_len,
+           &checksum,
+           sizeof(checksum));
+
+    return total_len;
+}
+
 void spi_stream_tx_blocking(const uint8_t *buf, size_t len)
 {
     if (!buf || len == 0) return;
