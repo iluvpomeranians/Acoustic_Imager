@@ -24,15 +24,31 @@ from ..state import button_state
 try:
     from ..config import (
         BUTTON_HITPAD_PX,
-        BUTTON_ALPHA,
+        HUD_MENU_OPACITY,
         ACTION_BTN_GLOW,
         ACTION_BTN_BORDER_THICKNESS,
+        ACTION_BTN_NEON_BORDER_BGR,
+        ACTION_BTN_NEON_GLOW,
+        ACTION_BTN_FILL_ALPHA,
+        ACTION_BTN_SHINE_ALPHA,
+        GALLERY_ACTION_STYLE,
+        CLASSIC_ACTION_TEXT_BGR,
+        CLASSIC_ACTION_GLOW,
     )
+    BUTTON_ALPHA = HUD_MENU_OPACITY  # menu/HUD use single knob
 except Exception:
     BUTTON_HITPAD_PX = ui_cache.BUTTON_HITPAD_PX
-    BUTTON_ALPHA = 0.92
+    HUD_MENU_OPACITY = 0.92
+    BUTTON_ALPHA = HUD_MENU_OPACITY
     ACTION_BTN_GLOW = 0.45
     ACTION_BTN_BORDER_THICKNESS = 1
+    ACTION_BTN_NEON_BORDER_BGR = (255, 210, 100)
+    ACTION_BTN_NEON_GLOW = 0.2
+    ACTION_BTN_FILL_ALPHA = 0.98
+    ACTION_BTN_SHINE_ALPHA = 0.11
+    GALLERY_ACTION_STYLE = "neon"
+    CLASSIC_ACTION_TEXT_BGR = (255, 255, 255)
+    CLASSIC_ACTION_GLOW = 0.06
 
 buttons: Dict[str, "Button"] = {}
 menu_buttons: Dict[str, "Button"] = {}
@@ -43,6 +59,28 @@ FPS_MODE_TO_TARGET = {"30": 30, "60": 60}
 def _rounded_rect(img, x, y, w, h, r, color, thickness=-1):
     """Draw rectangle (r unused; kept for API compatibility)."""
     cv2.rectangle(img, (x, y), (x + w, y + h), color, thickness, lineType=cv2.LINE_AA)
+
+
+def _add_glassy_shine(roi: np.ndarray, alpha: float = 0.11) -> None:
+    """Add a subtle glassy shine to the ROI in-place: corner-focused highlights (four corners)."""
+    if roi.size == 0 or alpha <= 0:
+        return
+    h, w = roi.shape[:2]
+    if w < 4 or h < 4:
+        return
+    shine = np.zeros_like(roi)
+    white = (255, 255, 255)
+    ax, ay = max(2, int(w * 0.22)), max(2, int(h * 0.22))
+    # Four corner highlights (tight in corners)
+    cv2.ellipse(shine, (int(w * 0.12), int(h * 0.12)), (ax, ay), 0, 0, 360, white, -1, cv2.LINE_AA)
+    cv2.ellipse(shine, (int(w * 0.88), int(h * 0.12)), (ax, ay), 0, 0, 360, white, -1, cv2.LINE_AA)
+    cv2.ellipse(shine, (int(w * 0.92), int(h * 0.92)), (ax, ay), 0, 0, 360, white, -1, cv2.LINE_AA)
+    cv2.ellipse(shine, (int(w * 0.12), int(h * 0.92)), (ax, ay), 0, 0, 360, white, -1, cv2.LINE_AA)
+    sigma = max(1.0, min(w, h) * 0.12)
+    k = max(3, int(sigma * 2.5) | 1)
+    shine = cv2.GaussianBlur(shine, (k, k), sigma)
+    np.clip(shine, 0, 255, out=shine)
+    cv2.addWeighted(shine, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
 
 
 def _draw_camera_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
@@ -168,6 +206,9 @@ class Button:
         icon_type: Optional[str] = None,
         gradient_colors: Optional[Tuple[tuple, tuple]] = None,
         neon_glow: bool = False,
+        fill_alpha: Optional[float] = None,
+        neon_border_color: Optional[Tuple[int, int, int]] = None,
+        inactive_bg: Optional[Tuple[int, int, int]] = None,
     ) -> None:
         base = (60, 60, 60)
         hover = (85, 85, 85)
@@ -236,9 +277,12 @@ class Button:
                         overlay = _vertical_gradient_uint8(roi_h, roi_w, top_bgr, bot_bgr)
                     else:
                         overlay = np.empty_like(roi)
-                        overlay[:] = color
-                    alpha = BUTTON_ALPHA
+                        fill_color = (inactive_bg if (inactive_bg is not None and not self.is_active) else color)
+                        overlay[:] = fill_color
+                    alpha = fill_alpha if fill_alpha is not None else BUTTON_ALPHA
                     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
+                    if neon_border_color is not None and GALLERY_ACTION_STYLE != "classic":
+                        _add_glassy_shine(roi, alpha=ACTION_BTN_SHINE_ALPHA)
             else:
                 x0 = max(0, x)
                 y0 = max(0, y)
@@ -247,16 +291,33 @@ class Button:
                 if x1 > x0 and y1 > y0:
                     roi = frame[y0:y1, x0:x1]
                     roi[:] = ui_cache.get_grad(roi.shape[1], roi.shape[0], color)
-            if self.is_active:
-                if active_border_color is not None:
-                    border_color = active_border_color
-                elif active_color is not None:
-                    border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
-                else:
-                    border_color = (80, 255, 100)
+            if neon_border_color is not None:
+                if ACTION_BTN_NEON_GLOW > 0 and GALLERY_ACTION_STYLE != "classic":
+                    # Neon edge: glow layer then crisp border
+                    pad = 16
+                    gx0 = max(0, x - pad)
+                    gy0 = max(0, y - pad)
+                    gx1 = min(frame.shape[1], x + w + pad)
+                    gy1 = min(frame.shape[0], y + h + pad)
+                    if gx1 > gx0 and gy1 > gy0:
+                        glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+                        lx, ly = x - gx0, y - gy0
+                        cv2.rectangle(glow_patch, (lx, ly), (lx + w, ly + h), neon_border_color, 8, cv2.LINE_AA)
+                        glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
+                        feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
+                border_color = neon_border_color
+                _rounded_rect(frame, x, y, w, h, 10, color=border_color, thickness=max(1, ACTION_BTN_BORDER_THICKNESS))
             else:
-                border_color = (255, 255, 255)
-            _rounded_rect(frame, x, y, w, h, 10, color=border_color, thickness=ACTION_BTN_BORDER_THICKNESS)
+                if self.is_active:
+                    if active_border_color is not None:
+                        border_color = active_border_color
+                    elif active_color is not None:
+                        border_color = tuple(min(255, int(c * 1.3)) for c in active_color)
+                    else:
+                        border_color = (80, 255, 100)
+                else:
+                    border_color = (255, 255, 255)
+                _rounded_rect(frame, x, y, w, h, 10, color=border_color, thickness=ACTION_BTN_BORDER_THICKNESS)
 
         if icon_type:
             cx = x + w // 2
@@ -276,7 +337,8 @@ class Button:
             font = cv2.FONT_HERSHEY_SIMPLEX
             scale = 0.42 if "LOOP" in self.text else 0.52
             thick = 1
-            white = (255, 255, 255)
+            is_gallery_action = gradient_colors is not None or neon_border_color is not None
+            text_color = (CLASSIC_ACTION_TEXT_BGR if (GALLERY_ACTION_STYLE == "classic" and is_gallery_action) else (255, 255, 255))
             # Word-wrap: "SELECT ALL" -> "SELECT"/"ALL", "DESELECT ALL" -> "DESELECT"/"ALL", "DELETE (N)" -> "DELETE"/"(N)"
             if self.text in ("SELECT ALL", "DESELECT ALL"):
                 line1 = self.text.split()[0]   # "SELECT" or "DESELECT"
@@ -297,7 +359,8 @@ class Button:
                 ty2 = ty1 + gap + th2 + line2_south
                 tx1 = x + (w - tw1) // 2
                 tx2 = x + (w - tw2) // 2
-                if neon_glow and gradient_colors is not None:
+                text_glow = (CLASSIC_ACTION_GLOW if (GALLERY_ACTION_STYLE == "classic" and is_gallery_action) else None) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_GLOW if (neon_glow and gradient_colors is not None) else None)
+                if text_glow is not None and text_glow > 0:
                     pad_t = 14
                     fh, fw = frame.shape[:2]
                     ty0 = max(0, y + (h - total_h) // 2 - pad_t)
@@ -308,19 +371,20 @@ class Button:
                         tpatch = frame[ty0:ty1_end, tx0:tx1_end].copy()
                         ltx1, lty1 = tx1 - tx0, ty1 - ty0
                         ltx2, lty2 = tx2 - tx0, ty2 - ty0
-                        cv2.putText(tpatch, line1, (ltx1, lty1), font, scale, white, 2, cv2.LINE_AA)
-                        cv2.putText(tpatch, line1, (ltx1, lty1), font, scale, white, 1, cv2.LINE_AA)
-                        cv2.putText(tpatch, line2, (ltx2, lty2), font, scale, white, 2, cv2.LINE_AA)
-                        cv2.putText(tpatch, line2, (ltx2, lty2), font, scale, white, 1, cv2.LINE_AA)
+                        cv2.putText(tpatch, line1, (ltx1, lty1), font, scale, text_color, 2, cv2.LINE_AA)
+                        cv2.putText(tpatch, line1, (ltx1, lty1), font, scale, text_color, 1, cv2.LINE_AA)
+                        cv2.putText(tpatch, line2, (ltx2, lty2), font, scale, text_color, 2, cv2.LINE_AA)
+                        cv2.putText(tpatch, line2, (ltx2, lty2), font, scale, text_color, 1, cv2.LINE_AA)
                         tpatch = cv2.GaussianBlur(tpatch, (0, 0), 2.5)
-                        feathered_composite(frame, ty0, ty1_end, tx0, tx1_end, tpatch, ACTION_BTN_GLOW, feather_px=12)
-                cv2.putText(frame, line1, (tx1, ty1), font, scale, white, thick, cv2.LINE_AA)
-                cv2.putText(frame, line2, (tx2, ty2), font, scale, white, thick, cv2.LINE_AA)
+                        feathered_composite(frame, ty0, ty1_end, tx0, tx1_end, tpatch, text_glow, feather_px=12)
+                cv2.putText(frame, line1, (tx1, ty1), font, scale, text_color, thick, cv2.LINE_AA)
+                cv2.putText(frame, line2, (tx2, ty2), font, scale, text_color, thick, cv2.LINE_AA)
             else:
                 tw, th = cv2.getTextSize(self.text, font, scale, thick)[0]
                 tx = x + (w - tw) // 2
                 ty = y + (h + th) // 2
-                if neon_glow and gradient_colors is not None:
+                text_glow_single = (CLASSIC_ACTION_GLOW if (GALLERY_ACTION_STYLE == "classic" and is_gallery_action) else None) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_GLOW if (neon_glow and gradient_colors is not None) else None)
+                if text_glow_single is not None and text_glow_single > 0:
                     pad_t = 14
                     fh, fw = frame.shape[:2]
                     tx0 = max(0, tx - pad_t)
@@ -330,12 +394,12 @@ class Button:
                     if tx1 > tx0 and ty1 > ty0:
                         tpatch = frame[ty0:ty1, tx0:tx1].copy()
                         ltx, lty = tx - tx0, ty - ty0
-                        cv2.putText(tpatch, self.text, (ltx, lty), font, scale, white, 2, cv2.LINE_AA)
-                        cv2.putText(tpatch, self.text, (ltx, lty), font, scale, white, 1, cv2.LINE_AA)
+                        cv2.putText(tpatch, self.text, (ltx, lty), font, scale, text_color, 2, cv2.LINE_AA)
+                        cv2.putText(tpatch, self.text, (ltx, lty), font, scale, text_color, 1, cv2.LINE_AA)
                         tpatch = cv2.GaussianBlur(tpatch, (0, 0), 2.5)
-                        feathered_composite(frame, ty0, ty1, tx0, tx1, tpatch, ACTION_BTN_GLOW, feather_px=12)
+                        feathered_composite(frame, ty0, ty1, tx0, tx1, tpatch, text_glow_single, feather_px=12)
                 cv2.putText(frame, self.text, (tx, ty),
-                            font, scale, white,
+                            font, scale, text_color,
                             thick, cv2.LINE_AA)
 
 

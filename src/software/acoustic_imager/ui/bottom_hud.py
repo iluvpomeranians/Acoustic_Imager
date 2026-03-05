@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 import cv2
 import numpy as np
 
-from ..config import DB_BAR_WIDTH, UI_PILL_H, UI_PILL_W, BUTTON_ALPHA, ACTION_BTN_GLOW
+from ..config import DB_BAR_WIDTH, UI_PILL_H, UI_PILL_W, HUD_MENU_OPACITY, ACTION_BTN_GLOW
 from ..state import button_state
 from .button import (
     menu_buttons,
@@ -38,8 +38,8 @@ BOTTOM_HUD_HEIGHT = PILL_H
 # Icon size for pills
 ICON_SIZE = 14
 
-# Match menu button opacity
-BOTTOM_PILL_ALPHA = BUTTON_ALPHA
+# Same opacity as menu and top HUD (single knob: HUD_MENU_OPACITY)
+BOTTOM_PILL_ALPHA = HUD_MENU_OPACITY
 
 # Cache layout so we only update button rects when frame size or state changes (avoids churn + timing issues)
 _last_layout: Optional[Tuple[int, int, int, int, int, bool]] = None

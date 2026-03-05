@@ -9,7 +9,7 @@ import time
 import cv2
 import numpy as np
 
-from ..config import BUTTON_ALPHA, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, UI_PILL_H, UI_PILL_W
+from ..config import HUD_MENU_OPACITY, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, UI_PILL_H, UI_PILL_W
 from .menu import _blue_gradient_overlay
 
 @dataclass
@@ -28,9 +28,9 @@ def _draw_pill(frame: np.ndarray, x: int, y: int, w: int, h: int,
         return
 
     if alpha is None:
-        alpha = BUTTON_ALPHA  # same as bottom HUD
+        alpha = HUD_MENU_OPACITY
     if is_active:
-        alpha = BUTTON_ALPHA  # same as menu so blue matches
+        alpha = HUD_MENU_OPACITY
         border = (255, 255, 255)
 
     roi = frame[y0:y1, x0:x1]
@@ -174,7 +174,7 @@ def draw_hud(
         line_h = 18
         panel_w = max(220, max(tw(s, 0.5, 1) for s in lines) + 20)
         panel_h = 10 + line_h * len(lines)
-        _draw_pill(frame, anchor_x, panel_y, panel_w, panel_h)  # same opacity as bottom HUD (BUTTON_ALPHA)
+        _draw_pill(frame, anchor_x, panel_y, panel_w, panel_h)  # same opacity as menu/bottom HUD (HUD_MENU_OPACITY)
         yy = panel_y + 22
         for s in lines:
             cv2.putText(frame, s, (anchor_x + 10, yy),

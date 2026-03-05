@@ -25,27 +25,49 @@ NOISE_POWER = 0.0005
 WIDTH = 1024
 HEIGHT = 600
 ALPHA = 0.7
-BUTTON_ALPHA = 0.92  # menu + children: reduce transparency (more opaque)
-
+# Single knob: menu button, dropdown items, top HUD pills, bottom HUD pills (0–1; higher = more opaque)
+HUD_MENU_OPACITY = 0.92
+BUTTON_ALPHA = HUD_MENU_OPACITY  # used by Button.draw for menu dropdown and back button
 BUTTON_HITPAD_PX = 14
 
 # Shared UI blue (BGR) for menu, HUD
 MENU_ACTIVE_BLUE = (130, 82, 32)       # slightly darker blue
 MENU_ACTIVE_BLUE_LIGHT = (165, 110, 48)  # gradient end
 
+# Gallery Action surfaces style: "neon" (dark fill + neon edges) or "classic" (white on blue, pre-neon)
+GALLERY_ACTION_STYLE = "classic"
+
 # Single point of control for action button neon glow (0=off, ~0.32=default, 1=full)
-ACTION_BTN_GLOW = 0.20
+ACTION_BTN_GLOW = 0.1
 
 # Storage bar: one glow amount for all subelements (label, ring glow, % text, Used/Free); 0=off
 STORAGE_BAR_GLOW = 0.28
-# Storage bar brightness multiplier for colors (1.0=unchanged, >1 brighter)
 STORAGE_BAR_BRIGHTNESS = 1.15
-
-# Border thickness for all action buttons (dock rows + gallery DONE/SELECT/DELETE)
 ACTION_BTN_BORDER_THICKNESS = 1
 
+# Gallery action buttons: dark fill + neon edge (BGR) — used when GALLERY_ACTION_STYLE == "neon"
+ACTION_BTN_FILL_DARK_TOP = (58, 58, 52)   # dark grey (slightly towards black)
+ACTION_BTN_FILL_DARK_BOT = (32, 32, 28)   # darker grey
+# Neon border color (electric blue) and glow strength (0=off, ~0.4=visible)
+ACTION_BTN_NEON_BORDER_BGR = (255, 210, 100)  # BGR bright cyan-blue
+ACTION_BTN_NEON_GLOW = 0.1                # border glow strength
+ACTION_BTN_FILL_ALPHA = 1
+ACTION_BTN_MODAL_FILL_ALPHA = 1
+# Glassy shine on action buttons (0=off, ~0.11=subtle)
+ACTION_BTN_SHINE_ALPHA = 0.05
+
+# Classic style (when GALLERY_ACTION_STYLE == "classic"): white on blue, same as pre-neon
+# Closed buttons (dock rows): darker blue gradient. Expanded (strip + panel after growth): lighter blue.
+CLASSIC_ACTION_FILL_DARK_TOP = (90, 56, 22)   # BGR darker blue — closed dock rows
+CLASSIC_ACTION_FILL_DARK_BOT = (115, 77, 34)   # darker blue bottom
+CLASSIC_ACTION_FILL_TOP = (130, 82, 32)        # BGR lighter blue — expanded strip/panel (MENU_ACTIVE_BLUE)
+CLASSIC_ACTION_FILL_BOT = (165, 110, 48)      # lighter blue bottom (MENU_ACTIVE_BLUE_LIGHT)
+CLASSIC_ACTION_TEXT_BGR = (255, 255, 255)     # white text on blue
+CLASSIC_ACTION_BORDER_BGR = (255, 255, 255)  # white border
+CLASSIC_ACTION_GLOW = 0.06                 # very minor text/icon glow (0=off)
+
 # Freq bar / bandpass: lighter neon blue so it stands out on dark bar
-FREQ_BAR_BLUE = (230, 170, 80)  # BGR slightly darker blue for sliding window
+FREQ_BAR_BLUE = (230, 170, 80)
 # Gallery filter/sort modal: goldish yellow for selected option (bandpass-style accent)
 MODAL_ACTIVE_GOLD = (0, 200, 255)  # BGR goldish yellow
 

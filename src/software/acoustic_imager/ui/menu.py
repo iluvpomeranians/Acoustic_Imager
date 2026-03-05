@@ -12,7 +12,7 @@ from . import ui_cache
 from .button import menu_buttons
 from ..state import button_state
 from .video_recorder import VideoRecorder
-from ..config import BUTTON_ALPHA, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
+from ..config import HUD_MENU_OPACITY, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
 
 def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bgr: Tuple[int, int, int]) -> np.ndarray:
@@ -47,8 +47,8 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
         overlay = _blue_gradient_overlay(h, w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
     else:
         overlay = np.empty_like(roi)
-        overlay[:] = (40, 40, 40)
-    alpha = BUTTON_ALPHA
+        overlay[:] = (0, 0, 0)  # same as bottom HUD pills so opacity matches
+    alpha = HUD_MENU_OPACITY
     cv2.addWeighted(overlay, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
 
     border_color = (255, 255, 255)  # white border always
@@ -88,15 +88,16 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
             menu_buttons[k].y += oy
-    menu_buttons["fps30"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["fps60"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["fpsmax"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    hud_bg = (0, 0, 0)  # same as menu button and bottom HUD pills for matching opacity
+    menu_buttons["fps30"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["fps60"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["fpsmax"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
 
-    menu_buttons["gain"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["colormap"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["cam"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["source"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
-    menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border)
+    menu_buttons["gain"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["colormap"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["cam"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["source"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
             menu_buttons[k].y -= oy
@@ -140,7 +141,7 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
         band_h = 10
         band = hud.copy()
         band[:band_h] = np.clip(band[:band_h].astype(np.int16) + 15, 0, 255).astype(np.uint8)
-        alpha = BUTTON_ALPHA
+        alpha = HUD_MENU_OPACITY
         cv2.addWeighted(band, alpha, hud, 1- alpha, 0.0, hud)
 
         border_color = (200, 200, 200) if not paused else (100, 100, 200)
@@ -151,7 +152,7 @@ def draw_recording_timestamp(frame: np.ndarray, video_recorder: Optional[VideoRe
     overlay = np.empty_like(roi)
     bg_color = (100, 0, 0) if not paused else (0, 100, 150)
     overlay[:] = bg_color
-    alpha = BUTTON_ALPHA
+    alpha = HUD_MENU_OPACITY
     cv2.addWeighted(overlay, alpha, roi, 1-alpha, 0.0, dst=roi)
 
     border_color = (255, 50, 50) if not paused else (0, 165, 255)
