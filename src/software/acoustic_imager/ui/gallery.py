@@ -351,7 +351,7 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
     dock_x = fw - GRID_SIDE_DOCK_WIDTH
     form_x = MODAL_EDGE_MARGIN
     form_w = dock_x - form_x  # extend to kiss dock (no gap west of storage)
-    form_h = 280
+    form_h = 230  # title + 3 fields (no Cancel/Save; keyboard merged below)
     tags_row_top = header_h + 3
     form_y = min(tags_row_top, fh - form_h - 4)
     # No form background: dock draws strip + panel with same growth animation as other modals
@@ -397,8 +397,7 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
         cv2.putText(frame, flabel, (form_x + 14, ry + input_h // 2 + lh // 2),
                     font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
-        is_active = (button_state.gallery_tag_active_field == fkey
-                     and button_state.gallery_tag_keyboard_open)
+        is_active = (button_state.gallery_tag_active_field == fkey)
         border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
         input_bg = (28, 28, 34)  # dark fill for inputs; text uses form_text_color (white on classic blue, white on neon)
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), input_bg, -1)
@@ -430,47 +429,14 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
 
     # No band drawn: dock already fills the modal area with one continuous gradient; drawing a band created a visible separate bar under the inputs.
 
-    # ── Buttons (Cancel / Save): match Gallery Action style (neon or classic) ─
-    btn_y = form_y + form_h - 54
-    btn_h = 40
-    cancel_w, save_w = 130, 130
-    cancel_x = form_x + form_w // 2 - cancel_w - 12
-    save_x   = form_x + form_w // 2 + 12
-    btn_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
-    thick = max(1, ACTION_BTN_BORDER_THICKNESS)
-    btn_fill_top = CLASSIC_ACTION_FILL_TOP if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_FILL_DARK_TOP
-    btn_fill_bot = CLASSIC_ACTION_FILL_BOT if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_FILL_DARK_BOT
-    btn_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
-
-    for (bx, bw, label) in [(cancel_x, cancel_w, "CANCEL"), (save_x, save_w, "SAVE")]:
-        roi = frame[btn_y : btn_y + btn_h, bx : bx + bw]
-        grad = _vertical_gradient(btn_h, bw, btn_fill_top, btn_fill_bot)
-        cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
-        cv2.rectangle(frame, (bx, btn_y), (bx + bw, btn_y + btn_h), btn_border, thick, cv2.LINE_AA)
-        (lw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
-        cv2.putText(frame, label, (bx + (bw - lw) // 2, btn_y + btn_h // 2 + 7),
-                    font, 0.5, btn_text_color, 1, cv2.LINE_AA)
-
-    if "tag_cancel" not in menu_buttons:
-        menu_buttons["tag_cancel"] = Button(cancel_x, btn_y, cancel_w, btn_h, "CANCEL")
-    else:
-        b = menu_buttons["tag_cancel"]
-        b.x, b.y, b.w, b.h = cancel_x, btn_y, cancel_w, btn_h
-    if "tag_save" not in menu_buttons:
-        menu_buttons["tag_save"] = Button(save_x, btn_y, save_w, btn_h, "SAVE")
-    else:
-        b = menu_buttons["tag_save"]
-        b.x, b.y, b.w, b.h = save_x, btn_y, save_w, btn_h
+    # ── Keyboard (merged into modal, always visible) ─────────────────────────────
+    _draw_tag_keyboard(frame, form_y + form_h, form_x, form_w)
 
     if "tag_modal_panel" not in menu_buttons:
         menu_buttons["tag_modal_panel"] = Button(form_x, form_y, form_w, form_h, "")
     else:
         b = menu_buttons["tag_modal_panel"]
         b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h
-
-    # ── Keyboard (below form, same width as modal) ───────────────────────────────
-    if button_state.gallery_tag_keyboard_open:
-        _draw_tag_keyboard(frame, form_y + form_h, form_x, form_w)
 
 
 def _viewer_rubber_band_offset(offset: float, idx: int, n: int) -> float:
@@ -1096,7 +1062,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             hint_scale = 0.65
             (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
             hint_x = (frame.shape[1] - hint_w) // 2
-            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 6  # 6 px north
+            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 8  # 8 px north (lifted 2px)
             cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
         else:
             button_state.gallery_select_first_hint_until = 0.0

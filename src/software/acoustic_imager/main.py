@@ -88,6 +88,7 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_viewer_mouse,
 )
 from acoustic_imager.ui.video_recorder import VideoRecorder
+from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
 
 # ===============================================================
 # External dependencies (from parent directories)
@@ -880,6 +881,9 @@ def main() -> None:
 
             # ---- Draw screenshot flash effect ----
             draw_screenshot_flash(output_frame)
+
+            # ---- Battery icon (position varies: heatmap=top-left, gallery grid=under storage, viewer=top-right) ----
+            draw_battery_icon_for_view(output_frame, percent=None)  # None = placeholder until live data
 
             prof.mark("ui")
 
