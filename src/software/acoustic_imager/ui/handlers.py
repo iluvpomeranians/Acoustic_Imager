@@ -234,6 +234,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.gallery_archive_folders = remove_files_from_all_folders(
                     output_dir, folders, filenames
                 )
+            button_state.gallery_selected_items.clear()
             button_state.gallery_archive_move_modal_open = False
             return True
 
@@ -244,6 +245,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     button_state.gallery_archive_folders = move_files_to_folder(
                         output_dir, folders, folder["id"], filenames
                     )
+                button_state.gallery_selected_items.clear()
                 button_state.gallery_archive_move_modal_open = False
                 return True
         # Click outside folder buttons closes modal

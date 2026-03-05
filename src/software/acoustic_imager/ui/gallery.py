@@ -242,7 +242,7 @@ def _draw_archive_panel(
         return
 
     cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (40, 40, 40), -1)
-    cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (100, 100, 100), 2, cv2.LINE_AA)
+    cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (255, 255, 255), 3, cv2.LINE_AA)
 
     # Title bar at top - "Archive" centered
     title_h = 24
@@ -778,10 +778,16 @@ def apply_gallery_filter_sort_search(
 
 
 def get_displayed_gallery_items(output_dir: Optional[Path]) -> List[Tuple[Path, str, datetime]]:
-    """Return gallery items after filter, sort, and search (what the user sees)."""
+    """Return gallery items after filter, sort, and search (what the user sees).
+    Main gallery excludes files that are in any archive folder (move semantics)."""
     if not output_dir:
         return []
-    return apply_gallery_filter_sort_search(get_gallery_items(output_dir))
+    all_items = get_gallery_items(output_dir)
+    folder_filenames = set()
+    for f in getattr(button_state, "gallery_archive_folders", []):
+        folder_filenames.update(f.get("files", []))
+    gallery_items = [(p, t, m) for p, t, m in all_items if p.name not in folder_filenames]
+    return apply_gallery_filter_sort_search(gallery_items)
 
 
 def get_folder_displayed_items(
@@ -1390,32 +1396,53 @@ def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Pat
 
         btn_y = modal_y + 75
         btn_h = 36
+        _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+        _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+
         # Rename button
         if "archive_folder_rename" not in menu_buttons:
-            menu_buttons["archive_folder_rename"] = Button(modal_x + 15, btn_y, 85, btn_h, "")
+            menu_buttons["archive_folder_rename"] = Button(modal_x + 15, btn_y, 85, btn_h, "Rename")
         else:
             menu_buttons["archive_folder_rename"].x, menu_buttons["archive_folder_rename"].y = modal_x + 15, btn_y
             menu_buttons["archive_folder_rename"].w, menu_buttons["archive_folder_rename"].h = 85, btn_h
-        cv2.rectangle(frame, (modal_x + 15, btn_y), (modal_x + 100, btn_y + btn_h), MENU_ACTIVE_BLUE, -1)
-        cv2.putText(frame, "Rename", (modal_x + 28, btn_y + btn_h - 10), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            menu_buttons["archive_folder_rename"].text = "Rename"
+        menu_buttons["archive_folder_rename"].is_active = True
+        menu_buttons["archive_folder_rename"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=_grad,
+            fill_alpha=ACTION_BTN_FILL_ALPHA,
+            neon_border_color=_border,
+        )
 
-        # Delete button
+        # Delete button (same style as gallery; destructive but consistent look)
         if "archive_folder_delete" not in menu_buttons:
-            menu_buttons["archive_folder_delete"] = Button(modal_x + 110, btn_y, 85, btn_h, "")
+            menu_buttons["archive_folder_delete"] = Button(modal_x + 110, btn_y, 85, btn_h, "Delete")
         else:
             menu_buttons["archive_folder_delete"].x, menu_buttons["archive_folder_delete"].y = modal_x + 110, btn_y
             menu_buttons["archive_folder_delete"].w, menu_buttons["archive_folder_delete"].h = 85, btn_h
-        cv2.rectangle(frame, (modal_x + 110, btn_y), (modal_x + 195, btn_y + btn_h), (60, 60, 120), -1)
-        cv2.putText(frame, "Delete", (modal_x + 125, btn_y + btn_h - 10), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            menu_buttons["archive_folder_delete"].text = "Delete"
+        menu_buttons["archive_folder_delete"].is_active = True
+        menu_buttons["archive_folder_delete"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=_grad,
+            fill_alpha=ACTION_BTN_FILL_ALPHA,
+            neon_border_color=_border,
+        )
 
         # Cancel button
         if "archive_folder_cancel" not in menu_buttons:
-            menu_buttons["archive_folder_cancel"] = Button(modal_x + modal_w - 95, btn_y, 80, btn_h, "")
+            menu_buttons["archive_folder_cancel"] = Button(modal_x + modal_w - 95, btn_y, 80, btn_h, "Cancel")
         else:
             menu_buttons["archive_folder_cancel"].x, menu_buttons["archive_folder_cancel"].y = modal_x + modal_w - 95, btn_y
             menu_buttons["archive_folder_cancel"].w, menu_buttons["archive_folder_cancel"].h = 80, btn_h
-        cv2.rectangle(frame, (modal_x + modal_w - 95, btn_y), (modal_x + modal_w - 15, btn_y + btn_h), (80, 80, 85), -1)
-        cv2.putText(frame, "Cancel", (modal_x + modal_w - 82, btn_y + btn_h - 10), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            menu_buttons["archive_folder_cancel"].text = "Cancel"
+        menu_buttons["archive_folder_cancel"].is_active = True
+        menu_buttons["archive_folder_cancel"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=_grad,
+            fill_alpha=ACTION_BTN_FILL_ALPHA,
+            neon_border_color=_border,
+        )
 
         if "archive_folder_modal_panel" not in menu_buttons:
             menu_buttons["archive_folder_modal_panel"] = Button(modal_x, modal_y, modal_w, modal_h, "")
@@ -1454,19 +1481,37 @@ def draw_archive_folder_delete_modal(frame: np.ndarray, output_dir: Optional[Pat
     cv2.putText(frame, "Files stay in gallery.", (modal_x + 20, modal_y + 58), font, 0.42, (180, 180, 180), 1, cv2.LINE_AA)
 
     btn_y = modal_y + 75
+    btn_h = 32
+    _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+    _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+
     if "archive_delete_yes" not in menu_buttons:
-        menu_buttons["archive_delete_yes"] = Button(modal_x + 15, btn_y, 100, 32, "")
+        menu_buttons["archive_delete_yes"] = Button(modal_x + 15, btn_y, 100, btn_h, "Delete")
     else:
         menu_buttons["archive_delete_yes"].x, menu_buttons["archive_delete_yes"].y = modal_x + 15, btn_y
-    cv2.rectangle(frame, (modal_x + 15, btn_y), (modal_x + 115, btn_y + 32), (60, 60, 120), -1)
-    cv2.putText(frame, "Delete", (modal_x + 35, btn_y + 22), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+        menu_buttons["archive_delete_yes"].w, menu_buttons["archive_delete_yes"].h = 100, btn_h
+        menu_buttons["archive_delete_yes"].text = "Delete"
+    menu_buttons["archive_delete_yes"].is_active = True
+    menu_buttons["archive_delete_yes"].draw(
+        frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+        gradient_colors=_grad,
+        fill_alpha=ACTION_BTN_FILL_ALPHA,
+        neon_border_color=_border,
+    )
 
     if "archive_delete_no" not in menu_buttons:
-        menu_buttons["archive_delete_no"] = Button(modal_x + modal_w - 95, btn_y, 80, 32, "")
+        menu_buttons["archive_delete_no"] = Button(modal_x + modal_w - 95, btn_y, 80, btn_h, "Cancel")
     else:
         menu_buttons["archive_delete_no"].x, menu_buttons["archive_delete_no"].y = modal_x + modal_w - 95, btn_y
-    cv2.rectangle(frame, (modal_x + modal_w - 95, btn_y), (modal_x + modal_w - 15, btn_y + 32), (80, 80, 85), -1)
-    cv2.putText(frame, "Cancel", (modal_x + modal_w - 72, btn_y + 22), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+        menu_buttons["archive_delete_no"].w, menu_buttons["archive_delete_no"].h = 80, btn_h
+        menu_buttons["archive_delete_no"].text = "Cancel"
+    menu_buttons["archive_delete_no"].is_active = True
+    menu_buttons["archive_delete_no"].draw(
+        frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+        gradient_colors=_grad,
+        fill_alpha=ACTION_BTN_FILL_ALPHA,
+        neon_border_color=_border,
+    )
 
 
 def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
