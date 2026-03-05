@@ -12,6 +12,7 @@ import time
 from . import ui_cache
 from .button import buttons, menu_buttons
 from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset, _video_read_frame_at
+from .archive_panel import load_archive_folders, add_folder, move_files_to_folder, save_archive_folders
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
@@ -40,6 +41,7 @@ def _close_select_mode_modals() -> None:
     button_state.gallery_rename_modal_open = False
     button_state.gallery_tag_modal_open = False
     button_state.gallery_tag_active_field = ""
+    button_state.gallery_archive_move_modal_open = False
 
 
 def _apply_rename(output_dir: Optional[Path]) -> None:
@@ -197,6 +199,23 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         return True
 
+    if button_state.gallery_archive_move_modal_open:
+        folders = getattr(button_state, "gallery_archive_folders", [])
+        for folder in folders:
+            key = "move_to_folder_" + folder.get("id", "")
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                items = get_displayed_gallery_items(output_dir)
+                filenames = [items[i][0].name for i in button_state.gallery_selected_items if i < len(items)]
+                if output_dir and filenames:
+                    button_state.gallery_archive_folders = move_files_to_folder(
+                        output_dir, folders, folder["id"], filenames
+                    )
+                button_state.gallery_archive_move_modal_open = False
+                return True
+        # Click outside folder buttons closes modal
+        button_state.gallery_archive_move_modal_open = False
+        return True
+
     if button_state.gallery_delete_modal_open:
         if "modal_yes" in menu_buttons and menu_buttons["modal_yes"].contains(x, y):
             items = get_displayed_gallery_items(output_dir)
@@ -261,6 +280,25 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_delete_modal_kind = "single"
             return True
 
+        return True
+
+    # Move to button (select mode only)
+    if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
+        if "gallery_move_to" in menu_buttons and menu_buttons["gallery_move_to"].contains(x, y):
+            if button_state.gallery_selected_items:
+                folders = getattr(button_state, "gallery_archive_folders", [])
+                if folders:
+                    button_state.gallery_archive_move_modal_open = True
+                else:
+                    button_state.gallery_archive_move_hint_until = time.time() + 2.5
+            return True
+
+    # Archive panel
+    if "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y):
+        if "archive_add_btn" in menu_buttons and menu_buttons["archive_add_btn"].contains(x, y):
+            if output_dir:
+                folders = getattr(button_state, "gallery_archive_folders", [])
+                button_state.gallery_archive_folders = add_folder(output_dir, folders)
         return True
 
     # Dock row buttons have priority.
@@ -641,6 +679,8 @@ def handle_menu_click(
         button_state.gallery_open = True
         button_state.menu_open = False
         button_state.gallery_storage_dirty = True
+        if output_dir:
+            button_state.gallery_archive_folders = load_archive_folders(output_dir)
         return video_recorder
 
     if button_state.is_recording and button_state.is_paused:

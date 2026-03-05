@@ -125,6 +125,11 @@ class ButtonState:
     # Screenshot feedback
     screenshot_flash_time: Optional[float] = None
 
+    # Archive panel (folders for organizing media)
+    gallery_archive_folders: list = field(default_factory=list)  # [{"id", "name", "files"}, ...]
+    gallery_archive_move_modal_open: bool = False  # Move to folder modal
+    gallery_archive_move_hint_until: float = 0.0  # Show "Add folders in Archive panel first"
+
     def __post_init__(self):
         if self.gallery_selected_items is None:
             self.gallery_selected_items = set()
@@ -136,6 +141,8 @@ class ButtonState:
             self.gallery_tag_field_values = {}
         if self.gallery_tag_data is None:
             self.gallery_tag_data = {}
+        if self.gallery_archive_folders is None:
+            self.gallery_archive_folders = []
 
 
 # A single shared instance (matches original `button_state = ButtonState()`)
