@@ -11,7 +11,8 @@ import time
 
 from . import ui_cache
 from .button import buttons, menu_buttons
-from .gallery import get_displayed_gallery_items, _viewer_rubber_band_offset, _video_read_frame_at
+from .gallery import get_displayed_gallery_items, get_folder_displayed_items, _viewer_rubber_band_offset, _video_read_frame_at
+from .archive_panel import load_archive_folders, add_folder, rename_folder as archive_rename_folder, delete_folder as archive_delete_folder, move_files_to_folder, remove_files_from_all_folders, save_archive_folders
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
@@ -40,6 +41,19 @@ def _close_select_mode_modals() -> None:
     button_state.gallery_rename_modal_open = False
     button_state.gallery_tag_modal_open = False
     button_state.gallery_tag_active_field = ""
+    button_state.gallery_archive_move_modal_open = False
+    button_state.gallery_archive_folder_action_id = None
+    button_state.gallery_archive_rename_folder_id = None
+    button_state.gallery_archive_rename_query = ""
+    button_state.gallery_archive_delete_confirm_folder_id = None
+
+
+def _get_current_gallery_items(output_dir: Optional[Path]):
+    """Return items for current view (main gallery or folder)."""
+    if not output_dir:
+        return []
+    view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
+    return get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
 
 
 def _apply_rename(output_dir: Optional[Path]) -> None:
@@ -51,7 +65,7 @@ def _apply_rename(output_dir: Optional[Path]) -> None:
     new_stem = (button_state.gallery_rename_query or "").strip()
     if not new_stem:
         return
-    items = get_displayed_gallery_items(output_dir)
+    items = _get_current_gallery_items(output_dir)
     sel = sorted(button_state.gallery_selected_items)
     for i, idx in enumerate(sel):
         if idx >= len(items):
@@ -182,12 +196,24 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     if "gallery_back" in menu_buttons and menu_buttons["gallery_back"].contains(x, y):
         trigger_viewer_button_feedback("gallery_back")
         if button_state.gallery_viewer_mode == "grid":
-            button_state.gallery_open = False
-            button_state.gallery_scroll_offset = 0
-            button_state.gallery_selected_item = None
-            button_state.gallery_select_mode = False
-            button_state.gallery_selected_items.clear()
-            _close_select_mode_modals()
+            if getattr(button_state, "gallery_archive_folder_view_id", None):
+                # In folder view: go back to main gallery
+                button_state.gallery_archive_folder_view_id = None
+                button_state.gallery_scroll_offset = 0
+                button_state.gallery_selected_item = None
+                button_state.gallery_selected_items.clear()
+            else:
+                # In main gallery: close gallery
+                button_state.gallery_open = False
+                button_state.gallery_scroll_offset = 0
+                button_state.gallery_selected_item = None
+                button_state.gallery_archive_folder_action_id = None
+                button_state.gallery_archive_rename_folder_id = None
+                button_state.gallery_archive_rename_query = ""
+                button_state.gallery_archive_delete_confirm_folder_id = None
+                button_state.gallery_select_mode = False
+                button_state.gallery_selected_items.clear()
+                _close_select_mode_modals()
 
         else:
             button_state.gallery_viewer_mode = "grid"
@@ -197,9 +223,39 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         return True
 
+    if button_state.gallery_archive_move_modal_open:
+        folders = getattr(button_state, "gallery_archive_folders", [])
+        view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
+        items = get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
+        filenames = [items[i][0].name for i in button_state.gallery_selected_items if i < len(items)]
+
+        if "move_to_gallery" in menu_buttons and menu_buttons["move_to_gallery"].contains(x, y):
+            if output_dir and filenames and view_id:
+                button_state.gallery_archive_folders = remove_files_from_all_folders(
+                    output_dir, folders, filenames
+                )
+            button_state.gallery_selected_items.clear()
+            button_state.gallery_archive_move_modal_open = False
+            return True
+
+        for folder in folders:
+            key = "move_to_folder_" + folder.get("id", "")
+            if key in menu_buttons and menu_buttons[key].contains(x, y):
+                if output_dir and filenames:
+                    button_state.gallery_archive_folders = move_files_to_folder(
+                        output_dir, folders, folder["id"], filenames
+                    )
+                button_state.gallery_selected_items.clear()
+                button_state.gallery_archive_move_modal_open = False
+                return True
+        # Click outside folder buttons closes modal
+        button_state.gallery_archive_move_modal_open = False
+        return True
+
     if button_state.gallery_delete_modal_open:
         if "modal_yes" in menu_buttons and menu_buttons["modal_yes"].contains(x, y):
-            items = get_displayed_gallery_items(output_dir)
+            view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
+            items = get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
 
             try:
                 if button_state.gallery_delete_modal_kind == "batch":
@@ -263,6 +319,108 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         return True
 
+    # Move to button (select mode only)
+    if button_state.gallery_viewer_mode == "grid" and button_state.gallery_select_mode:
+        if "gallery_move_to" in menu_buttons and menu_buttons["gallery_move_to"].contains(x, y):
+            if button_state.gallery_selected_items:
+                folders = getattr(button_state, "gallery_archive_folders", [])
+                if folders:
+                    button_state.gallery_archive_move_modal_open = True
+                else:
+                    button_state.gallery_archive_move_hint_until = time.time() + 2.5
+            return True
+
+    # Archive folder delete confirmation modal
+    if getattr(button_state, "gallery_archive_delete_confirm_folder_id", None):
+        folder_id = button_state.gallery_archive_delete_confirm_folder_id
+        if "archive_delete_yes" in menu_buttons and menu_buttons["archive_delete_yes"].contains(x, y):
+            if output_dir and folder_id:
+                folders = getattr(button_state, "gallery_archive_folders", [])
+                button_state.gallery_archive_folders = archive_delete_folder(output_dir, folders, folder_id)
+            button_state.gallery_archive_delete_confirm_folder_id = None
+            button_state.gallery_archive_folder_action_id = None
+            if getattr(button_state, "gallery_archive_folder_view_id", None) == folder_id:
+                button_state.gallery_archive_folder_view_id = None
+            return True
+        if "archive_delete_no" in menu_buttons and menu_buttons["archive_delete_no"].contains(x, y):
+            button_state.gallery_archive_delete_confirm_folder_id = None
+            return True
+        return True
+
+    # Archive folder action modal (Rename/Delete when in select mode) and rename sub-modal
+    folder_action_id = getattr(button_state, "gallery_archive_folder_action_id", None)
+    if folder_action_id:
+        in_rename = getattr(button_state, "gallery_archive_rename_folder_id", None) == folder_action_id
+        if in_rename:
+            # Rename mode: keyboard (tag-style), Save, Cancel
+            for c in "abcdefghijklmnopqrstuvwxyz0123456789":
+                key = f"archive_rename_key_{c}"
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_archive_rename_query = (getattr(button_state, "gallery_archive_rename_query", "") or "") + c
+                    return True
+            if "archive_rename_key_backspace" in menu_buttons and menu_buttons["archive_rename_key_backspace"].contains(x, y):
+                q = getattr(button_state, "gallery_archive_rename_query", "") or ""
+                button_state.gallery_archive_rename_query = q[:-1]
+                return True
+            if "archive_rename_key_clear" in menu_buttons and menu_buttons["archive_rename_key_clear"].contains(x, y):
+                button_state.gallery_archive_rename_query = ""
+                return True
+            if "archive_rename_key_done" in menu_buttons and menu_buttons["archive_rename_key_done"].contains(x, y):
+                new_name = (getattr(button_state, "gallery_archive_rename_query", "") or "").strip()
+                if new_name and output_dir:
+                    folders = getattr(button_state, "gallery_archive_folders", [])
+                    button_state.gallery_archive_folders = archive_rename_folder(
+                        output_dir, folders, folder_action_id, new_name
+                    )
+                button_state.gallery_archive_rename_folder_id = None
+                button_state.gallery_archive_rename_query = ""
+                button_state.gallery_archive_folder_action_id = None  # close action modal too
+                return True
+        else:
+            # Action mode: Rename | Delete | Cancel
+            if "archive_folder_rename" in menu_buttons and menu_buttons["archive_folder_rename"].contains(x, y):
+                folder = next((f for f in getattr(button_state, "gallery_archive_folders", []) if f.get("id") == folder_action_id), None)
+                if folder:
+                    button_state.gallery_archive_rename_folder_id = folder_action_id
+                    button_state.gallery_archive_rename_query = folder.get("name", "Folder") or "Folder"
+                return True
+            if "archive_folder_delete" in menu_buttons and menu_buttons["archive_folder_delete"].contains(x, y):
+                button_state.gallery_archive_delete_confirm_folder_id = folder_action_id
+                return True
+            if "archive_folder_cancel" in menu_buttons and menu_buttons["archive_folder_cancel"].contains(x, y):
+                button_state.gallery_archive_folder_action_id = None
+                return True
+        # Absorb clicks on modal/rename panels
+        if in_rename:
+            if "archive_rename_keyboard_panel" in menu_buttons and menu_buttons["archive_rename_keyboard_panel"].contains(x, y):
+                return True
+        elif "archive_folder_modal_panel" in menu_buttons and menu_buttons["archive_folder_modal_panel"].contains(x, y):
+            return True
+        # Click outside: close
+        button_state.gallery_archive_folder_action_id = None
+        button_state.gallery_archive_rename_folder_id = None
+        button_state.gallery_archive_rename_query = ""
+        button_state.gallery_archive_delete_confirm_folder_id = None
+        return True
+
+    # Archive panel (only visible in main gallery, not in folder view)
+    if not getattr(button_state, "gallery_archive_folder_view_id", None) and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y):
+        if "archive_add_btn" in menu_buttons and menu_buttons["archive_add_btn"].contains(x, y):
+            if output_dir:
+                folders = getattr(button_state, "gallery_archive_folders", [])
+                button_state.gallery_archive_folders = add_folder(output_dir, folders)
+        else:
+            # Check folder clicks
+            for folder in getattr(button_state, "gallery_archive_folders", []):
+                key = f"archive_folder_{folder.get('id', '')}"
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    if button_state.gallery_select_mode:
+                        button_state.gallery_archive_folder_action_id = folder["id"]
+                    else:
+                        button_state.gallery_archive_folder_view_id = folder["id"]
+                    return True
+        return True
+
     # Dock row buttons have priority.
     # In select mode: Tags / Priority / Rename  (Search / Filter / Sort hidden)
     # Require at least one selected item to open; otherwise show hint and do not open.
@@ -292,7 +450,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             elif not button_state.gallery_selected_items:
                 button_state.gallery_select_first_hint_until = time.time() + 2.5
             else:
-                items = get_displayed_gallery_items(output_dir)
+                items = _get_current_gallery_items(output_dir)
                 sel = sorted(button_state.gallery_selected_items)
                 if sel and sel[0] < len(items):
                     first_path = items[sel[0]][0]
@@ -310,7 +468,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         for value in ("high", "medium", "low"):
             key = f"gallery_priority_opt_{value}"
             if key in menu_buttons and menu_buttons[key].contains(x, y):
-                items = get_displayed_gallery_items(output_dir)
+                items = _get_current_gallery_items(output_dir)
                 priorities = getattr(button_state, 'gallery_file_priorities', {})
                 for idx in button_state.gallery_selected_items:
                     if idx < len(items):
@@ -641,6 +799,8 @@ def handle_menu_click(
         button_state.gallery_open = True
         button_state.menu_open = False
         button_state.gallery_storage_dirty = True
+        if output_dir:
+            button_state.gallery_archive_folders = load_archive_folders(output_dir)
         return video_recorder
 
     if button_state.is_recording and button_state.is_paused:
