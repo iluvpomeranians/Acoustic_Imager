@@ -132,7 +132,7 @@ def draw_hud(
 
     net_w  = UI_PILL_W
     fps_w  = UI_PILL_W
-    time_w = UI_PILL_W
+    time_w = UI_PILL_W + 42  # Wider to fit clock + time + battery icon
 
     # Center HUD within the camera feed segment (between dB bar and freq bar)
     camera_feed_left = DB_BAR_WIDTH
