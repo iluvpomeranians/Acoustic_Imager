@@ -129,6 +129,9 @@ class ButtonState:
     gallery_archive_folders: list = field(default_factory=list)  # [{"id", "name", "files"}, ...]
     gallery_archive_move_modal_open: bool = False  # Move to folder modal
     gallery_archive_move_hint_until: float = 0.0  # Show "Add folders in Archive panel first"
+    gallery_archive_folder_open_id: Optional[str] = None  # folder id when viewing contents popup
+    gallery_archive_rename_folder_id: Optional[str] = None  # folder id when renaming
+    gallery_archive_rename_query: str = ""  # current rename text for folder
 
     def __post_init__(self):
         if self.gallery_selected_items is None:
