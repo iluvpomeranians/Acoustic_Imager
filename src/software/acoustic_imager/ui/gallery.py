@@ -188,11 +188,11 @@ def _draw_folder_icon(
     name: str,
     n_files: int,
 ) -> None:
-    """Draw a folder-shaped icon (light blue, tabbed, glossy) at (x,y) with size w x h."""
-    # Light blue folder (BGR: sky blue)
-    base_color = (200, 190, 140)  # light blue
+    """Draw a folder-shaped icon (gallery button blue, tabbed, glossy) at (x,y) with size w x h."""
+    # Match gallery action button blue (CLASSIC_ACTION_FILL_TOP / MENU_ACTIVE_BLUE)
+    base_color = CLASSIC_ACTION_FILL_TOP  # (130, 82, 32) BGR
     highlight_color = (255, 255, 255)
-    shadow_color = (140, 150, 160)
+    shadow_color = (90, 60, 20)  # darker blue for shadow
 
     tab_h = max(6, h // 4)
     tab_w = max(14, w // 2)
@@ -210,9 +210,10 @@ def _draw_folder_icon(
     # Shadow on right and bottom
     cv2.line(frame, (x + w - 2, y + tab_h), (x + w - 2, y + h - 2), shadow_color, 1, cv2.LINE_AA)
     cv2.line(frame, (x + 2, y + h - 2), (x + w - 2, y + h - 2), shadow_color, 1, cv2.LINE_AA)
-    # Border
-    cv2.rectangle(frame, (x + 2, y + tab_h), (x + w - 2, y + h - 2), (170, 160, 180), 1, cv2.LINE_AA)
-    cv2.rectangle(frame, (x + 2, y + 2), (x + tab_w, y + tab_h + 2), (170, 160, 180), 1, cv2.LINE_AA)
+    # Border (slightly lighter blue for definition)
+    border_color = CLASSIC_ACTION_FILL_BOT  # (165, 110, 48)
+    cv2.rectangle(frame, (x + 2, y + tab_h), (x + w - 2, y + h - 2), border_color, 1, cv2.LINE_AA)
+    cv2.rectangle(frame, (x + 2, y + 2), (x + tab_w, y + tab_h + 2), border_color, 1, cv2.LINE_AA)
 
     # Label below icon
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -242,7 +243,6 @@ def _draw_archive_panel(
         return
 
     cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (40, 40, 40), -1)
-    cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (255, 255, 255), 3, cv2.LINE_AA)
 
     # Title bar at top - "Archive" centered
     title_h = 24
@@ -327,6 +327,9 @@ def _draw_archive_panel(
     else:
         menu_buttons["archive_panel"].x, menu_buttons["archive_panel"].y = x, y
         menu_buttons["archive_panel"].w, menu_buttons["archive_panel"].h = w, h
+
+    # Uniform white border drawn last so nothing overwrites it
+    cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (255, 255, 255), 2, cv2.LINE_AA)
 
 
 def _draw_tag_icon_grid(frame: np.ndarray, cx: int, cy: int,

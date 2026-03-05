@@ -221,6 +221,10 @@ def draw_storage_circle(
             d = seg_end
 
     # 5) Center text: percentage with glow (same idea as snake glow)
+    # Fill center with track color first to avoid purple dot artifact from text glow
+    inner_r = max(0, radius - ring_thickness - 2)
+    if inner_r > 4:
+        cv2.circle(frame, (cx, cy), inner_r, _brighten(TRACK_BGR), -1, cv2.LINE_AA)
     font = cv2.FONT_HERSHEY_SIMPLEX
     pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
     scale = 0.52
