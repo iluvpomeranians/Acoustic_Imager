@@ -374,20 +374,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     )
                 button_state.gallery_archive_rename_folder_id = None
                 button_state.gallery_archive_rename_query = ""
-                return True
-            if "archive_rename_save" in menu_buttons and menu_buttons["archive_rename_save"].contains(x, y):
-                new_name = (getattr(button_state, "gallery_archive_rename_query", "") or "").strip()
-                if new_name and output_dir:
-                    folders = getattr(button_state, "gallery_archive_folders", [])
-                    button_state.gallery_archive_folders = archive_rename_folder(
-                        output_dir, folders, folder_action_id, new_name
-                    )
-                button_state.gallery_archive_rename_folder_id = None
-                button_state.gallery_archive_rename_query = ""
-                return True
-            if "archive_rename_cancel" in menu_buttons and menu_buttons["archive_rename_cancel"].contains(x, y):
-                button_state.gallery_archive_rename_folder_id = None
-                button_state.gallery_archive_rename_query = ""
+                button_state.gallery_archive_folder_action_id = None  # close action modal too
                 return True
         else:
             # Action mode: Rename | Delete | Cancel
@@ -403,8 +390,13 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             if "archive_folder_cancel" in menu_buttons and menu_buttons["archive_folder_cancel"].contains(x, y):
                 button_state.gallery_archive_folder_action_id = None
                 return True
-        # Absorb clicks on modal panel
-        if "archive_folder_modal_panel" in menu_buttons and menu_buttons["archive_folder_modal_panel"].contains(x, y):
+        # Absorb clicks on modal/rename panels
+        if in_rename:
+            if ("archive_rename_form_panel" in menu_buttons and menu_buttons["archive_rename_form_panel"].contains(x, y)) or (
+                "archive_rename_keyboard_panel" in menu_buttons and menu_buttons["archive_rename_keyboard_panel"].contains(x, y)
+            ):
+                return True
+        elif "archive_folder_modal_panel" in menu_buttons and menu_buttons["archive_folder_modal_panel"].contains(x, y):
             return True
         # Click outside: close
         button_state.gallery_archive_folder_action_id = None

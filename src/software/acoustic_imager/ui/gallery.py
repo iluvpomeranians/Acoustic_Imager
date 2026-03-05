@@ -1248,7 +1248,104 @@ def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         )
 
 
-def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
+def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) -> None:
+    """Tag-style keyboard for folder rename: at bottom, Back/Clear/Done. Done applies and closes."""
+    fh, _ = frame.shape[:2]
+    n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
+    panel_w = form_w
+    panel_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
+    px = form_x
+    py = min(y_top, fh - panel_h - 4)
+
+    roi = frame[py: py + panel_h, px: px + panel_w]
+    if GALLERY_ACTION_STYLE == "classic":
+        fill_top, fill_bot = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+        panel_border = CLASSIC_ACTION_BORDER_BGR
+    else:
+        fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+        panel_border = ACTION_BTN_NEON_BORDER_BGR
+    grad = _vertical_gradient(panel_h, panel_w, fill_top, fill_bot)
+    cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
+    if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
+        pad = 16
+        gx0, gy0 = max(0, px - pad), max(0, py - pad)
+        gx1 = min(frame.shape[1], px + panel_w + pad)
+        gy1 = min(frame.shape[0], py + panel_h + pad)
+        if gx1 > gx0 and gy1 > gy0:
+            glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+            lx, ly = px - gx0, py - gy0
+            cv2.rectangle(glow_patch, (lx, ly), (lx + panel_w, ly + panel_h), panel_border, 8, cv2.LINE_AA)
+            glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
+            feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
+    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    query = getattr(button_state, "gallery_archive_rename_query", "") or ""
+    bar_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
+    bar_text = f"Rename: {query[:30]}"
+    cv2.putText(frame, bar_text, (px + 8, py + _TK_BAR_H - 10),
+                font, 0.48, bar_text_color, 1, cv2.LINE_AA)
+
+    key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+    key_y = py + _TK_BAR_H + _TK_GAP
+    for row in _TK_ROWS:
+        row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
+        key_x = px + (panel_w - row_w) // 2
+        for c in row:
+            kx, ky = key_x, key_y
+            draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
+            (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
+            cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
+                        font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
+            bkey = f"archive_rename_key_{c}"
+            if bkey not in menu_buttons:
+                menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
+            else:
+                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+            key_x += _TK_W + _TK_GAP
+        key_y += _TK_H + _TK_GAP
+    row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
+    key_x = px + (panel_w - row_w) // 2
+    for c in _TK_NUMS:
+        kx, ky = key_x, key_y
+        draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
+        (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
+        cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
+                    font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
+        bkey = f"archive_rename_key_{c}"
+        if bkey not in menu_buttons:
+            menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
+        else:
+            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+        key_x += _TK_W + _TK_GAP
+    key_y += _TK_H + _TK_GAP
+    sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
+    key_x = px + (panel_w - sp_row_w) // 2
+    for label, val in _TK_SPECIAL:
+        kx, ky = key_x, key_y
+        draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
+        (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
+        cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
+                    font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
+        bkey = f"archive_rename_key_{val}"
+        if bkey not in menu_buttons:
+            menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
+        else:
+            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+            menu_buttons[bkey].w = _TK_SP_W
+        key_x += _TK_SP_W + _TK_GAP
+
+    if "archive_rename_keyboard_panel" not in menu_buttons:
+        menu_buttons["archive_rename_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
+    else:
+        b = menu_buttons["archive_rename_keyboard_panel"]
+        b.x, b.y, b.w, b.h = px, py, panel_w, panel_h
+
+
+def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int = 98) -> None:
     """Modal for Rename/Delete when in select mode and user clicked a folder."""
     folder_id = getattr(button_state, "gallery_archive_folder_action_id", None)
     if not folder_id:
@@ -1264,121 +1361,45 @@ def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Pat
     font = cv2.FONT_HERSHEY_SIMPLEX
 
     if in_rename_mode:
-        # Rename mode: input + tag-style keyboard + Save/Cancel
-        n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
-        keyboard_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
-        form_w = min(400, frame.shape[1] - 40)
-        modal_h = 120 + keyboard_h
-        modal_w = form_w
-        modal_x = (frame.shape[1] - modal_w) // 2
-        modal_y = (frame.shape[0] - modal_h) // 2
+        # Rename mode: Tags-style layout - form at top, keyboard at bottom (no overlay)
+        fh, fw = frame.shape[:2]
+        dock_x = fw - GRID_SIDE_DOCK_WIDTH
+        form_x = MODAL_EDGE_MARGIN
+        form_w = dock_x - form_x
+        form_h = 80  # title + one input row
+        form_y = min(header_h + 3, fh - form_h - 4)
 
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
-        cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+        # Form: title + Rename input (like Tags modal)
+        title = "Rename folder"
+        title_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
+        (tw, th), _ = cv2.getTextSize(title, font, 0.60, 1)
+        cv2.putText(frame, title, (form_x + (form_w - tw) // 2, form_y + 34),
+                    font, 0.60, title_color, 1, cv2.LINE_AA)
 
-        roi = frame[modal_y: modal_y + modal_h, modal_x: modal_x + modal_w]
-        if GALLERY_ACTION_STYLE == "classic":
-            fill_top, fill_bot = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
-            panel_border = CLASSIC_ACTION_BORDER_BGR
-        else:
-            fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
-            panel_border = ACTION_BTN_NEON_BORDER_BGR
-        grad = _vertical_gradient(modal_h, modal_w, fill_top, fill_bot)
-        cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
-        if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
-            pad = 16
-            gx0, gy0 = max(0, modal_x - pad), max(0, modal_y - pad)
-            gx1 = min(frame.shape[1], modal_x + modal_w + pad)
-            gy1 = min(frame.shape[0], modal_y + modal_h + pad)
-            if gx1 > gx0 and gy1 > gy0:
-                glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
-                lx, ly = modal_x - gx0, modal_y - gy0
-                cv2.rectangle(glow_patch, (lx, ly), (lx + modal_w, ly + modal_h), panel_border, 8, cv2.LINE_AA)
-                glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
-                feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
-        cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w - 1, modal_y + modal_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
-
-        bar_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
         query = getattr(button_state, "gallery_archive_rename_query", "") or ""
-        cv2.putText(frame, f"Rename: {query[:30]}", (modal_x + 8, modal_y + _TK_BAR_H - 10),
-                    font, 0.48, bar_text_color, 1, cv2.LINE_AA)
+        lbl_w = 80
+        input_x = form_x + lbl_w + 20
+        input_w = form_w - lbl_w - 36
+        input_h = 40
+        ry = form_y + 50
+        form_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
+        border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+        cv2.putText(frame, "Rename:", (form_x + 14, ry + input_h // 2 + 7),
+                    font, 0.48, form_text_color, 1, cv2.LINE_AA)
+        input_bg = (28, 28, 34)
+        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), input_bg, -1)
+        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), border, 2, cv2.LINE_AA)
+        cv2.putText(frame, query[:40], (input_x + 9, ry + input_h // 2 + 7),
+                    font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
-        key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
-        key_y = modal_y + _TK_BAR_H + _TK_GAP
-        for row in _TK_ROWS:
-            row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
-            key_x = modal_x + (modal_w - row_w) // 2
-            for c in row:
-                kx, ky = key_x, key_y
-                draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-                cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-                (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
-                cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                            font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-                bkey = f"archive_rename_key_{c}"
-                if bkey not in menu_buttons:
-                    menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
-                else:
-                    menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-                key_x += _TK_W + _TK_GAP
-            key_y += _TK_H + _TK_GAP
-        row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
-        key_x = modal_x + (modal_w - row_w) // 2
-        for c in _TK_NUMS:
-            kx, ky = key_x, key_y
-            draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-            (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
-            cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                        font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-            bkey = f"archive_rename_key_{c}"
-            if bkey not in menu_buttons:
-                menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
-            else:
-                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-            key_x += _TK_W + _TK_GAP
-        key_y += _TK_H + _TK_GAP
-        sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
-        key_x = modal_x + (modal_w - sp_row_w) // 2
-        for label, val in _TK_SPECIAL:
-            kx, ky = key_x, key_y
-            draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-            (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
-            cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
-                        font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-            bkey = f"archive_rename_key_{val}"
-            if bkey not in menu_buttons:
-                menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
-            else:
-                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-                menu_buttons[bkey].w = _TK_SP_W
-            key_x += _TK_SP_W + _TK_GAP
-
-        btn_y = key_y + 8
-        bh = 32
-        if "archive_rename_save" not in menu_buttons:
-            menu_buttons["archive_rename_save"] = Button(modal_x + modal_w - 85, btn_y, 70, bh, "")
+        if "archive_rename_form_panel" not in menu_buttons:
+            menu_buttons["archive_rename_form_panel"] = Button(form_x, form_y, form_w, form_h, "")
         else:
-            menu_buttons["archive_rename_save"].x, menu_buttons["archive_rename_save"].y = modal_x + modal_w - 85, btn_y
-            menu_buttons["archive_rename_save"].w, menu_buttons["archive_rename_save"].h = 70, bh
-        cv2.rectangle(frame, (modal_x + modal_w - 85, btn_y), (modal_x + modal_w - 15, btn_y + bh), MENU_ACTIVE_BLUE, -1)
-        cv2.putText(frame, "Save", (modal_x + modal_w - 72, btn_y + bh - 8), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            menu_buttons["archive_rename_form_panel"].x, menu_buttons["archive_rename_form_panel"].y = form_x, form_y
+            menu_buttons["archive_rename_form_panel"].w, menu_buttons["archive_rename_form_panel"].h = form_w, form_h
 
-        if "archive_rename_cancel" not in menu_buttons:
-            menu_buttons["archive_rename_cancel"] = Button(modal_x + modal_w - 170, btn_y, 70, bh, "")
-        else:
-            menu_buttons["archive_rename_cancel"].x, menu_buttons["archive_rename_cancel"].y = modal_x + modal_w - 170, btn_y
-            menu_buttons["archive_rename_cancel"].w, menu_buttons["archive_rename_cancel"].h = 70, bh
-        draw_key_bg_clipped(frame, modal_x + modal_w - 170, btn_y, 70, bh)
-        cv2.putText(frame, "Cancel", (modal_x + modal_w - 162, btn_y + bh - 8), font, 0.45, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-
-        if "archive_folder_modal_panel" not in menu_buttons:
-            menu_buttons["archive_folder_modal_panel"] = Button(modal_x, modal_y, modal_w, modal_h, "")
-        else:
-            menu_buttons["archive_folder_modal_panel"].x, menu_buttons["archive_folder_modal_panel"].y = modal_x, modal_y
-            menu_buttons["archive_folder_modal_panel"].w, menu_buttons["archive_folder_modal_panel"].h = modal_w, modal_h
+        # Keyboard at bottom of screen (same style as Tags, allows viewing gallery above)
+        _draw_archive_rename_keyboard(frame, fh, form_x, form_w)
     else:
         # Action mode: Rename | Delete | Cancel
         folder_name = folder.get("name", "Folder") or "Folder"
@@ -1517,6 +1538,155 @@ def draw_archive_folder_delete_modal(frame: np.ndarray, output_dir: Optional[Pat
     )
 
 
+def _draw_gallery_header(
+    frame: np.ndarray,
+    header_h: int,
+    items: List[Tuple[Path, str, datetime]],
+    folder_title: Optional[str],
+) -> None:
+    """Draw the gallery header (gradient, title, info, buttons). Call after grid to keep header on top when scrolling."""
+    fw = frame.shape[1]
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    dock_row_h = DOCK_ROW_HEIGHT
+    action_strip_h = dock_row_h - 2
+    back_btn_y = 3
+
+    frame[0:header_h, 0:fw] = _vertical_gradient(header_h, fw, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT)
+    cv2.line(frame, (0, header_h), (fw, header_h), (80, 80, 80), 2)
+
+    title = (folder_title or "GALLERY").upper()
+    title_scale = 1.2
+    title_thick = 2
+    (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
+    title_x = (fw - title_w) // 2
+    title_y = (action_strip_h + int(title_h)) // 2
+    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
+
+    hint_line_y = action_strip_h + 8
+    info_y = hint_line_y + 12
+
+    if button_state.gallery_select_mode and getattr(button_state, "gallery_select_first_hint_until", 0) > 0:
+        if time.time() < button_state.gallery_select_first_hint_until:
+            hint = "Select one or more items first"
+            hint_scale = 0.65
+            (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
+            hint_x = (fw - hint_w) // 2
+            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 8
+            cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
+        else:
+            button_state.gallery_select_first_hint_until = 0.0
+
+    if button_state.gallery_select_mode and getattr(button_state, "gallery_archive_move_hint_until", 0) > 0:
+        if time.time() < button_state.gallery_archive_move_hint_until:
+            hint = "Add folders in Archive first"
+            hint_scale = 0.65
+            (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
+            hint_x = (fw - hint_w) // 2
+            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 8
+            cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
+        else:
+            button_state.gallery_archive_move_hint_until = 0.0
+
+    if button_state.gallery_select_mode:
+        selected_count = len(button_state.gallery_selected_items)
+        if selected_count > 0:
+            selected_size = 0
+            for idx in button_state.gallery_selected_items:
+                if 0 <= idx < len(items):
+                    try:
+                        selected_size += items[idx][0].stat().st_size
+                    except OSError:
+                        pass
+            size_str = _format_size(selected_size)
+            info_text = f"Total: {len(items)} items | Selected: {selected_count} ({size_str}) | Click to select | Swipe to scroll"
+        else:
+            info_text = f"Total: {len(items)} items | Click to select | Swipe to scroll"
+    else:
+        info_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos) | Click to view | Swipe to scroll"
+
+    info_scale = 0.45
+    (info_w, info_h), _ = cv2.getTextSize(info_text, font, info_scale, 1)
+    info_x = (fw - info_w) // 2
+    cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (255, 255, 255), 1, cv2.LINE_AA)
+
+    back_btn_x = 10
+    back_btn_w = back_btn_h = BACK_BTN_SIZE
+    dock_x = fw - GRID_SIDE_DOCK_WIDTH
+    dock_row_w = GRID_SIDE_DOCK_WIDTH - 2 * DOCK_TOP_INSET_X
+    action_btn_y = 0
+    action_btn_x0 = dock_x + DOCK_TOP_INSET_X
+
+    back_right = back_btn_x + back_btn_w
+    delete_btn_x = (back_right + info_x - dock_row_w) // 2
+    delete_btn_w = dock_row_w
+    delete_btn_h = dock_row_h - 6
+
+    if "gallery_back" not in menu_buttons:
+        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
+    else:
+        menu_buttons["gallery_back"].x, menu_buttons["gallery_back"].y = back_btn_x, back_btn_y
+        menu_buttons["gallery_back"].w, menu_buttons["gallery_back"].h = back_btn_w, back_btn_h
+    menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
+
+    if button_state.gallery_select_mode and button_state.gallery_selected_items:
+        selected_count = len(button_state.gallery_selected_items)
+        delete_text = f"DELETE ({selected_count})"
+        if "gallery_delete_selected" not in menu_buttons:
+            menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, action_btn_y, delete_btn_w, delete_btn_h, delete_text)
+        else:
+            menu_buttons["gallery_delete_selected"].x, menu_buttons["gallery_delete_selected"].y = delete_btn_x, action_btn_y
+            menu_buttons["gallery_delete_selected"].w, menu_buttons["gallery_delete_selected"].h = delete_btn_w, delete_btn_h
+            menu_buttons["gallery_delete_selected"].text = delete_text
+        menu_buttons["gallery_delete_selected"].is_active = True
+        _grad_del = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+        _border_del = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+        menu_buttons["gallery_delete_selected"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=_grad_del, fill_alpha=ACTION_BTN_FILL_ALPHA, neon_border_color=_border_del,
+        )
+
+    if items:
+        _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+        _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+        select_mode_btn_x, select_mode_btn_y = action_btn_x0, action_btn_y
+        if "gallery_select_mode" not in menu_buttons:
+            menu_buttons["gallery_select_mode"] = Button(select_mode_btn_x, select_mode_btn_y, dock_row_w, dock_row_h, "SELECT")
+        else:
+            menu_buttons["gallery_select_mode"].x, menu_buttons["gallery_select_mode"].y = select_mode_btn_x, select_mode_btn_y
+            menu_buttons["gallery_select_mode"].w, menu_buttons["gallery_select_mode"].h = dock_row_w, dock_row_h
+            menu_buttons["gallery_select_mode"].text = "DONE" if button_state.gallery_select_mode else "SELECT"
+        menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
+        menu_buttons["gallery_select_mode"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=_grad, fill_alpha=ACTION_BTN_FILL_ALPHA, neon_border_color=_border,
+        )
+        if button_state.gallery_select_mode:
+            select_all_btn_x = action_btn_x0 - dock_row_w
+            move_to_btn_x = select_all_btn_x - dock_row_w
+            if "gallery_move_to" not in menu_buttons:
+                menu_buttons["gallery_move_to"] = Button(move_to_btn_x, action_btn_y, dock_row_w, dock_row_h, "MOVE TO")
+            else:
+                menu_buttons["gallery_move_to"].x, menu_buttons["gallery_move_to"].y = move_to_btn_x, action_btn_y
+                menu_buttons["gallery_move_to"].w, menu_buttons["gallery_move_to"].h = dock_row_w, dock_row_h
+            menu_buttons["gallery_move_to"].is_active = bool(button_state.gallery_selected_items)
+            menu_buttons["gallery_move_to"].draw(
+                frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+                gradient_colors=_grad, fill_alpha=ACTION_BTN_FILL_ALPHA, neon_border_color=_border,
+            )
+            if "gallery_select_all" not in menu_buttons:
+                menu_buttons["gallery_select_all"] = Button(select_all_btn_x, action_btn_y, dock_row_w, dock_row_h, "SELECT ALL")
+            else:
+                menu_buttons["gallery_select_all"].x, menu_buttons["gallery_select_all"].y = select_all_btn_x, action_btn_y
+                menu_buttons["gallery_select_all"].w, menu_buttons["gallery_select_all"].h = dock_row_w, dock_row_h
+                all_selected = len(button_state.gallery_selected_items) == len(items) if items else False
+                menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
+            menu_buttons["gallery_select_all"].is_active = True
+            menu_buttons["gallery_select_all"].draw(
+                frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+                gradient_colors=_grad, fill_alpha=ACTION_BTN_FILL_ALPHA, neon_border_color=_border,
+            )
+
+
 def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     """
     Draw the gallery view showing all saved screenshots and videos.
@@ -1552,185 +1722,8 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     frame[:] = _vertical_gradient(fh, fw, BG_GRADIENT_TOP, BG_GRADIENT_BOT)
 
     header_h = 98
-    frame[0:header_h, 0:fw] = _vertical_gradient(header_h, fw, DOCK_GRADIENT_TOP, DOCK_GRADIENT_BOT)
-    cv2.line(frame, (0, header_h), (frame.shape[1], header_h), (80, 80, 80), 2)
-
-    # Top dock: action strip from y=0; back + title sit inside this strip (not below it)
-    dock_row_h = DOCK_ROW_HEIGHT
-    action_strip_h = dock_row_h - 2
-    back_btn_y = 3
-    title = folder_title.upper() if folder_title else "GALLERY"
     font = cv2.FONT_HERSHEY_SIMPLEX
-    title_scale = 1.2
-    title_thick = 2
-    (title_w, title_h), _ = cv2.getTextSize(title, font, title_scale, title_thick)
-    title_x = (frame.shape[1] - title_w) // 2
-    title_y = (action_strip_h + int(title_h)) // 2
-    cv2.putText(frame, title, (title_x, title_y), font, title_scale, (255, 255, 255), title_thick, cv2.LINE_AA)
-
-    hint_line_y = action_strip_h + 8
-    info_y = hint_line_y + 12  # 6 px north of original
-
-    # When user clicked Tags/Priority/Rename with no selection, show brief hint between GALLERY and info
-    if button_state.gallery_select_mode and getattr(button_state, "gallery_select_first_hint_until", 0) > 0:
-        if time.time() < button_state.gallery_select_first_hint_until:
-            hint = "Select one or more items first"
-            hint_scale = 0.65
-            (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
-            hint_x = (frame.shape[1] - hint_w) // 2
-            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 8  # 8 px north (lifted 2px)
-            cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
-        else:
-            button_state.gallery_select_first_hint_until = 0.0
-
-    # When user clicked Move to with no archive folders, show brief hint
-    if button_state.gallery_select_mode and getattr(button_state, "gallery_archive_move_hint_until", 0) > 0:
-        if time.time() < button_state.gallery_archive_move_hint_until:
-            hint = "Add folders in Archive first"
-            hint_scale = 0.65
-            (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
-            hint_x = (frame.shape[1] - hint_w) // 2
-            hint_y = hint_line_y + max(0, (26 - hint_h) // 2) - 8
-            cv2.putText(frame, hint, (hint_x, hint_y), font, hint_scale, (220, 220, 120), 1, cv2.LINE_AA)
-        else:
-            button_state.gallery_archive_move_hint_until = 0.0
-
-    if button_state.gallery_select_mode:
-        selected_count = len(button_state.gallery_selected_items)
-        if selected_count > 0:
-            # Total size of selected files
-            selected_size = 0
-            for idx in button_state.gallery_selected_items:
-                if 0 <= idx < len(items):
-                    try:
-                        selected_size += items[idx][0].stat().st_size
-                    except OSError:
-                        pass
-            size_str = _format_size(selected_size)
-            info_text = f"Total: {len(items)} items | Selected: {selected_count} ({size_str}) | Click to select | Swipe to scroll"
-        else:
-            info_text = f"Total: {len(items)} items | Click to select | Swipe to scroll"
-    else:
-        info_text = f"Total: {len(items)} items ({sum(1 for _, t, _ in items if t == 'image')} images, {sum(1 for _, t, _ in items if t == 'video')} videos) | Click to view | Swipe to scroll"
-
-    info_scale = 0.45
-    (info_w, info_h), _ = cv2.getTextSize(info_text, font, info_scale, 1)
-    info_x = (frame.shape[1] - info_w) // 2
-    cv2.putText(frame, info_text, (info_x, info_y), font, info_scale, (255, 255, 255), 1, cv2.LINE_AA)
-
-    back_btn_x = 10
-    back_btn_w = back_btn_h = BACK_BTN_SIZE
-
-    # DONE/SELECT and SELECT ALL: same dimensions as dock rows; strip extends to y=0
-    fw = frame.shape[1]
-    dock_x = fw - GRID_SIDE_DOCK_WIDTH
-    dock_row_w = GRID_SIDE_DOCK_WIDTH - 2 * DOCK_TOP_INSET_X
-    dock_top_y = header_h + 3  # top of first dock row (Tags in select mode)
-    action_btn_y = 0
-    action_btn_x0 = dock_x + DOCK_TOP_INSET_X  # same x as dock rows
-
-    # Delete: equidistant between back button (right edge) and Total text (left edge)
-    back_right = back_btn_x + back_btn_w
-    delete_btn_x = (back_right + info_x - dock_row_w) // 2
-    delete_btn_y = action_btn_y
-    delete_btn_w = dock_row_w
-    delete_btn_h = dock_row_h - 6  # slightly shorter than other action buttons
-
-    if "gallery_back" not in menu_buttons:
-        menu_buttons["gallery_back"] = Button(back_btn_x, back_btn_y, back_btn_w, back_btn_h, "")
-    else:
-        menu_buttons["gallery_back"].x = back_btn_x
-        menu_buttons["gallery_back"].y = back_btn_y
-        menu_buttons["gallery_back"].w = back_btn_w
-        menu_buttons["gallery_back"].h = back_btn_h
-
-    menu_buttons["gallery_back"].draw(frame, transparent=True, icon_type="back")
-
-    if button_state.gallery_select_mode and button_state.gallery_selected_items:
-        selected_count = len(button_state.gallery_selected_items)
-        delete_text = f"DELETE ({selected_count})"
-
-        if "gallery_delete_selected" not in menu_buttons:
-            menu_buttons["gallery_delete_selected"] = Button(delete_btn_x, delete_btn_y, delete_btn_w, delete_btn_h, delete_text)
-        else:
-            menu_buttons["gallery_delete_selected"].x = delete_btn_x
-            menu_buttons["gallery_delete_selected"].y = delete_btn_y
-            menu_buttons["gallery_delete_selected"].w = delete_btn_w
-            menu_buttons["gallery_delete_selected"].h = delete_btn_h
-            menu_buttons["gallery_delete_selected"].text = delete_text
-
-        menu_buttons["gallery_delete_selected"].is_active = True
-        _grad_del = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
-        _border_del = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
-        menu_buttons["gallery_delete_selected"].draw(
-            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-            gradient_colors=_grad_del,
-            fill_alpha=ACTION_BTN_FILL_ALPHA,
-            neon_border_color=_border_del,
-        )
-
-    if items:
-        _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
-        _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
-        # DONE/SELECT: same dimensions as Tags row, rightmost (flush with dock)
-        select_mode_btn_x = action_btn_x0
-        select_mode_btn_y = action_btn_y
-
-        if "gallery_select_mode" not in menu_buttons:
-            menu_buttons["gallery_select_mode"] = Button(select_mode_btn_x, select_mode_btn_y, dock_row_w, dock_row_h, "SELECT")
-        else:
-            menu_buttons["gallery_select_mode"].x = select_mode_btn_x
-            menu_buttons["gallery_select_mode"].y = select_mode_btn_y
-            menu_buttons["gallery_select_mode"].w = dock_row_w
-            menu_buttons["gallery_select_mode"].h = dock_row_h
-            menu_buttons["gallery_select_mode"].text = "DONE" if button_state.gallery_select_mode else "SELECT"
-
-        menu_buttons["gallery_select_mode"].is_active = button_state.gallery_select_mode
-
-        menu_buttons["gallery_select_mode"].draw(
-            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-            gradient_colors=_grad,
-            fill_alpha=ACTION_BTN_FILL_ALPHA,
-            neon_border_color=_border,
-        )
-
-        if button_state.gallery_select_mode:
-            # MOVE TO | SELECT ALL | DONE
-            select_all_btn_x = action_btn_x0 - dock_row_w
-            move_to_btn_x = select_all_btn_x - dock_row_w
-
-            if "gallery_move_to" not in menu_buttons:
-                menu_buttons["gallery_move_to"] = Button(move_to_btn_x, action_btn_y, dock_row_w, dock_row_h, "MOVE TO")
-            else:
-                menu_buttons["gallery_move_to"].x = move_to_btn_x
-                menu_buttons["gallery_move_to"].y = action_btn_y
-                menu_buttons["gallery_move_to"].w = dock_row_w
-                menu_buttons["gallery_move_to"].h = dock_row_h
-            menu_buttons["gallery_move_to"].is_active = bool(button_state.gallery_selected_items)
-            menu_buttons["gallery_move_to"].draw(
-                frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-                gradient_colors=_grad,
-                fill_alpha=ACTION_BTN_FILL_ALPHA,
-                neon_border_color=_border,
-            )
-
-            if "gallery_select_all" not in menu_buttons:
-                menu_buttons["gallery_select_all"] = Button(select_all_btn_x, action_btn_y, dock_row_w, dock_row_h, "SELECT ALL")
-            else:
-                menu_buttons["gallery_select_all"].x = select_all_btn_x
-                menu_buttons["gallery_select_all"].y = action_btn_y
-                menu_buttons["gallery_select_all"].w = dock_row_w
-                menu_buttons["gallery_select_all"].h = dock_row_h
-                all_selected = len(button_state.gallery_selected_items) == len(items) if items else False
-                menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
-
-            menu_buttons["gallery_select_all"].is_active = True
-            menu_buttons["gallery_select_all"].draw(
-                frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-                gradient_colors=_grad,
-                fill_alpha=ACTION_BTN_FILL_ALPHA,
-                neon_border_color=_border,
-            )
+    _draw_gallery_header(frame, header_h, items, folder_title)
 
     if not items:
         msg = "Folder is empty. Use Move to add items." if in_folder_view else "No captures yet. Use SHOT or REC to create content."
@@ -2052,6 +2045,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 cv2.putText(frame, tag_text, (x + tag_icon_w, line2_y + 4),
                             font, tag_scale, (180, 200, 180), 1, cv2.LINE_AA)
 
+    # Redraw header on top so scrolled content (archive panel, thumbnails) goes under it
+    _draw_gallery_header(frame, header_h, items, folder_title)
+
     # Side dock first so strip + panel grow from Tags button (same as Filter/Sort); then form content on top
     draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
     if button_state.gallery_tag_modal_open:
@@ -2060,7 +2056,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     if button_state.gallery_archive_move_modal_open:
         draw_move_to_modal(frame, output_dir)
     if getattr(button_state, "gallery_archive_folder_action_id", None):
-        draw_archive_folder_action_modal(frame, output_dir)
+        draw_archive_folder_action_modal(frame, output_dir, header_h)
     if getattr(button_state, "gallery_archive_delete_confirm_folder_id", None):
         draw_archive_folder_delete_modal(frame, output_dir)
 

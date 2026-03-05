@@ -20,10 +20,11 @@ import numpy as np
 from ..state import button_state
 
 try:
-    from ..config import STORAGE_BAR_GLOW, STORAGE_BAR_BRIGHTNESS
+    from ..config import STORAGE_BAR_GLOW, STORAGE_BAR_BRIGHTNESS, BG_GRADIENT_TOP
 except Exception:
     STORAGE_BAR_GLOW = 0.35
     STORAGE_BAR_BRIGHTNESS = 1.0
+    BG_GRADIENT_TOP = (42, 42, 42)
 
 
 def _brighten(bgr: Tuple[int, int, int]) -> Tuple[int, int, int]:
@@ -221,10 +222,10 @@ def draw_storage_circle(
             d = seg_end
 
     # 5) Center text: percentage with glow (same idea as snake glow)
-    # Black circle behind percentage to avoid purple bleed from text glow
+    # Circle behind percentage (gallery background color) to avoid purple bleed from text glow
     inner_r = max(0, radius - ring_thickness - 2)
     if inner_r > 4:
-        cv2.circle(frame, (cx, cy), inner_r, (0, 0, 0), -1, cv2.LINE_AA)
+        cv2.circle(frame, (cx, cy), inner_r, BG_GRADIENT_TOP, -1, cv2.LINE_AA)
     font = cv2.FONT_HERSHEY_SIMPLEX
     pct_str = f"{used_percent:.1f}%" if used_percent >= 0.1 else f"{used_percent:.2f}%"
     scale = 0.52
