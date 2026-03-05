@@ -18,7 +18,9 @@ from ..config import (
     DB_BAR_WIDTH,
     FREQ_BAR_WIDTH,
 )
+from ..state import button_state
 from .menu import _blue_gradient_overlay
+from .battery_icon import draw_battery_icon
 
 @dataclass
 class HudRects:
@@ -69,6 +71,7 @@ def draw_hud(
     fps_mode: str,
     frame_bytes: int,
     offset_y: float = 0.0,
+    battery_percent: Optional[int] = None,
 ) -> HudRects:
     """
     Draw compact HUD top-left. offset_y moves the HUD vertically (0=visible, negative=retracted up).
@@ -170,6 +173,14 @@ def draw_hud(
 
     # --- TIME ---
     draw_pill_icon_text(x_time, time_w, time_txt, draw_clock_icon)
+
+    # Battery icon inside the time pill, right side (main view only; gallery draws its own battery)
+    if not button_state.gallery_open:
+        bat_w = 28 + 4  # BATTERY_BODY_W + BATTERY_TIP_W
+        bat_h = 14
+        bat_x = x_time + time_w - bat_w - 8
+        bat_y = y + (pill_h - bat_h) // 2
+        draw_battery_icon(frame, x=bat_x, y=bat_y, percent=battery_percent)
 
     rects = HudRects(
         net=(x_net,  y, net_w,  pill_h),
