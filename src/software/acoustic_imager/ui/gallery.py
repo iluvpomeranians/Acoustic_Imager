@@ -33,7 +33,7 @@ from .grid_side_dock import (
     DOCK_ROW_WHITE_BORDER,
     SEARCH_BAR_TEXT_COLOR,
 )
-from .storage_bar import _format_size
+from .storage_bar import _format_size, feathered_composite
 from .keyboard import (
     KEY_WIDTH_MULT_COMPACT,
     ROWS_QWERTY as _TK_ROWS,
@@ -50,6 +50,17 @@ from ..state import button_state
 from ..config import (
     MENU_ACTIVE_BLUE,
     MENU_ACTIVE_BLUE_LIGHT,
+    GALLERY_ACTION_STYLE,
+    ACTION_BTN_FILL_DARK_TOP,
+    ACTION_BTN_FILL_DARK_BOT,
+    ACTION_BTN_NEON_BORDER_BGR,
+    ACTION_BTN_NEON_GLOW,
+    ACTION_BTN_FILL_ALPHA,
+    ACTION_BTN_BORDER_THICKNESS,
+    CLASSIC_ACTION_FILL_TOP,
+    CLASSIC_ACTION_FILL_BOT,
+    CLASSIC_ACTION_TEXT_BGR,
+    CLASSIC_ACTION_BORDER_BGR,
     BG_GRADIENT_TOP,
     BG_GRADIENT_BOT,
     DOCK_GRADIENT_TOP,
@@ -243,20 +254,38 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) 
     py = min(y_top, fh - panel_h - 4)
 
     roi = frame[py: py + panel_h, px: px + panel_w]
-    # Continue form gradient: panel top matches form bottom (MENU_ACTIVE_BLUE_LIGHT) for no seam
-    roi[:] = _tk_vgrad(panel_h, panel_w, MENU_ACTIVE_BLUE_LIGHT, MENU_ACTIVE_BLUE_LIGHT)
-    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
-    cv2.line(frame, (px, py), (px + panel_w, py), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+    if GALLERY_ACTION_STYLE == "classic":
+        fill_top, fill_bot = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+        panel_border = CLASSIC_ACTION_BORDER_BGR
+    else:
+        fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+        panel_border = ACTION_BTN_NEON_BORDER_BGR
+    grad = _vertical_gradient(panel_h, panel_w, fill_top, fill_bot)
+    cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
+    if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
+        pad = 16
+        gx0, gy0 = max(0, px - pad), max(0, py - pad)
+        gx1 = min(frame.shape[1], px + panel_w + pad)
+        gy1 = min(frame.shape[0], py + panel_h + pad)
+        if gx1 > gx0 and gy1 > gy0:
+            glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+            lx, ly = px - gx0, py - gy0
+            cv2.rectangle(glow_patch, (lx, ly), (lx + panel_w, ly + panel_h), panel_border, 8, cv2.LINE_AA)
+            glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
+            feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
+    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     field_key = button_state.gallery_tag_active_field
     query = button_state.gallery_tag_keyboard_query
+    bar_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
     # Active field label in the bar
     field_label = next((lbl for k, lbl, _ in _TAG_FIELDS if k == field_key), "")
     bar_text = f"{field_label}: {query[:30]}" if field_label else query[:35]
     cv2.putText(frame, bar_text, (px + 8, py + _TK_BAR_H - 10),
-                font, 0.48, (240, 240, 240), 1, cv2.LINE_AA)
+                font, 0.48, bar_text_color, 1, cv2.LINE_AA)
 
+    key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
     key_y = py + _TK_BAR_H + _TK_GAP
     for row in _TK_ROWS:
         row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
@@ -264,7 +293,7 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) 
         for c in row:
             kx, ky = key_x, key_y
             draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
             (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
             cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
                         font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
@@ -280,7 +309,7 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) 
     for c in _TK_NUMS:
         kx, ky = key_x, key_y
         draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
         (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
         cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
                     font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
@@ -296,7 +325,7 @@ def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) 
     for label, val in _TK_SPECIAL:
         kx, ky = key_x, key_y
         draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
         (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
         cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
                     font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
@@ -340,9 +369,11 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
         return
 
     title = "Edit Tags"
-    (tw, th), _ = cv2.getTextSize(title, font, 0.72, 2)
+    title_scale = 0.60  # ~15% larger than 0.52
+    title_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
+    (tw, th), _ = cv2.getTextSize(title, font, title_scale, 1)
     cv2.putText(frame, title, (form_x + (form_w - tw) // 2, form_y + 34),
-                font, 0.72, SEARCH_BAR_TEXT_COLOR, 2, cv2.LINE_AA)
+                font, title_scale, title_color, 1, cv2.LINE_AA)
 
     # Determine which file is being edited (first selected in grid)
     rects = getattr(button_state, 'gallery_thumbnail_rects', [])
@@ -361,14 +392,16 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
         ry = row_start_y + fi * row_gap
 
         # Row label
+        form_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
         (lw, lh), _ = cv2.getTextSize(flabel, font, 0.48, 1)
         cv2.putText(frame, flabel, (form_x + 14, ry + input_h // 2 + lh // 2),
-                    font, 0.48, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+                    font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
         is_active = (button_state.gallery_tag_active_field == fkey
                      and button_state.gallery_tag_keyboard_open)
-        border = DOCK_ROW_WHITE_BORDER
-        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), (28, 28, 34), -1)
+        border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+        input_bg = (28, 28, 34)  # dark fill for inputs; text uses form_text_color (white on classic blue, white on neon)
+        cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), input_bg, -1)
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h),
                       border, 2 if is_active else 1, cv2.LINE_AA)
 
@@ -382,10 +415,11 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
 
         if display:
             cv2.putText(frame, display[:40], (input_x + 9, ry + input_h // 2 + 7),
-                        font, 0.48, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+                        font, 0.48, form_text_color, 1, cv2.LINE_AA)
         elif placeholder:
+            placeholder_color = (200, 200, 200) if GALLERY_ACTION_STYLE == "classic" else (120, 120, 128)
             cv2.putText(frame, placeholder, (input_x + 9, ry + input_h // 2 + 7),
-                        font, 0.45, (120, 120, 128), 1, cv2.LINE_AA)
+                        font, 0.45, placeholder_color, 1, cv2.LINE_AA)
 
         bkey = f"tag_field_{fkey}"
         if bkey not in menu_buttons:
@@ -394,48 +428,34 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
             b = menu_buttons[bkey]
             b.x, b.y, b.w, b.h = input_x, ry, input_w, input_h
 
-    # ── Band between last input and buttons: ensure gradient (no black strip) ─────
-    band_top = row_start_y + (len(_TAG_FIELDS) - 1) * row_gap + input_h
-    band_bottom = form_y + form_h - 54
-    if band_bottom > band_top:
-        band_roi = frame[band_top:band_bottom, form_x:form_x + form_w]
-        t_band_top = (band_top - form_y) / form_h if form_h else 0
-        t_band_bot = (band_bottom - form_y) / form_h if form_h else 1
-        c_top = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_band_top) + MENU_ACTIVE_BLUE_LIGHT[i] * t_band_top) for i in range(3))
-        c_bot = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_band_bot) + MENU_ACTIVE_BLUE_LIGHT[i] * t_band_bot) for i in range(3))
-        band_roi[:] = _vertical_gradient(band_roi.shape[0], band_roi.shape[1], c_top, c_bot)
+    # No band drawn: dock already fills the modal area with one continuous gradient; drawing a band created a visible separate bar under the inputs.
 
-    # ── Buttons (Cancel / Save): blue styling to match dock modals ─────────────────
+    # ── Buttons (Cancel / Save): match Gallery Action style (neon or classic) ─
     btn_y = form_y + form_h - 54
     btn_h = 40
     cancel_w, save_w = 130, 130
     cancel_x = form_x + form_w // 2 - cancel_w - 12
     save_x   = form_x + form_w // 2 + 12
+    btn_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+    thick = max(1, ACTION_BTN_BORDER_THICKNESS)
+    btn_fill_top = CLASSIC_ACTION_FILL_TOP if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_FILL_DARK_TOP
+    btn_fill_bot = CLASSIC_ACTION_FILL_BOT if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_FILL_DARK_BOT
+    btn_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR
 
-    # Cancel: dark fill that matches modal tone (not black), border consistent with dock
-    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), (52, 48, 44), -1)
-    cv2.rectangle(frame, (cancel_x, btn_y), (cancel_x + cancel_w, btn_y + btn_h), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
-    (cw, _), _ = cv2.getTextSize("CANCEL", font, 0.5, 1)
-    cv2.putText(frame, "CANCEL", (cancel_x + (cancel_w - cw) // 2, btn_y + btn_h // 2 + 7),
-                font, 0.5, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+    for (bx, bw, label) in [(cancel_x, cancel_w, "CANCEL"), (save_x, save_w, "SAVE")]:
+        roi = frame[btn_y : btn_y + btn_h, bx : bx + bw]
+        grad = _vertical_gradient(btn_h, bw, btn_fill_top, btn_fill_bot)
+        cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
+        cv2.rectangle(frame, (bx, btn_y), (bx + bw, btn_y + btn_h), btn_border, thick, cv2.LINE_AA)
+        (lw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
+        cv2.putText(frame, label, (bx + (bw - lw) // 2, btn_y + btn_h // 2 + 7),
+                    font, 0.5, btn_text_color, 1, cv2.LINE_AA)
+
     if "tag_cancel" not in menu_buttons:
         menu_buttons["tag_cancel"] = Button(cancel_x, btn_y, cancel_w, btn_h, "CANCEL")
     else:
         b = menu_buttons["tag_cancel"]
         b.x, b.y, b.w, b.h = cancel_x, btn_y, cancel_w, btn_h
-
-    # Save: gradient slice from form so it matches the modal gradient at this Y
-    save_roi = frame[btn_y : btn_y + btn_h, save_x : save_x + save_w]
-    t_top = (btn_y - form_y) / form_h if form_h else 0
-    t_bot = (btn_y + btn_h - form_y) / form_h if form_h else 1
-    save_top = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_top) + MENU_ACTIVE_BLUE_LIGHT[i] * t_top) for i in range(3))
-    save_bot = tuple(int(MENU_ACTIVE_BLUE[i] * (1 - t_bot) + MENU_ACTIVE_BLUE_LIGHT[i] * t_bot) for i in range(3))
-    save_roi[:] = _vertical_gradient(btn_h, save_w, save_top, save_bot)
-    cv2.rectangle(frame, (save_x, btn_y), (save_x + save_w, btn_y + btn_h),
-                  DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
-    (sw, _), _ = cv2.getTextSize("SAVE", font, 0.5, 1)
-    cv2.putText(frame, "SAVE", (save_x + (save_w - sw) // 2, btn_y + btn_h // 2 + 7),
-                font, 0.5, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
     if "tag_save" not in menu_buttons:
         menu_buttons["tag_save"] = Button(save_x, btn_y, save_w, btn_h, "SAVE")
     else:
@@ -1146,14 +1166,18 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_delete_selected"].text = delete_text
 
         menu_buttons["gallery_delete_selected"].is_active = True
+        _grad_del = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+        _border_del = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
         menu_buttons["gallery_delete_selected"].draw(
             frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-            gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
-            active_border_color=(255, 255, 255),
-            neon_glow=True,
+            gradient_colors=_grad_del,
+            fill_alpha=ACTION_BTN_FILL_ALPHA,
+            neon_border_color=_border_del,
         )
 
     if items:
+        _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+        _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
         # DONE/SELECT: same dimensions as Tags row, rightmost (flush with dock)
         select_mode_btn_x = action_btn_x0
         select_mode_btn_y = action_btn_y
@@ -1171,9 +1195,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
         menu_buttons["gallery_select_mode"].draw(
             frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-            gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
-            active_border_color=(255, 255, 255),
-            neon_glow=True,
+            gradient_colors=_grad,
+            fill_alpha=ACTION_BTN_FILL_ALPHA,
+            neon_border_color=_border,
         )
 
         if button_state.gallery_select_mode:
@@ -1193,9 +1217,9 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             menu_buttons["gallery_select_all"].is_active = True
             menu_buttons["gallery_select_all"].draw(
                 frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
-                gradient_colors=(MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT),
-                active_border_color=(255, 255, 255),
-                neon_glow=True,
+                gradient_colors=_grad,
+                fill_alpha=ACTION_BTN_FILL_ALPHA,
+                neon_border_color=_border,
             )
 
     if not items:

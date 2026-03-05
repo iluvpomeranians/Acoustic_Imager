@@ -17,13 +17,28 @@ from ..config import (
     MENU_ACTIVE_BLUE,
     MENU_ACTIVE_BLUE_LIGHT,
     MODAL_ACTIVE_GOLD,
+    GALLERY_ACTION_STYLE,
+    CLASSIC_ACTION_FILL_TOP,
+    CLASSIC_ACTION_FILL_BOT,
+    CLASSIC_ACTION_FILL_DARK_TOP,
+    CLASSIC_ACTION_FILL_DARK_BOT,
+    CLASSIC_ACTION_TEXT_BGR,
+    CLASSIC_ACTION_BORDER_BGR,
+    CLASSIC_ACTION_GLOW,
     DOCK_GRADIENT_TOP,
     DOCK_GRADIENT_BOT,
     ACTION_BTN_GLOW,
     ACTION_BTN_BORDER_THICKNESS,
+    ACTION_BTN_FILL_DARK_TOP,
+    ACTION_BTN_FILL_DARK_BOT,
+    ACTION_BTN_NEON_BORDER_BGR,
+    ACTION_BTN_NEON_GLOW,
+    ACTION_BTN_FILL_ALPHA,
+    ACTION_BTN_MODAL_FILL_ALPHA,
+    ACTION_BTN_SHINE_ALPHA,
 )
 from ..state import button_state
-from .button import Button, menu_buttons
+from .button import Button, menu_buttons, _add_glassy_shine
 from .keyboard import (
     ROWS_QWERTY as KEYBOARD_ROWS_QWERTY,
     ROW_NUMBERS as KEYBOARD_ROW_NUMBERS,
@@ -154,6 +169,10 @@ DOCK_ROW_BORDER = (100, 100, 110)
 DOCK_ROW_TOP_HIGHLIGHT = (140, 120, 90)
 # White outline for button+modal when modal is open (continuous extension)
 DOCK_ROW_WHITE_BORDER = (255, 255, 255)
+# Gallery Action surfaces: key/option button border (classic = blue, neon = white)
+ACTION_KEY_BORDER = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+# Modal titles/labels: classic = dark text on light, neon = white with glow
+MODAL_TEXT_COLOR = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else None
 MODAL_ANIM_DURATION_S = 0.28
 
 
@@ -166,8 +185,13 @@ def _put_text_white_glow(
     scale: float,
     pad: int = 10,
     blend: Optional[float] = None,
+    color: Optional[Tuple[int, int, int]] = None,
 ) -> None:
-    """Draw white text with a subtle glow (for modal titles and labels)."""
+    """Draw text with optional glow. If color is set (e.g. classic dark text), no glow."""
+    text_color = color if color is not None else SEARCH_BAR_TEXT_COLOR
+    if color is not None:
+        cv2.putText(frame, text, (x, y), font, scale, text_color, 1, cv2.LINE_AA)
+        return
     if blend is None:
         blend = ACTION_BTN_GLOW
     fh, fw = frame.shape[:2]
@@ -177,15 +201,15 @@ def _put_text_white_glow(
     x1 = min(fw, x + tw + pad)
     y1 = min(fh, y + pad)
     if x1 <= x0 or y1 <= y0:
-        cv2.putText(frame, text, (x, y), font, scale, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+        cv2.putText(frame, text, (x, y), font, scale, text_color, 1, cv2.LINE_AA)
         return
     patch = frame[y0:y1, x0:x1].copy()
     lx, ly = x - x0, y - y0
-    cv2.putText(patch, text, (lx, ly), font, scale, SEARCH_BAR_TEXT_COLOR, 2, cv2.LINE_AA)
-    cv2.putText(patch, text, (lx, ly), font, scale, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+    cv2.putText(patch, text, (lx, ly), font, scale, text_color, 2, cv2.LINE_AA)
+    cv2.putText(patch, text, (lx, ly), font, scale, text_color, 1, cv2.LINE_AA)
     patch = cv2.GaussianBlur(patch, (0, 0), 2.5)
     feathered_composite(frame, y0, y1, x0, x1, patch, blend, feather_px=12)
-    cv2.putText(frame, text, (x, y), font, scale, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA)
+    cv2.putText(frame, text, (x, y), font, scale, text_color, 1, cv2.LINE_AA)
 
 
 def _draw_dock_row(
@@ -215,41 +239,49 @@ def _draw_dock_row(
     text_x = block_cx - tw // 2
     text_y = block_top + 2 * icon_half_h + gap + th
 
-    # 1) Neon outer glow: blue gradient on expanded patch, blur, feathered composite (only when drawing own bg)
+    # 1) Fill + border (neon or classic Gallery Action style)
+    is_classic = GALLERY_ACTION_STYLE == "classic"
     if not skip_bg:
-        pad_bg = 12
-        gx0 = max(0, x0 - pad_bg)
-        gy0 = max(0, y0 - pad_bg)
-        gx1 = min(fw, x0 + w + pad_bg)
-        gy1 = min(fh, y0 + h + pad_bg)
-        if gx1 > gx0 and gy1 > gy0:
-            patch = frame[gy0:gy1, gx0:gx1].copy()
-            glow_h, glow_w = patch.shape[0], patch.shape[1]
-            ly0, lx0 = y0 - gy0, x0 - gx0
-            ly1, lx1 = ly0 + h, lx0 + w
-            ly0, lx0 = max(0, ly0), max(0, lx0)
-            ly1, lx1 = min(glow_h, ly1), min(glow_w, lx1)
-            if ly1 > ly0 and lx1 > lx0:
-                patch[ly0:ly1, lx0:lx1] = _vertical_gradient(ly1 - ly0, lx1 - lx0, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-            patch = cv2.GaussianBlur(patch, (0, 0), 8.0)
-            feathered_composite(frame, gy0, gy1, gx0, gx1, patch, ACTION_BTN_GLOW, feather_px=20)
         roi = frame[y0:y0 + h, x0:x0 + w]
-        gradient = _vertical_gradient(h, w, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT)
-        roi[:] = gradient
-        cv2.rectangle(frame, (x0, y0), (x0 + w - 1, y0 + h - 1), DOCK_ROW_WHITE_BORDER, ACTION_BTN_BORDER_THICKNESS, cv2.LINE_AA)
-        cv2.line(frame, (x0, y0), (x0 + w, y0), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
+        if is_classic:
+            # Closed dock rows: darker blue; expanded strip/panel use CLASSIC_ACTION_FILL_TOP/BOT elsewhere
+            fill_top, fill_bot = CLASSIC_ACTION_FILL_DARK_TOP, CLASSIC_ACTION_FILL_DARK_BOT
+            row_border = CLASSIC_ACTION_BORDER_BGR
+        else:
+            fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+            row_border = ACTION_BTN_NEON_BORDER_BGR
+        gradient = _vertical_gradient(h, w, fill_top, fill_bot)
+        alpha = ACTION_BTN_FILL_ALPHA
+        cv2.addWeighted(gradient, alpha, roi, 1.0 - alpha, 0.0, dst=roi)
+        if not is_classic:
+            _add_glassy_shine(roi, alpha=ACTION_BTN_SHINE_ALPHA)
+        if not is_classic and ACTION_BTN_NEON_GLOW > 0:
+            pad_bg = 16
+            gx0 = max(0, x0 - pad_bg)
+            gy0 = max(0, y0 - pad_bg)
+            gx1 = min(fw, x0 + w + pad_bg)
+            gy1 = min(fh, y0 + h + pad_bg)
+            if gx1 > gx0 and gy1 > gy0:
+                glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+                lx, ly = x0 - gx0, y0 - gy0
+                cv2.rectangle(glow_patch, (lx, ly), (lx + w, ly + h), row_border, 8, cv2.LINE_AA)
+                glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
+                feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
+        cv2.rectangle(frame, (x0, y0), (x0 + w - 1, y0 + h - 1), row_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
 
-    # 2) Neon inner glow: icon + label drawn on patch (thick text), blur, feathered composite
+    # 2) Inner glow: icon + label on patch, blur, feathered composite (neon = stronger, classic = minor)
+    row_text_color = CLASSIC_ACTION_TEXT_BGR if is_classic else SEARCH_BAR_TEXT_COLOR
     pad_inner = 18
     ix0 = max(0, block_cx - w // 2 - pad_inner)
     iy0 = max(0, block_top - pad_inner)
     ix1 = min(fw, block_cx + w // 2 + pad_inner)
     iy1 = min(fh, block_top + block_h + pad_inner)
-    if ix1 > ix0 and iy1 > iy0:
+    inner_glow_blend = CLASSIC_ACTION_GLOW if is_classic else ACTION_BTN_GLOW
+    if ix1 > ix0 and iy1 > iy0 and inner_glow_blend > 0:
         inner_patch = frame[iy0:iy1, ix0:ix1].copy()
         lcx, lcy = icon_cx - ix0, icon_cy - iy0
         ltx, lty = text_x - ix0, text_y - iy0
-        white = SEARCH_BAR_TEXT_COLOR
+        white = row_text_color
         if icon_right == "search":
             _draw_icon_search(inner_patch, lcx, lcy, white)
         elif icon_right == "filter":
@@ -265,24 +297,24 @@ def _draw_dock_row(
         cv2.putText(inner_patch, label, (ltx, lty), font, scale, white, 2, cv2.LINE_AA)
         cv2.putText(inner_patch, label, (ltx, lty), font, scale, white, 1, cv2.LINE_AA)
         inner_patch = cv2.GaussianBlur(inner_patch, (0, 0), 3.0)
-        feathered_composite(frame, iy0, iy1, ix0, ix1, inner_patch, ACTION_BTN_GLOW, feather_px=14)
+        feathered_composite(frame, iy0, iy1, ix0, ix1, inner_patch, inner_glow_blend, feather_px=14)
 
     # 3) Sharp icon and text on top
     if icon_right == "search":
-        _draw_icon_search(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+        _draw_icon_search(frame, icon_cx, icon_cy, row_text_color)
     elif icon_right == "filter":
-        _draw_icon_filter(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+        _draw_icon_filter(frame, icon_cx, icon_cy, row_text_color)
     elif icon_right == "sort":
-        _draw_icon_sort(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+        _draw_icon_sort(frame, icon_cx, icon_cy, row_text_color)
     elif icon_right == "tag":
-        _draw_icon_tag(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+        _draw_icon_tag(frame, icon_cx, icon_cy, row_text_color)
     elif icon_right == "priority":
-        _draw_icon_priority(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+        _draw_icon_priority(frame, icon_cx, icon_cy, row_text_color)
     elif icon_right == "pen":
-        _draw_icon_pen(frame, icon_cx, icon_cy, SEARCH_BAR_TEXT_COLOR)
+        _draw_icon_pen(frame, icon_cx, icon_cy, row_text_color)
     cv2.putText(
         frame, label, (text_x, text_y),
-        font, scale, SEARCH_BAR_TEXT_COLOR, 1, cv2.LINE_AA
+        font, scale, row_text_color, 1, cv2.LINE_AA
     )
 
 
@@ -503,14 +535,20 @@ def _draw_combined_modal_strip(
     white_border: bool = False,
     bottom_bgr: Optional[Tuple[int, int, int]] = None,
 ) -> None:
-    """Draw one continuous blue gradient over button+modal strip. Border drawn separately (P-shape).
-    If bottom_bgr is set, gradient runs BLUE -> bottom_bgr (so strip joins seamlessly with panel)."""
+    """Draw one continuous gradient over button+modal strip (matches Gallery Action style).
+    Border drawn separately (P-shape). If bottom_bgr is set, gradient runs top -> bottom_bgr."""
     if width < 1 or height < 1:
         return
     roi = frame[top : top + height, left : left + width]
-    end_bgr = bottom_bgr if bottom_bgr is not None else MENU_ACTIVE_BLUE_LIGHT
-    grad = _vertical_gradient(height, width, MENU_ACTIVE_BLUE, end_bgr)
-    roi[:] = grad
+    if GALLERY_ACTION_STYLE == "classic":
+        start_bgr, default_end = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+    else:
+        start_bgr, default_end = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+    end_bgr = bottom_bgr if bottom_bgr is not None else default_end
+    grad = _vertical_gradient(height, width, start_bgr, end_bgr)
+    cv2.addWeighted(grad, ACTION_BTN_MODAL_FILL_ALPHA, roi, 1.0 - ACTION_BTN_MODAL_FILL_ALPHA, 0.0, dst=roi)
+    if GALLERY_ACTION_STYLE != "classic":
+        _add_glassy_shine(roi, alpha=ACTION_BTN_SHINE_ALPHA)
 
 
 def _draw_modal_panel_grow_slice(
@@ -524,7 +562,7 @@ def _draw_modal_panel_grow_slice(
     top_bgr: Optional[Tuple[int, int, int]] = None,
 ) -> None:
     """Draw only the right vis_width pixels of the modal panel (grow-from-button).
-    If top_bgr is set, gradient runs top_bgr -> LIGHT (joins seamlessly with strip above)."""
+    Fill matches Gallery Action style; if top_bgr is set, gradient runs top_bgr -> bottom (seamless with strip)."""
     if vis_width <= 0 or h <= 0:
         return
     fh, fw = frame.shape[:2]
@@ -538,8 +576,12 @@ def _draw_modal_panel_grow_slice(
     if w_actual <= 0 or h_actual <= 0:
         return
     roi = frame[y0:y1, x0:x1]
-    start_bgr = top_bgr if top_bgr is not None else MENU_ACTIVE_BLUE
-    grad_full = _vertical_gradient(h, total_w, start_bgr, MENU_ACTIVE_BLUE_LIGHT)
+    if GALLERY_ACTION_STYLE == "classic":
+        default_start, default_end = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+    else:
+        default_start, default_end = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+    start_bgr = top_bgr if top_bgr is not None else default_start
+    grad_full = _vertical_gradient(h, total_w, start_bgr, default_end)
     gy0 = y0 - py
     gy1 = gy0 + h_actual
     gx0 = total_w - w_actual
@@ -547,7 +589,9 @@ def _draw_modal_panel_grow_slice(
     grad_slice = grad_full[gy0:gy1, gx0:gx1]
     if grad_slice.shape[0] != roi.shape[0] or grad_slice.shape[1] != roi.shape[1]:
         return
-    roi[:] = grad_slice
+    cv2.addWeighted(grad_slice, ACTION_BTN_MODAL_FILL_ALPHA, roi, 1.0 - ACTION_BTN_MODAL_FILL_ALPHA, 0.0, dst=roi)
+    if GALLERY_ACTION_STYLE != "classic":
+        _add_glassy_shine(roi, alpha=ACTION_BTN_SHINE_ALPHA)
 
 
 def _draw_modal_p_shape_border(
@@ -560,8 +604,7 @@ def _draw_modal_p_shape_border(
     dock_x: int,
     dock_w: int,
 ) -> None:
-    """Draw one continuous white border around the P-shape (modal + button row).
-    Use button right edge (dock_x + dock_w - inset) so the right vertical border of the button shows."""
+    """Draw one continuous neon border around the P-shape (modal + button row); optional glow."""
     button_right = dock_x + dock_w - DOCK_TOP_INSET_X
     pts = [
         (vis_left, row_y),
@@ -573,17 +616,34 @@ def _draw_modal_p_shape_border(
         (vis_left, row_y),
     ]
     pts_np = np.array(pts, dtype=np.int32)
-    cv2.polylines(frame, [pts_np], isClosed=True, color=DOCK_ROW_WHITE_BORDER, thickness=1, lineType=cv2.LINE_AA)
+    pshape_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+    if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
+        pad = 12
+        bx0 = max(0, min(pts, key=lambda p: p[0])[0] - pad)
+        by0 = max(0, min(pts, key=lambda p: p[1])[1] - pad)
+        bx1 = min(frame.shape[1], max(pts, key=lambda p: p[0])[0] + pad)
+        by1 = min(frame.shape[0], max(pts, key=lambda p: p[1])[1] + pad)
+        if bx1 > bx0 and by1 > by0:
+            glow_patch = np.zeros((by1 - by0, bx1 - bx0, 3), dtype=np.uint8)
+            pts_local = np.array([(x - bx0, y - by0) for x, y in pts], dtype=np.int32)
+            cv2.polylines(glow_patch, [pts_local], isClosed=True, color=pshape_border, thickness=8, lineType=cv2.LINE_AA)
+            glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 5.0)
+            feathered_composite(frame, by0, by1, bx0, bx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=12)
+    cv2.polylines(frame, [pts_np], isClosed=True, color=pshape_border, thickness=max(1, ACTION_BTN_BORDER_THICKNESS), lineType=cv2.LINE_AA)
 
 
 def _modal_seam_color(row_h: int, panel_h: int) -> Tuple[int, int, int]:
-    """Color at the seam between strip (row) and panel so gradient is continuous."""
+    """Color at the seam between strip (row) and panel so gradient is continuous (neon or classic)."""
     total_h = row_h + panel_h
     t = row_h / total_h if total_h > 0 else 1.0
+    if GALLERY_ACTION_STYLE == "classic":
+        top_bgr, bot_bgr = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+    else:
+        top_bgr, bot_bgr = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
     return (
-        int(MENU_ACTIVE_BLUE[0] * (1 - t) + MENU_ACTIVE_BLUE_LIGHT[0] * t),
-        int(MENU_ACTIVE_BLUE[1] * (1 - t) + MENU_ACTIVE_BLUE_LIGHT[1] * t),
-        int(MENU_ACTIVE_BLUE[2] * (1 - t) + MENU_ACTIVE_BLUE_LIGHT[2] * t),
+        int(top_bgr[0] * (1 - t) + bot_bgr[0] * t),
+        int(top_bgr[1] * (1 - t) + bot_bgr[1] * t),
+        int(top_bgr[2] * (1 - t) + bot_bgr[2] * t),
     )
 
 
@@ -591,8 +651,7 @@ def _draw_modal_panel_connected(
     frame: np.ndarray, px: int, py: int, content_w: int, h: int,
     top_bgr: Optional[Tuple[int, int, int]] = None,
 ) -> None:
-    """Draw modal panel with gradient; extend right by MODAL_CONNECTOR_WIDTH so blue is continuous
-    with the dock row. If top_bgr is set, gradient runs top_bgr->LIGHT (seamless with strip above)."""
+    """Draw modal panel with gradient (neon or classic); borders match Gallery Action style. Seamless with strip above if top_bgr set."""
     fh, fw = frame.shape[:2]
     total_w = content_w + MODAL_CONNECTOR_WIDTH
     x0 = max(0, px)
@@ -604,22 +663,28 @@ def _draw_modal_panel_connected(
     if vis_w <= 0 or vis_h <= 0:
         return
     roi = frame[y0:y1, x0:x1]
-    start_bgr = top_bgr if top_bgr is not None else MENU_ACTIVE_BLUE
-    grad_full = _vertical_gradient(h, total_w, start_bgr, MENU_ACTIVE_BLUE_LIGHT)
-    # Visible slice of gradient (same region that falls in frame)
+    if GALLERY_ACTION_STYLE == "classic":
+        default_start, default_end = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+        panel_border = CLASSIC_ACTION_BORDER_BGR
+    else:
+        default_start, default_end = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+        panel_border = ACTION_BTN_NEON_BORDER_BGR
+    start_bgr = top_bgr if top_bgr is not None else default_start
+    grad_full = _vertical_gradient(h, total_w, start_bgr, default_end)
     gx0 = x0 - px
     gx1 = gx0 + vis_w
     gy0 = y0 - py
     gy1 = gy0 + vis_h
     grad_slice = grad_full[gy0:gy1, gx0:gx1]
-    roi[:] = grad_slice
-    # Left, top, bottom borders only (no right, so it flows into the row); clip to visible
+    cv2.addWeighted(grad_slice, ACTION_BTN_MODAL_FILL_ALPHA, roi, 1.0 - ACTION_BTN_MODAL_FILL_ALPHA, 0.0, dst=roi)
+    if GALLERY_ACTION_STYLE != "classic":
+        _add_glassy_shine(roi, alpha=ACTION_BTN_SHINE_ALPHA)
+    thick = max(1, ACTION_BTN_BORDER_THICKNESS)
     if x0 < x1:
-        cv2.line(frame, (x0, y0), (x0, y1 - 1), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+        cv2.line(frame, (x0, y0), (x0, y1 - 1), panel_border, thick, cv2.LINE_AA)
     if y0 < y1:
-        cv2.line(frame, (x0, y0), (x1 - 1, y0), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
-        cv2.line(frame, (x0, y0), (x1 - 1, y0), DOCK_ROW_TOP_HIGHLIGHT, 1, cv2.LINE_AA)
-        cv2.line(frame, (x0, y1 - 1), (x1 - 1, y1 - 1), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+        cv2.line(frame, (x0, y0), (x1 - 1, y0), panel_border, thick, cv2.LINE_AA)
+        cv2.line(frame, (x0, y1 - 1), (x1 - 1, y1 - 1), panel_border, thick, cv2.LINE_AA)
 
 
 def _draw_filter_modal(
@@ -640,7 +705,7 @@ def _draw_filter_modal(
         )
     font = cv2.FONT_HERSHEY_SIMPLEX
     if content_visible and (vis_left < 0 or px + MODAL_PANEL_W >= vis_left):
-        _put_text_white_glow(frame, "Filter by type", px + (MODAL_PANEL_W - 180) // 2, py + 32, font, 0.7)
+        _put_text_white_glow(frame, "Filter by type", px + (MODAL_PANEL_W - 180) // 2, py + 32, font, 0.7, color=MODAL_TEXT_COLOR)
     for i, (label, value) in enumerate(FILTER_OPTIONS):
         oy = py + MODAL_TITLE_H + i * MODAL_OPTION_H
         btn_w, btn_h = MODAL_PANEL_W - 24, MODAL_OPTION_H - 8
@@ -652,13 +717,13 @@ def _draw_filter_modal(
                 active = button_state.gallery_filter_type == value
                 if active:
                     cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
-                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
                 (tw, _), _ = cv2.getTextSize(label, font, 0.55, 1)
                 if active:
                     cv2.putText(frame, label, (ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6),
                                 font, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
                 else:
-                    _put_text_white_glow(frame, label, ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6, font, 0.55)
+                    _put_text_white_glow(frame, label, ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6, font, 0.55, color=MODAL_TEXT_COLOR)
         key = f"gallery_filter_opt_{value}"
         if key not in menu_buttons:
             menu_buttons[key] = Button(ox, oy, btn_w, btn_h, label)
@@ -692,7 +757,7 @@ def _draw_sort_modal(
         )
     font = cv2.FONT_HERSHEY_SIMPLEX
     if content_visible and (vis_left < 0 or px + MODAL_PANEL_W >= vis_left):
-        _put_text_white_glow(frame, "Sort by", px + (MODAL_PANEL_W - 80) // 2, py + 32, font, 0.7)
+        _put_text_white_glow(frame, "Sort by", px + (MODAL_PANEL_W - 80) // 2, py + 32, font, 0.7, color=MODAL_TEXT_COLOR)
     for i, (label, value) in enumerate(SORT_OPTIONS):
         oy = py + MODAL_TITLE_H + i * MODAL_OPTION_H
         btn_w, btn_h = MODAL_PANEL_W - 24, MODAL_OPTION_H - 8
@@ -704,13 +769,13 @@ def _draw_sort_modal(
                 active = button_state.gallery_sort_by == value
                 if active:
                     cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
-                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
                 (tw, _), _ = cv2.getTextSize(label, font, 0.5, 1)
                 if active:
                     cv2.putText(frame, label, (ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6),
                                 font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
                 else:
-                    _put_text_white_glow(frame, label, ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6, font, 0.5)
+                    _put_text_white_glow(frame, label, ox + (btn_w - tw) // 2, oy + btn_h // 2 + 6, font, 0.5, color=MODAL_TEXT_COLOR)
         key = f"gallery_sort_opt_{value}"
         if key not in menu_buttons:
             menu_buttons[key] = Button(ox, oy, btn_w, btn_h, label)
@@ -747,7 +812,7 @@ def _draw_priority_modal(
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     if content_visible and (vis_left < 0 or px + MODAL_PANEL_W >= vis_left):
-        _put_text_white_glow(frame, "Set Priority", px + (MODAL_PANEL_W - 130) // 2, py + 32, font, 0.7)
+        _put_text_white_glow(frame, "Set Priority", px + (MODAL_PANEL_W - 130) // 2, py + 32, font, 0.7, color=MODAL_TEXT_COLOR)
 
     # Determine which priority value is held by ALL currently selected items.
     rects = getattr(button_state, 'gallery_thumbnail_rects', [])
@@ -770,7 +835,7 @@ def _draw_priority_modal(
                 active = value in selected_priorities
                 if active:
                     cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
-                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
                 dot_color = PRIORITY_COLORS[value]
                 dot_cx = ox + 18
                 dot_cy = oy + btn_h // 2
@@ -780,7 +845,7 @@ def _draw_priority_modal(
                     cv2.putText(frame, label, (ox + 34, oy + btn_h // 2 + 6),
                                 font, 0.55, (0, 0, 0), 1, cv2.LINE_AA)
                 else:
-                    _put_text_white_glow(frame, label, ox + 34, oy + btn_h // 2 + 6, font, 0.55)
+                    _put_text_white_glow(frame, label, ox + 34, oy + btn_h // 2 + 6, font, 0.55, color=MODAL_TEXT_COLOR)
 
         key = f"gallery_priority_opt_{value}"
         if key not in menu_buttons:
@@ -817,7 +882,7 @@ def _draw_tags_modal(
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     if content_visible and (vis_left < 0 or px + MODAL_PANEL_W >= vis_left):
-        _put_text_white_glow(frame, "Tags", px + (MODAL_PANEL_W - 45) // 2, py + 32, font, 0.7)
+        _put_text_white_glow(frame, "Tags", px + (MODAL_PANEL_W - 45) // 2, py + 32, font, 0.7, color=MODAL_TEXT_COLOR)
 
     for i, tag in enumerate(PRESET_TAGS):
         oy = py + MODAL_TITLE_H + i * MODAL_OPTION_H
@@ -835,13 +900,14 @@ def _draw_tags_modal(
                     active = bool(sel_names) and all(tag in file_tags.get(n, []) for n in sel_names)
                 if active:
                     cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), MODAL_ACTIVE_GOLD, -1)
-                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
-                _draw_icon_tag(frame, ox + 18, oy + btn_h // 2, SEARCH_BAR_TEXT_COLOR if not active else (0, 0, 0))
+                cv2.rectangle(frame, (ox, oy), (ox + btn_w, oy + btn_h), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
+                icon_color = (0, 0, 0) if active else (CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else SEARCH_BAR_TEXT_COLOR)
+                _draw_icon_tag(frame, ox + 18, oy + btn_h // 2, icon_color)
                 if active:
                     cv2.putText(frame, tag, (ox + 34, oy + btn_h // 2 + 6),
                                 font, 0.52, (0, 0, 0), 1, cv2.LINE_AA)
                 else:
-                    _put_text_white_glow(frame, tag, ox + 34, oy + btn_h // 2 + 6, font, 0.52)
+                    _put_text_white_glow(frame, tag, ox + 34, oy + btn_h // 2 + 6, font, 0.52, color=MODAL_TEXT_COLOR)
 
         key = f"gallery_tag_opt_{tag.lower().replace('-', '_').replace(' ', '_')}"
         if key not in menu_buttons:
@@ -885,7 +951,7 @@ def _draw_rename_keyboard(
     font = cv2.FONT_HERSHEY_SIMPLEX
     if content_visible and (vis_left < 0 or px + panel_w >= vis_left):
         display = button_state.gallery_rename_query if button_state.gallery_rename_query else "New name..."
-        _put_text_white_glow(frame, display[:40], px + 10, py + KEYBOARD_BAR_H - 10, font, KEYBOARD_FONT_BAR)
+        _put_text_white_glow(frame, display[:40], px + 10, py + KEYBOARD_BAR_H - 10, font, KEYBOARD_FONT_BAR, color=MODAL_TEXT_COLOR)
 
     key_y = py + KEYBOARD_BAR_H + KEY_GAP
     for row in KEYBOARD_ROWS_QWERTY:
@@ -896,7 +962,7 @@ def _draw_rename_keyboard(
                 continue
             if content_visible:
                 draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-                cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+                cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
                 (cw, ch), _ = cv2.getTextSize(c.upper(), font, KEYBOARD_FONT_KEY, 1)
                 cv2.putText(frame, c.upper(), (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
                             font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
@@ -915,7 +981,7 @@ def _draw_rename_keyboard(
             continue
         if content_visible:
             draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
             (cw, ch), _ = cv2.getTextSize(c, font, KEYBOARD_FONT_KEY, 1)
             cv2.putText(frame, c, (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
                         font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
@@ -934,7 +1000,7 @@ def _draw_rename_keyboard(
             continue
         if content_visible:
             draw_key_bg_clipped(frame, key_x, key_y, special_w, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
             (tw, _), _ = cv2.getTextSize(label, font, KEYBOARD_FONT_SPECIAL, 1)
             cv2.putText(frame, label, (key_x + (special_w - tw) // 2, key_y + KEY_H - 10),
                         font, KEYBOARD_FONT_SPECIAL, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
@@ -980,7 +1046,7 @@ def _draw_search_keyboard(
     font = cv2.FONT_HERSHEY_SIMPLEX
     if content_visible and (vis_left < 0 or px + panel_w >= vis_left):
         display = button_state.gallery_search_query if button_state.gallery_search_query else "Search..."
-        _put_text_white_glow(frame, display[:40], px + 10, py + KEYBOARD_BAR_H - 10, font, KEYBOARD_FONT_BAR)
+        _put_text_white_glow(frame, display[:40], px + 10, py + KEYBOARD_BAR_H - 10, font, KEYBOARD_FONT_BAR, color=MODAL_TEXT_COLOR)
     key_y = py + KEYBOARD_BAR_H + KEY_GAP
     for row in KEYBOARD_ROWS_QWERTY:
         key_x = px + (panel_w - (len(row) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
@@ -990,7 +1056,7 @@ def _draw_search_keyboard(
                 continue
             if content_visible:
                 draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-                cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+                cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
                 (cw, ch), _ = cv2.getTextSize(c.upper(), font, KEYBOARD_FONT_KEY, 1)
                 cv2.putText(frame, c.upper(), (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
                             font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
@@ -1008,7 +1074,7 @@ def _draw_search_keyboard(
             continue
         if content_visible:
             draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
             (cw, ch), _ = cv2.getTextSize(c, font, KEYBOARD_FONT_KEY, 1)
             cv2.putText(frame, c, (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
                         font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
@@ -1026,7 +1092,7 @@ def _draw_search_keyboard(
             continue
         if content_visible:
             draw_key_bg_clipped(frame, key_x, key_y, special_w, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), DOCK_ROW_WHITE_BORDER, 1, cv2.LINE_AA)
+            cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
             (tw, _), _ = cv2.getTextSize(label, font, KEYBOARD_FONT_SPECIAL, 1)
             cv2.putText(frame, label, (key_x + (special_w - tw) // 2, key_y + KEY_H - 10),
                         font, KEYBOARD_FONT_SPECIAL, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
@@ -1126,12 +1192,16 @@ def draw_grid_side_dock(
         vis_left = modal_px + modal_total_w - vis_width
         strip_right = dock_x + dock_w
         strip_width = max(1, strip_right - vis_left)
-        # One continuous gradient: strip BLUE->mid, panel mid->LIGHT so no seam at row_h
+        # One continuous gradient: strip top->mid, panel mid->bottom so no seam at row_h (classic = lighter/top-dock colors)
         t_mid = row_h / modal_h if modal_h > 0 else 1.0
+        if GALLERY_ACTION_STYLE == "classic":
+            top_b, bot_b = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+        else:
+            top_b, bot_b = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
         mid_bgr: Tuple[int, int, int] = (
-            int(MENU_ACTIVE_BLUE[0] * (1 - t_mid) + MENU_ACTIVE_BLUE_LIGHT[0] * t_mid),
-            int(MENU_ACTIVE_BLUE[1] * (1 - t_mid) + MENU_ACTIVE_BLUE_LIGHT[1] * t_mid),
-            int(MENU_ACTIVE_BLUE[2] * (1 - t_mid) + MENU_ACTIVE_BLUE_LIGHT[2] * t_mid),
+            int(top_b[0] * (1 - t_mid) + bot_b[0] * t_mid),
+            int(top_b[1] * (1 - t_mid) + bot_b[1] * t_mid),
+            int(top_b[2] * (1 - t_mid) + bot_b[2] * t_mid),
         )
         _draw_combined_modal_strip(
             frame, vis_left, row_y, strip_width, row_h,
