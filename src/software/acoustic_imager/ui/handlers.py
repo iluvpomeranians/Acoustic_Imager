@@ -12,7 +12,7 @@ import time
 from . import ui_cache
 from .button import buttons, menu_buttons
 from .gallery import get_displayed_gallery_items, get_folder_displayed_items, _viewer_rubber_band_offset, _video_read_frame_at
-from .archive_panel import load_archive_folders, add_folder, rename_folder as archive_rename_folder, delete_folder as archive_delete_folder, move_files_to_folder, save_archive_folders
+from .archive_panel import load_archive_folders, add_folder, rename_folder as archive_rename_folder, delete_folder as archive_delete_folder, move_files_to_folder, remove_files_from_all_folders, save_archive_folders
 from .viewer_dock import trigger_viewer_button_feedback
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
@@ -48,6 +48,14 @@ def _close_select_mode_modals() -> None:
     button_state.gallery_archive_delete_confirm_folder_id = None
 
 
+def _get_current_gallery_items(output_dir: Optional[Path]):
+    """Return items for current view (main gallery or folder)."""
+    if not output_dir:
+        return []
+    view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
+    return get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
+
+
 def _apply_rename(output_dir: Optional[Path]) -> None:
     """Rename the selected file(s) using gallery_rename_query as the new stem.
     Single selection: name becomes stem + extension.
@@ -57,7 +65,7 @@ def _apply_rename(output_dir: Optional[Path]) -> None:
     new_stem = (button_state.gallery_rename_query or "").strip()
     if not new_stem:
         return
-    items = get_displayed_gallery_items(output_dir)
+    items = _get_current_gallery_items(output_dir)
     sel = sorted(button_state.gallery_selected_items)
     for i, idx in enumerate(sel):
         if idx >= len(items):
@@ -217,12 +225,21 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
     if button_state.gallery_archive_move_modal_open:
         folders = getattr(button_state, "gallery_archive_folders", [])
+        view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
+        items = get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
+        filenames = [items[i][0].name for i in button_state.gallery_selected_items if i < len(items)]
+
+        if "move_to_gallery" in menu_buttons and menu_buttons["move_to_gallery"].contains(x, y):
+            if output_dir and filenames and view_id:
+                button_state.gallery_archive_folders = remove_files_from_all_folders(
+                    output_dir, folders, filenames
+                )
+            button_state.gallery_archive_move_modal_open = False
+            return True
+
         for folder in folders:
             key = "move_to_folder_" + folder.get("id", "")
             if key in menu_buttons and menu_buttons[key].contains(x, y):
-                view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
-                items = get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
-                filenames = [items[i][0].name for i in button_state.gallery_selected_items if i < len(items)]
                 if output_dir and filenames:
                     button_state.gallery_archive_folders = move_files_to_folder(
                         output_dir, folders, folder["id"], filenames
@@ -333,15 +350,28 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     if folder_action_id:
         in_rename = getattr(button_state, "gallery_archive_rename_folder_id", None) == folder_action_id
         if in_rename:
-            # Rename mode: keyboard, Save, Cancel
+            # Rename mode: keyboard (tag-style), Save, Cancel
             for c in "abcdefghijklmnopqrstuvwxyz0123456789":
                 key = f"archive_rename_key_{c}"
                 if key in menu_buttons and menu_buttons[key].contains(x, y):
                     button_state.gallery_archive_rename_query = (getattr(button_state, "gallery_archive_rename_query", "") or "") + c
                     return True
-            if "archive_rename_backspace" in menu_buttons and menu_buttons["archive_rename_backspace"].contains(x, y):
+            if "archive_rename_key_backspace" in menu_buttons and menu_buttons["archive_rename_key_backspace"].contains(x, y):
                 q = getattr(button_state, "gallery_archive_rename_query", "") or ""
                 button_state.gallery_archive_rename_query = q[:-1]
+                return True
+            if "archive_rename_key_clear" in menu_buttons and menu_buttons["archive_rename_key_clear"].contains(x, y):
+                button_state.gallery_archive_rename_query = ""
+                return True
+            if "archive_rename_key_done" in menu_buttons and menu_buttons["archive_rename_key_done"].contains(x, y):
+                new_name = (getattr(button_state, "gallery_archive_rename_query", "") or "").strip()
+                if new_name and output_dir:
+                    folders = getattr(button_state, "gallery_archive_folders", [])
+                    button_state.gallery_archive_folders = archive_rename_folder(
+                        output_dir, folders, folder_action_id, new_name
+                    )
+                button_state.gallery_archive_rename_folder_id = None
+                button_state.gallery_archive_rename_query = ""
                 return True
             if "archive_rename_save" in menu_buttons and menu_buttons["archive_rename_save"].contains(x, y):
                 new_name = (getattr(button_state, "gallery_archive_rename_query", "") or "").strip()
@@ -428,7 +458,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             elif not button_state.gallery_selected_items:
                 button_state.gallery_select_first_hint_until = time.time() + 2.5
             else:
-                items = get_displayed_gallery_items(output_dir)
+                items = _get_current_gallery_items(output_dir)
                 sel = sorted(button_state.gallery_selected_items)
                 if sel and sel[0] < len(items):
                     first_path = items[sel[0]][0]
@@ -446,7 +476,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         for value in ("high", "medium", "low"):
             key = f"gallery_priority_opt_{value}"
             if key in menu_buttons and menu_buttons[key].contains(x, y):
-                items = get_displayed_gallery_items(output_dir)
+                items = _get_current_gallery_items(output_dir)
                 priorities = getattr(button_state, 'gallery_file_priorities', {})
                 for idx in button_state.gallery_selected_items:
                     if idx < len(items):

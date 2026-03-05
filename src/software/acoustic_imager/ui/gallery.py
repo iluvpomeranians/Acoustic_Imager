@@ -52,6 +52,7 @@ from .archive_panel import (
     add_folder,
     rename_folder as archive_rename_folder,
     move_files_to_folder,
+    remove_files_from_all_folders,
     item_idx_to_grid_pos,
     archive_panel_grid_pos,
     MAX_FOLDERS,
@@ -1188,15 +1189,23 @@ def draw_delete_modal(
 
 
 def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
-    """Modal to choose a folder when moving selected items."""
+    """Modal to choose a folder when moving selected items. When inside a folder, includes 'Gallery' to remove from folder."""
     folders = getattr(button_state, "gallery_archive_folders", [])
-    if not folders:
+    in_folder_view = bool(getattr(button_state, "gallery_archive_folder_view_id", None))
+    if not folders and not in_folder_view:
         button_state.gallery_archive_move_modal_open = False
         return
 
+    # When in folder view, add "Gallery" as first option
+    options = []
+    if in_folder_view:
+        options.append(("__gallery__", "Gallery", 0))
+    for folder in folders:
+        options.append((folder.get("id", ""), folder.get("name", "Folder") or "Folder", len(folder.get("files", []))))
+
     modal_w = 320
     row_h = 44
-    modal_h = 80 + len(folders) * row_h
+    modal_h = 80 + len(options) * row_h
     modal_x = (frame.shape[1] - modal_w) // 2
     modal_y = (frame.shape[0] - modal_h) // 2
 
@@ -1210,20 +1219,19 @@ def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     font = cv2.FONT_HERSHEY_SIMPLEX
     cv2.putText(frame, "Move to folder", (modal_x + 20, modal_y + 35), font, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
 
-    for i, folder in enumerate(folders):
+    for i, (opt_id, name, n_files) in enumerate(options):
         btn_y = modal_y + 55 + i * row_h
         btn_h = row_h - 8
-        name = folder.get("name", "Folder") or "Folder"
-        n_files = len(folder.get("files", []))
-        label = f"{name} ({n_files} files)"
-        if "move_to_folder_" + folder.get("id", str(i)) not in menu_buttons:
-            menu_buttons["move_to_folder_" + folder["id"]] = Button(modal_x + 15, btn_y, modal_w - 30, btn_h, label)
+        label = name if opt_id == "__gallery__" else f"{name} ({n_files} files)"
+        key = "move_to_gallery" if opt_id == "__gallery__" else "move_to_folder_" + opt_id
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(modal_x + 15, btn_y, modal_w - 30, btn_h, label)
         else:
-            b = menu_buttons["move_to_folder_" + folder["id"]]
+            b = menu_buttons[key]
             b.x, b.y, b.w, b.h = modal_x + 15, btn_y, modal_w - 30, btn_h
             b.text = label
-        menu_buttons["move_to_folder_" + folder["id"]].is_active = True
-        menu_buttons["move_to_folder_" + folder["id"]].draw(
+        menu_buttons[key].is_active = True
+        menu_buttons[key].draw(
             frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
             gradient_colors=(CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT),
             fill_alpha=ACTION_BTN_FILL_ALPHA,
@@ -1247,16 +1255,12 @@ def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Pat
     font = cv2.FONT_HERSHEY_SIMPLEX
 
     if in_rename_mode:
-        # Rename mode: input + keyboard + Save/Cancel
-        modal_w = 340
-        key_w, key_h, key_gap = 24, 22, 4
-        row1 = "abcdefghij"
-        row2 = "klmnopqrst"
-        row3 = "uvwxyz0123456789"
-        rows = [row1, row2, row3]
-        n_rows = len(rows)
-        keyboard_h = n_rows * (key_h + key_gap) + 50
+        # Rename mode: input + tag-style keyboard + Save/Cancel
+        n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
+        keyboard_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
+        form_w = min(400, frame.shape[1] - 40)
         modal_h = 120 + keyboard_h
+        modal_w = form_w
         modal_x = (frame.shape[1] - modal_w) // 2
         modal_y = (frame.shape[0] - modal_h) // 2
 
@@ -1264,43 +1268,87 @@ def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Pat
         cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-        cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
-        cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
+        roi = frame[modal_y: modal_y + modal_h, modal_x: modal_x + modal_w]
+        if GALLERY_ACTION_STYLE == "classic":
+            fill_top, fill_bot = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+            panel_border = CLASSIC_ACTION_BORDER_BGR
+        else:
+            fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+            panel_border = ACTION_BTN_NEON_BORDER_BGR
+        grad = _vertical_gradient(modal_h, modal_w, fill_top, fill_bot)
+        cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
+        if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
+            pad = 16
+            gx0, gy0 = max(0, modal_x - pad), max(0, modal_y - pad)
+            gx1 = min(frame.shape[1], modal_x + modal_w + pad)
+            gy1 = min(frame.shape[0], modal_y + modal_h + pad)
+            if gx1 > gx0 and gy1 > gy0:
+                glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+                lx, ly = modal_x - gx0, modal_y - gy0
+                cv2.rectangle(glow_patch, (lx, ly), (lx + modal_w, ly + modal_h), panel_border, 8, cv2.LINE_AA)
+                glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
+                feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
+        cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w - 1, modal_y + modal_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
 
-        cv2.putText(frame, "Rename folder", (modal_x + 20, modal_y + 30), font, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+        bar_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
         query = getattr(button_state, "gallery_archive_rename_query", "") or ""
-        input_y = modal_y + 55
-        cv2.rectangle(frame, (modal_x + 15, input_y), (modal_x + modal_w - 15, input_y + 36), (28, 28, 34), -1)
-        cv2.rectangle(frame, (modal_x + 15, input_y), (modal_x + modal_w - 15, input_y + 36), (100, 100, 100), 1, cv2.LINE_AA)
-        cv2.putText(frame, query[:35] or "Enter name", (modal_x + 22, input_y + 24), font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, f"Rename: {query[:30]}", (modal_x + 8, modal_y + _TK_BAR_H - 10),
+                    font, 0.48, bar_text_color, 1, cv2.LINE_AA)
 
-        key_y = input_y + 50
-        for ri, row in enumerate(rows):
-            row_w = len(row) * (key_w + key_gap) - key_gap
+        key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+        key_y = modal_y + _TK_BAR_H + _TK_GAP
+        for row in _TK_ROWS:
+            row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
             key_x = modal_x + (modal_w - row_w) // 2
             for c in row:
-                if f"archive_rename_key_{c}" not in menu_buttons:
-                    menu_buttons[f"archive_rename_key_{c}"] = Button(key_x, key_y, key_w, key_h, c)
+                kx, ky = key_x, key_y
+                draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
+                cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
+                (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
+                cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
+                            font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
+                bkey = f"archive_rename_key_{c}"
+                if bkey not in menu_buttons:
+                    menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
                 else:
-                    b = menu_buttons[f"archive_rename_key_{c}"]
-                    b.x, b.y, b.w, b.h = key_x, key_y, key_w, key_h
-                cv2.rectangle(frame, (key_x, key_y), (key_x + key_w, key_y + key_h), (60, 60, 65), -1)
-                cv2.rectangle(frame, (key_x, key_y), (key_x + key_w, key_y + key_h), (120, 120, 125), 1, cv2.LINE_AA)
-                cv2.putText(frame, c, (key_x + 6, key_y + key_h - 5), font, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
-                key_x += key_w + key_gap
-            key_y += key_h + key_gap
+                    menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+                key_x += _TK_W + _TK_GAP
+            key_y += _TK_H + _TK_GAP
+        row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
+        key_x = modal_x + (modal_w - row_w) // 2
+        for c in _TK_NUMS:
+            kx, ky = key_x, key_y
+            draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
+            (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
+            cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
+                        font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
+            bkey = f"archive_rename_key_{c}"
+            if bkey not in menu_buttons:
+                menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
+            else:
+                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+            key_x += _TK_W + _TK_GAP
+        key_y += _TK_H + _TK_GAP
+        sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
+        key_x = modal_x + (modal_w - sp_row_w) // 2
+        for label, val in _TK_SPECIAL:
+            kx, ky = key_x, key_y
+            draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
+            cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
+            (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
+            cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
+                        font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
+            bkey = f"archive_rename_key_{val}"
+            if bkey not in menu_buttons:
+                menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
+            else:
+                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
+                menu_buttons[bkey].w = _TK_SP_W
+            key_x += _TK_SP_W + _TK_GAP
 
-        # Backspace, Clear, Save, Cancel
         btn_y = key_y + 8
-        bw, bh = 50, 32
-        if "archive_rename_backspace" not in menu_buttons:
-            menu_buttons["archive_rename_backspace"] = Button(modal_x + 15, btn_y, bw, bh, "")
-        else:
-            menu_buttons["archive_rename_backspace"].x, menu_buttons["archive_rename_backspace"].y = modal_x + 15, btn_y
-            menu_buttons["archive_rename_backspace"].w, menu_buttons["archive_rename_backspace"].h = bw, bh
-        cv2.rectangle(frame, (modal_x + 15, btn_y), (modal_x + 15 + bw, btn_y + bh), (60, 60, 65), -1)
-        cv2.putText(frame, "Del", (modal_x + 25, btn_y + bh - 8), font, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
-
+        bh = 32
         if "archive_rename_save" not in menu_buttons:
             menu_buttons["archive_rename_save"] = Button(modal_x + modal_w - 85, btn_y, 70, bh, "")
         else:
@@ -1314,8 +1362,8 @@ def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Pat
         else:
             menu_buttons["archive_rename_cancel"].x, menu_buttons["archive_rename_cancel"].y = modal_x + modal_w - 170, btn_y
             menu_buttons["archive_rename_cancel"].w, menu_buttons["archive_rename_cancel"].h = 70, bh
-        cv2.rectangle(frame, (modal_x + modal_w - 170, btn_y), (modal_x + modal_w - 95, btn_y + bh), (80, 80, 85), -1)
-        cv2.putText(frame, "Cancel", (modal_x + modal_w - 162, btn_y + bh - 8), font, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
+        draw_key_bg_clipped(frame, modal_x + modal_w - 170, btn_y, 70, bh)
+        cv2.putText(frame, "Cancel", (modal_x + modal_w - 162, btn_y + bh - 8), font, 0.45, _TK_KEY_TEXT, 1, cv2.LINE_AA)
 
         if "archive_folder_modal_panel" not in menu_buttons:
             menu_buttons["archive_folder_modal_panel"] = Button(modal_x, modal_y, modal_w, modal_h, "")

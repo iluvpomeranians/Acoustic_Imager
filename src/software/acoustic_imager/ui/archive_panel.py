@@ -123,6 +123,19 @@ def move_files_to_folder(
     return out
 
 
+def remove_files_from_all_folders(
+    output_dir: Path, folders: List[dict], filenames: List[str]
+) -> List[dict]:
+    """Remove filenames from all folders (move to Gallery)."""
+    out = []
+    for f in folders:
+        d = dict(f)
+        d["files"] = [x for x in d.get("files", []) if x not in filenames]
+        out.append(d)
+    save_archive_folders(output_dir, out)
+    return out
+
+
 def item_idx_to_grid_pos(idx: int, cols: int) -> tuple:
     """
     Map item index to grid (row, col). Slot (0, cols-1) is reserved for archive.
