@@ -88,6 +88,7 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_viewer_mouse,
 )
 from acoustic_imager.ui.video_recorder import VideoRecorder
+from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
 
 # ===============================================================
 # External dependencies (from parent directories)
@@ -870,6 +871,7 @@ def main() -> None:
                 fps_mode=button_state.fps_mode,
                 frame_bytes=config.FRAME_BYTES,
                 offset_y=state.ui_top_hud_offset,
+                battery_percent=None,  # placeholder until live data
             )
 
             state.HUD_RECTS = hud_rects
@@ -880,6 +882,10 @@ def main() -> None:
 
             # ---- Draw screenshot flash effect ----
             draw_screenshot_flash(output_frame)
+
+            # ---- Battery icon (in time HUD pill when main view; gallery draws its own) ----
+            if button_state.gallery_open:
+                draw_battery_icon_for_view(output_frame, percent=None)  # None = placeholder until live data
 
             prof.mark("ui")
 

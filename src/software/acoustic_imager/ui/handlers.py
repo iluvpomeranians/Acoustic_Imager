@@ -39,7 +39,6 @@ def _close_select_mode_modals() -> None:
     button_state.gallery_tags_modal_open = False
     button_state.gallery_rename_modal_open = False
     button_state.gallery_tag_modal_open = False
-    button_state.gallery_tag_keyboard_open = False
     button_state.gallery_tag_active_field = ""
 
 
@@ -100,11 +99,18 @@ def _open_tag_modal(output_dir: Optional[Path]) -> None:
         "leak_type":  existing.get("leak_type",  ""),
     }
     button_state.gallery_tag_active_field = ""
-    button_state.gallery_tag_keyboard_open = False
     button_state.gallery_tag_keyboard_query = ""
     button_state.gallery_tag_modal_open = True
     button_state.gallery_priority_modal_open = False
     button_state.gallery_rename_modal_open = False
+
+
+def _commit_active_tag_field() -> None:
+    """Commit current keyboard input into field_vals (in-memory only)."""
+    if button_state.gallery_tag_active_field:
+        button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
+            button_state.gallery_tag_keyboard_query
+        )
 
 
 def _apply_tag_save(output_dir: Optional[Path]) -> None:
@@ -112,13 +118,9 @@ def _apply_tag_save(output_dir: Optional[Path]) -> None:
     Multi-select: same tags (asset_type, leak_type) apply to every selected item; only the first can be renamed by name."""
     if not output_dir:
         return
-    # Commit any open keyboard field first
-    if button_state.gallery_tag_keyboard_open and button_state.gallery_tag_active_field:
-        button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
-            button_state.gallery_tag_keyboard_query
-        )
-        button_state.gallery_tag_keyboard_open = False
-        button_state.gallery_tag_active_field = ""
+    # Commit any active field first
+    _commit_active_tag_field()
+    button_state.gallery_tag_active_field = ""
 
     field_vals = getattr(button_state, 'gallery_tag_field_values', {})
     new_asset_name = field_vals.get("asset_name", "").strip()
@@ -347,32 +349,10 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         button_state.gallery_rename_modal_open = False
         return True
 
-    # ── Tag edit modal ────────────────────────────────────────────────────────
+    # ── Tag edit modal (keyboard merged; auto-save on field switch / Done / close) ─
     if button_state.gallery_tag_modal_open:
-        # Field clicks → open keyboard for that field
-        for fkey, flabel, _ in [("asset_name", "Asset Name", ""), ("asset_type", "Asset Type", ""), ("leak_type", "Leak Type", "")]:
-            btn_key = f"tag_field_{fkey}"
-            if btn_key in menu_buttons and menu_buttons[btn_key].contains(x, y):
-                # Commit current keyboard field before switching
-                if button_state.gallery_tag_keyboard_open and button_state.gallery_tag_active_field:
-                    button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
-                        button_state.gallery_tag_keyboard_query
-                    )
-                # Pre-fill from saved values
-                if fkey == "asset_name":
-                    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
-                    sel_paths = [r['filepath'] for r in rects if r['idx'] in button_state.gallery_selected_items]
-                    default_stem = sel_paths[0].stem if sel_paths else ""
-                    prefill = button_state.gallery_tag_field_values.get("asset_name", default_stem)
-                else:
-                    prefill = button_state.gallery_tag_field_values.get(fkey, "")
-                button_state.gallery_tag_active_field = fkey
-                button_state.gallery_tag_keyboard_query = prefill
-                button_state.gallery_tag_keyboard_open = True
-                return True
-
-        # Tag keyboard keys
-        if button_state.gallery_tag_keyboard_open:
+        # Tag keyboard keys (always visible when modal open)
+        if button_state.gallery_tag_active_field:
             for c in "abcdefghijklmnopqrstuvwxyz0123456789":
                 bk = f"tag_key_{c}"
                 if bk in menu_buttons and menu_buttons[bk].contains(x, y):
@@ -387,35 +367,35 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.gallery_tag_keyboard_query = ""
                 return True
             if "tag_key_done" in menu_buttons and menu_buttons["tag_key_done"].contains(x, y):
-                # Commit field + close keyboard
-                if button_state.gallery_tag_active_field:
-                    button_state.gallery_tag_field_values[button_state.gallery_tag_active_field] = (
-                        button_state.gallery_tag_keyboard_query
-                    )
-                button_state.gallery_tag_keyboard_open = False
+                _apply_tag_save(output_dir)
+                button_state.gallery_tag_modal_open = False
                 button_state.gallery_tag_active_field = ""
                 return True
-            if "tag_keyboard_panel" in menu_buttons and menu_buttons["tag_keyboard_panel"].contains(x, y):
+        if "tag_keyboard_panel" in menu_buttons and menu_buttons["tag_keyboard_panel"].contains(x, y):
+            return True
+
+        # Field clicks → switch field (auto-save current first)
+        for fkey, flabel, _ in [("asset_name", "Asset Name", ""), ("asset_type", "Asset Type", ""), ("leak_type", "Leak Type", "")]:
+            btn_key = f"tag_field_{fkey}"
+            if btn_key in menu_buttons and menu_buttons[btn_key].contains(x, y):
+                _apply_tag_save(output_dir)  # auto-save before switching
+                if fkey == "asset_name":
+                    rects = getattr(button_state, 'gallery_thumbnail_rects', [])
+                    sel_paths = [r['filepath'] for r in rects if r['idx'] in button_state.gallery_selected_items]
+                    default_stem = sel_paths[0].stem if sel_paths else ""
+                    prefill = button_state.gallery_tag_field_values.get("asset_name", default_stem)
+                else:
+                    prefill = button_state.gallery_tag_field_values.get(fkey, "")
+                button_state.gallery_tag_active_field = fkey
+                button_state.gallery_tag_keyboard_query = prefill
                 return True
 
-        # Save / Cancel
-        if "tag_save" in menu_buttons and menu_buttons["tag_save"].contains(x, y):
-            _apply_tag_save(output_dir)
-            button_state.gallery_tag_modal_open = False
-            button_state.gallery_tag_keyboard_open = False
-            button_state.gallery_tag_active_field = ""
-            return True
-        if "tag_cancel" in menu_buttons and menu_buttons["tag_cancel"].contains(x, y):
-            button_state.gallery_tag_modal_open = False
-            button_state.gallery_tag_keyboard_open = False
-            button_state.gallery_tag_active_field = ""
-            return True
         # Absorb clicks on modal panel
         if "tag_modal_panel" in menu_buttons and menu_buttons["tag_modal_panel"].contains(x, y):
             return True
-        # Click outside modal closes it
+        # Click outside modal: auto-save and close
+        _apply_tag_save(output_dir)
         button_state.gallery_tag_modal_open = False
-        button_state.gallery_tag_keyboard_open = False
         button_state.gallery_tag_active_field = ""
         return True
 

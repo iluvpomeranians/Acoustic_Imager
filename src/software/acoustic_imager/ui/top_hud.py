@@ -9,8 +9,18 @@ import time
 import cv2
 import numpy as np
 
-from ..config import HUD_MENU_OPACITY, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT, UI_PILL_H, UI_PILL_W
+from ..config import (
+    HUD_MENU_OPACITY,
+    MENU_ACTIVE_BLUE,
+    MENU_ACTIVE_BLUE_LIGHT,
+    UI_PILL_H,
+    UI_PILL_W,
+    DB_BAR_WIDTH,
+    FREQ_BAR_WIDTH,
+)
+from ..state import button_state
 from .menu import _blue_gradient_overlay
+from .battery_icon import draw_battery_icon
 
 @dataclass
 class HudRects:
@@ -61,6 +71,7 @@ def draw_hud(
     fps_mode: str,
     frame_bytes: int,
     offset_y: float = 0.0,
+    battery_percent: Optional[int] = None,
 ) -> HudRects:
     """
     Draw compact HUD top-left. offset_y moves the HUD vertically (0=visible, negative=retracted up).
@@ -121,11 +132,13 @@ def draw_hud(
 
     net_w  = UI_PILL_W
     fps_w  = UI_PILL_W
-    time_w = UI_PILL_W
+    time_w = UI_PILL_W + 42  # Wider to fit clock + time + battery icon
 
-    # Calculate total width and center horizontally
+    # Center HUD within the camera feed segment (between dB bar and freq bar)
+    camera_feed_left = DB_BAR_WIDTH
+    camera_feed_width = w - DB_BAR_WIDTH - FREQ_BAR_WIDTH
     total_width = net_w + gap + fps_w + gap + time_w
-    start_x = (w - total_width) // 2
+    start_x = camera_feed_left + (camera_feed_width - total_width) // 2
 
     x_net  = start_x
     x_fps  = x_net + net_w + gap
@@ -158,8 +171,26 @@ def draw_hud(
     # --- FPS ---
     draw_pill_icon_text(x_fps, fps_w, f"{fps_txt} FPS", draw_fps_icon)
 
-    # --- TIME ---
-    draw_pill_icon_text(x_time, time_w, time_txt, draw_clock_icon)
+    # --- TIME --- (time left, battery right; block centered in pill, no overlap)
+    (time_label_w, _), _ = cv2.getTextSize(time_txt, font, scale, 1)
+    time_content_w = icon_w + gap_icon_text + time_label_w
+    bat_w = 28 + 4  # BATTERY_BODY_W + BATTERY_TIP_W
+    bat_h = 14
+    time_between_gap = 8
+    block_w = time_content_w + time_between_gap + bat_w
+    block_start_x = x_time + (time_w - block_w) // 2
+
+    # Time (clock + text) on the left
+    time_start_x = block_start_x
+    time_icon_cx = time_start_x + icon_radius
+    draw_clock_icon(time_icon_cx, cy)
+    cv2.putText(frame, time_txt, (time_start_x + icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
+
+    # Battery on the right
+    if not button_state.gallery_open:
+        bat_x = block_start_x + time_content_w + time_between_gap
+        bat_y = y + (pill_h - bat_h) // 2
+        draw_battery_icon(frame, x=bat_x, y=bat_y, percent=battery_percent)
 
     rects = HudRects(
         net=(x_net,  y, net_w,  pill_h),
@@ -183,10 +214,12 @@ def draw_hud(
 
     # Build extra info
     if open_panel == "time":
+        bat_pct = battery_percent if battery_percent is not None else 100
         panel([
             f"Uptime: {elapsed_s:0.1f}s",
             f"Frame: {frame_count}",
             f"Source: {source_label}",
+            f"Battery: {bat_pct}%",
         ], rects.time[0])
 
     elif open_panel == "fps":
