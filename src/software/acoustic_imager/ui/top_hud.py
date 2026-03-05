@@ -171,14 +171,22 @@ def draw_hud(
     # --- FPS ---
     draw_pill_icon_text(x_fps, fps_w, f"{fps_txt} FPS", draw_fps_icon)
 
-    # --- TIME ---
-    draw_pill_icon_text(x_time, time_w, time_txt, draw_clock_icon)
+    # --- TIME --- (time on left half, battery on right half; each centered in its half)
+    left_half_w = time_w // 2
+    right_half_w = time_w - left_half_w
+    # Time (clock + text) centered in left half
+    (time_label_w, _), _ = cv2.getTextSize(time_txt, font, scale, 1)
+    time_content_w = icon_w + gap_icon_text + time_label_w
+    time_start_x = x_time + (left_half_w - time_content_w) // 2
+    time_icon_cx = time_start_x + icon_radius
+    draw_clock_icon(time_icon_cx, cy)
+    cv2.putText(frame, time_txt, (time_start_x + icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
 
-    # Battery icon inside the time pill, right side (main view only; gallery draws its own battery)
+    # Battery centered in right half (main view only; gallery draws its own battery)
     if not button_state.gallery_open:
         bat_w = 28 + 4  # BATTERY_BODY_W + BATTERY_TIP_W
         bat_h = 14
-        bat_x = x_time + time_w - bat_w - 8
+        bat_x = x_time + left_half_w + (right_half_w - bat_w) // 2
         bat_y = y + (pill_h - bat_h) // 2
         draw_battery_icon(frame, x=bat_x, y=bat_y, percent=battery_percent)
 
@@ -204,10 +212,12 @@ def draw_hud(
 
     # Build extra info
     if open_panel == "time":
+        bat_pct = battery_percent if battery_percent is not None else 100
         panel([
             f"Uptime: {elapsed_s:0.1f}s",
             f"Frame: {frame_count}",
             f"Source: {source_label}",
+            f"Battery: {bat_pct}%",
         ], rects.time[0])
 
     elif open_panel == "fps":
