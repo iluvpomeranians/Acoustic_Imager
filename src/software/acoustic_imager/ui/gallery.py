@@ -1252,10 +1252,11 @@ def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, fo
     """Unified blue panel for folder rename: title + input at top, keyboard below. Text only in input bar."""
     fh, _ = frame.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
-    form_h = 80  # title + input row
+    form_h = 100  # title + input row (enough for title, label, input, and gap above keyboard)
+    form_to_keyboard_gap = 10  # clear space between input field and first row of keys
     n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
     keyboard_h = n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
-    panel_h = form_h + keyboard_h
+    panel_h = form_h + form_to_keyboard_gap + keyboard_h
     panel_w = form_w
     px = form_x
     py = min(y_top, fh - panel_h - 4)
@@ -1305,7 +1306,7 @@ def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, fo
                 font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
     key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
-    key_y = py + form_h + _TK_GAP
+    key_y = py + form_h + form_to_keyboard_gap
     for row in _TK_ROWS:
         row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
         key_x = px + (panel_w - row_w) // 2
