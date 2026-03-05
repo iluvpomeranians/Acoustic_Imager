@@ -50,6 +50,8 @@ static float fft_out_adc2[2 * N_BINS];
 static float fft_out_adc3[2 * N_BINS];
 static float fft_out_adc4[2 * N_BINS];
 
+static float fft_all_mics[N_MICS][2 * N_BINS];
+
 static arm_rfft_fast_instance_f32 fft_instance;
 
 static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
@@ -193,19 +195,34 @@ void app_loop(void) {
           // incorrect; we either need a 4-channel output buffer or we need to
           // send each channel's FFT output sequentially over SPI in this
           // function.
-          process_adc_pipeline(&fft_instance, active_half, adc, fft_out_ptr);
-
+          
+          //process_adc_pipeline(&fft_instance, active_half, adc, fft_out_ptr);
+          float *fft_out = &fft_all_mics[adc * N_CH_PER_ADC][0];
+          process_adc_pipeline( &fft_instance, active_half, adc, fft_out);
           // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
           // currently dummy values
-          spi_stream_build_fft_packet(&spi_stream_ctx, 
-                                      spi_tx_buffer, 
-                                      SPI_PACKET_SIZE,
-                                      adc,
-                                      fft_out_ptr,
-                                      N_MICS,
-                                      FRAME_SIZE,
-                                      SAMPLE_RATE,
-                                      N_BINS);
+
+          // spi_stream_build_fft_packet(&spi_stream_ctx, 
+          //                             spi_tx_buffer, 
+          //                             SPI_PACKET_SIZE,
+          //                             adc,
+          //                             fft_out_ptr,
+          //                             N_MICS,
+          //                             FRAME_SIZE,
+          //                             SAMPLE_RATE,
+          //                             N_BINS);
+          
+          size_t len = spi_stream_build_frame_packet(
+                                        &spi_stream_ctx,
+                                        spi_packet,
+                                        sizeof(spi_packet),
+                                        (float*)fft_all_mics,
+                                        N_MICS,
+                                        FRAME_SIZE,
+                                        SAMPLE_RATE,
+                                        N_BINS
+                                        );
+          
           // package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer, N_CH_PER_ADC,
           //                     FRAME_SIZE, 48000, N_BINS);
 

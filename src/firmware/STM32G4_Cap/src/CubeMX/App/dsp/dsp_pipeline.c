@@ -108,13 +108,14 @@ void normalize_magnitude(float *mag, uint32_t length)
 void process_adc_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
                           uint16_t *adc_raw, 
                           uint32_t adc_id, 
-                          float *fft_output)
+                          float *fft_output_base)
 {
   // When a half-buffer is ready, 4 channels of interleaved data are available.
   // Rather than de-interleaving all 4 channels into separate buffers, we can 
   // process each channel is a scratch buffer.
   for (uint8_t ch = 0; ch < N_CH_PER_ADC; ch++) {
   
+    float *fft_output = fft_output_base + ch * (2 * N_BINS);
     process_adc_to_float(adc_raw, fft_input_buf, ch, FRAME_SIZE);
     float dc_offset = calculate_dc_offset(fft_input_buf, FRAME_SIZE);
     remove_dc_bias(fft_input_buf, FRAME_SIZE, dc_offset);
