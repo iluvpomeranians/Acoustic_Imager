@@ -96,6 +96,13 @@ def rename_folder(output_dir: Path, folders: List[dict], folder_id: str, new_nam
     return out
 
 
+def delete_folder(output_dir: Path, folders: List[dict], folder_id: str) -> List[dict]:
+    """Remove a folder. Returns updated list."""
+    out = [f for f in folders if f["id"] != folder_id]
+    save_archive_folders(output_dir, out)
+    return out
+
+
 def move_files_to_folder(
     output_dir: Path, folders: List[dict], folder_id: str, filenames: List[str]
 ) -> List[dict]:

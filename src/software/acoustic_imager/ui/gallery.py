@@ -243,11 +243,13 @@ def _draw_archive_panel(
     cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (40, 40, 40), -1)
     cv2.rectangle(frame, (cx0, cy0), (cx1, cy1), (100, 100, 100), 2, cv2.LINE_AA)
 
-    # Title bar at top
+    # Title bar at top - "Archive" centered
     title_h = 24
     cv2.rectangle(frame, (cx0, cy0), (cx1, cy0 + title_h), (50, 50, 50), -1)
     cv2.line(frame, (cx0, cy0 + title_h), (cx1, cy0 + title_h), (80, 80, 80), 1, cv2.LINE_AA)
-    cv2.putText(frame, "Archive Panel", (cx0 + (cx1 - cx0 - 90) // 2, cy0 + title_h - 6),
+    title_text = "Archive"
+    (tw, _), _ = cv2.getTextSize(title_text, font, 0.5, 1)
+    cv2.putText(frame, title_text, (cx0 + ((cx1 - cx0) - tw) // 2, cy0 + title_h - 6),
                 font, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
 
     content_y = y + title_h
@@ -272,31 +274,22 @@ def _draw_archive_panel(
             b = menu_buttons["archive_add_btn"]
             b.x, b.y, b.w, b.h = plus_cx - plus_sz, plus_cy - plus_sz, plus_sz * 2, plus_sz * 2
     else:
-        # 2x2 grid with even spacing; padding around edges
-        pad_x, pad_y = 12, 12
-        avail_w = w - 2 * pad_x
-        avail_h = content_h - 2 * pad_y
+        # 4 equal segments (2x2), each folder centered in its segment
         n_cols, n_rows = 2, 2
-        gap_x = 12
-        gap_y = 12
-        slot_w = (avail_w - gap_x) // n_cols
-        slot_h = (avail_h - gap_y) // n_rows
-        # Folder icon area (leave room for label below)
-        icon_h = min(slot_h - 36, slot_w - 4)
-        icon_w = min(slot_w - 4, icon_h + 20)
+        seg_w = w // n_cols
+        seg_h = content_h // n_rows
+        icon_w = min(seg_w - 16, 70)
+        icon_h = min(seg_h - 48, 50)
         icon_w = max(icon_w, 40)
         icon_h = max(icon_h, 36)
 
-        # Center the grid in available space
-        grid_w = n_cols * slot_w + (n_cols - 1) * gap_x
-        grid_h = n_rows * slot_h + (n_rows - 1) * gap_y
-        start_x = x + pad_x + (avail_w - grid_w) // 2 + (slot_w - icon_w) // 2
-        start_y = content_y + pad_y + (slot_h - icon_h) // 2
-
         for i, folder in enumerate(folders[:4]):
             r, c = i // 2, i % 2
-            sx = start_x + c * (slot_w + gap_x)
-            sy = start_y + r * (slot_h + gap_y)
+            seg_x = x + c * seg_w
+            seg_y = content_y + r * seg_h
+            # Center folder icon in segment
+            sx = seg_x + (seg_w - icon_w) // 2
+            sy = seg_y + (seg_h - icon_h - 32) // 2
             name = (folder.get("name", "Folder") or "Folder")[:10]
             n_files = len(folder.get("files", []))
             _draw_folder_icon(frame, sx, sy, icon_w, icon_h, name, n_files)
@@ -313,8 +306,10 @@ def _draw_archive_panel(
             add_sz = 28
             add_slot_c = len(folders) % 2
             add_slot_r = len(folders) // 2
-            add_x = start_x + add_slot_c * (slot_w + gap_x) + (icon_w - add_sz) // 2
-            add_y = start_y + add_slot_r * (slot_h + gap_y) + (icon_h - add_sz) // 2
+            add_seg_x = x + add_slot_c * seg_w
+            add_seg_y = content_y + add_slot_r * seg_h
+            add_x = add_seg_x + (seg_w - add_sz) // 2
+            add_y = add_seg_y + (seg_h - add_sz - 32) // 2
             cv2.rectangle(frame, (add_x, add_y), (add_x + add_sz, add_y + add_sz), (50, 50, 50), -1)
             cv2.rectangle(frame, (add_x, add_y), (add_x + add_sz, add_y + add_sz), CLASSIC_ACTION_BORDER_BGR, 1, cv2.LINE_AA)
             cv2.line(frame, (add_x + 6, add_y + add_sz // 2), (add_x + add_sz - 6, add_y + add_sz // 2), (255, 255, 255), 2, cv2.LINE_AA)
@@ -788,6 +783,23 @@ def get_displayed_gallery_items(output_dir: Optional[Path]) -> List[Tuple[Path, 
     return apply_gallery_filter_sort_search(get_gallery_items(output_dir))
 
 
+def get_folder_displayed_items(
+    output_dir: Optional[Path],
+    folder_id: Optional[str],
+) -> List[Tuple[Path, str, datetime]]:
+    """Return items in an archive folder, filtered/sorted like main gallery."""
+    if not output_dir or not folder_id:
+        return []
+    folders = getattr(button_state, "gallery_archive_folders", [])
+    folder = next((f for f in folders if f.get("id") == folder_id), None)
+    if not folder:
+        return []
+    filenames = set(folder.get("files", []))
+    all_items = get_gallery_items(output_dir)
+    folder_items = [(p, t, m) for p, t, m in all_items if p.name in filenames]
+    return apply_gallery_filter_sort_search(folder_items)
+
+
 def _update_viewer_swipe_inertia(frame_w: int) -> None:
     """Update viewer swipe offset from inertia; may advance to prev/next when crossing threshold."""
     if not button_state.gallery_viewer_swipe_inertia_active:
@@ -1219,16 +1231,16 @@ def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         )
 
 
-def draw_archive_folder_contents_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
-    """Modal showing media inside a folder, with Close and Rename buttons."""
-    folder_id = getattr(button_state, "gallery_archive_folder_open_id", None)
+def draw_archive_folder_action_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
+    """Modal for Rename/Delete when in select mode and user clicked a folder."""
+    folder_id = getattr(button_state, "gallery_archive_folder_action_id", None)
     if not folder_id:
         return
 
     folders = getattr(button_state, "gallery_archive_folders", [])
     folder = next((f for f in folders if f.get("id") == folder_id), None)
     if not folder:
-        button_state.gallery_archive_folder_open_id = None
+        button_state.gallery_archive_folder_action_id = None
         return
 
     in_rename_mode = getattr(button_state, "gallery_archive_rename_folder_id", None) == folder_id
@@ -1311,12 +1323,10 @@ def draw_archive_folder_contents_modal(frame: np.ndarray, output_dir: Optional[P
             menu_buttons["archive_folder_modal_panel"].x, menu_buttons["archive_folder_modal_panel"].y = modal_x, modal_y
             menu_buttons["archive_folder_modal_panel"].w, menu_buttons["archive_folder_modal_panel"].h = modal_w, modal_h
     else:
-        # View mode: list of files + Close + Rename
-        files = folder.get("files", [])
-        row_h = 32
-        max_visible = 8
-        modal_w = 320
-        modal_h = 100 + min(len(files), max_visible) * row_h
+        # Action mode: Rename | Delete | Cancel
+        folder_name = folder.get("name", "Folder") or "Folder"
+        modal_w = 300
+        modal_h = 140
         modal_x = (frame.shape[1] - modal_w) // 2
         modal_y = (frame.shape[0] - modal_h) // 2
 
@@ -1327,39 +1337,37 @@ def draw_archive_folder_contents_modal(frame: np.ndarray, output_dir: Optional[P
         cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
         cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
 
-        folder_name = folder.get("name", "Folder") or "Folder"
-        cv2.putText(frame, folder_name[:24], (modal_x + 20, modal_y + 32), font, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, folder_name[:28], (modal_x + 20, modal_y + 35), font, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(frame, "Rename or delete folder", (modal_x + 20, modal_y + 58), font, 0.42, (180, 180, 180), 1, cv2.LINE_AA)
 
-        if not files:
-            cv2.putText(frame, "Empty", (modal_x + 15, modal_y + 52), font, 0.48, (160, 160, 160), 1, cv2.LINE_AA)
-
-        for i, fname in enumerate(files[:max_visible]):
-            btn_y = modal_y + 50 + i * row_h
-            label = fname[:28] if len(fname) > 28 else fname
-            cv2.putText(frame, label, (modal_x + 15, btn_y + row_h - 10), font, 0.42, (220, 220, 220), 1, cv2.LINE_AA)
-
-        if len(files) > max_visible:
-            cv2.putText(frame, f"... and {len(files) - max_visible} more", (modal_x + 15, modal_y + 50 + max_visible * row_h),
-                        font, 0.4, (160, 160, 160), 1, cv2.LINE_AA)
-
-        btn_y = modal_y + modal_h - 45
-        # Close button
-        if "archive_folder_close" not in menu_buttons:
-            menu_buttons["archive_folder_close"] = Button(modal_x + 15, btn_y, 80, 32, "")
-        else:
-            menu_buttons["archive_folder_close"].x, menu_buttons["archive_folder_close"].y = modal_x + 15, btn_y
-            menu_buttons["archive_folder_close"].w, menu_buttons["archive_folder_close"].h = 80, 32
-        cv2.rectangle(frame, (modal_x + 15, btn_y), (modal_x + 95, btn_y + 32), (80, 80, 85), -1)
-        cv2.putText(frame, "Close", (modal_x + 28, btn_y + 22), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
-
+        btn_y = modal_y + 75
+        btn_h = 36
         # Rename button
         if "archive_folder_rename" not in menu_buttons:
-            menu_buttons["archive_folder_rename"] = Button(modal_x + modal_w - 95, btn_y, 80, 32, "")
+            menu_buttons["archive_folder_rename"] = Button(modal_x + 15, btn_y, 85, btn_h, "")
         else:
-            menu_buttons["archive_folder_rename"].x, menu_buttons["archive_folder_rename"].y = modal_x + modal_w - 95, btn_y
-            menu_buttons["archive_folder_rename"].w, menu_buttons["archive_folder_rename"].h = 80, 32
-        cv2.rectangle(frame, (modal_x + modal_w - 95, btn_y), (modal_x + modal_w - 15, btn_y + 32), MENU_ACTIVE_BLUE, -1)
-        cv2.putText(frame, "Rename", (modal_x + modal_w - 82, btn_y + 22), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+            menu_buttons["archive_folder_rename"].x, menu_buttons["archive_folder_rename"].y = modal_x + 15, btn_y
+            menu_buttons["archive_folder_rename"].w, menu_buttons["archive_folder_rename"].h = 85, btn_h
+        cv2.rectangle(frame, (modal_x + 15, btn_y), (modal_x + 100, btn_y + btn_h), MENU_ACTIVE_BLUE, -1)
+        cv2.putText(frame, "Rename", (modal_x + 28, btn_y + btn_h - 10), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Delete button
+        if "archive_folder_delete" not in menu_buttons:
+            menu_buttons["archive_folder_delete"] = Button(modal_x + 110, btn_y, 85, btn_h, "")
+        else:
+            menu_buttons["archive_folder_delete"].x, menu_buttons["archive_folder_delete"].y = modal_x + 110, btn_y
+            menu_buttons["archive_folder_delete"].w, menu_buttons["archive_folder_delete"].h = 85, btn_h
+        cv2.rectangle(frame, (modal_x + 110, btn_y), (modal_x + 195, btn_y + btn_h), (60, 60, 120), -1)
+        cv2.putText(frame, "Delete", (modal_x + 125, btn_y + btn_h - 10), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Cancel button
+        if "archive_folder_cancel" not in menu_buttons:
+            menu_buttons["archive_folder_cancel"] = Button(modal_x + modal_w - 95, btn_y, 80, btn_h, "")
+        else:
+            menu_buttons["archive_folder_cancel"].x, menu_buttons["archive_folder_cancel"].y = modal_x + modal_w - 95, btn_y
+            menu_buttons["archive_folder_cancel"].w, menu_buttons["archive_folder_cancel"].h = 80, btn_h
+        cv2.rectangle(frame, (modal_x + modal_w - 95, btn_y), (modal_x + modal_w - 15, btn_y + btn_h), (80, 80, 85), -1)
+        cv2.putText(frame, "Cancel", (modal_x + modal_w - 82, btn_y + btn_h - 10), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
 
         if "archive_folder_modal_panel" not in menu_buttons:
             menu_buttons["archive_folder_modal_panel"] = Button(modal_x, modal_y, modal_w, modal_h, "")
@@ -1368,16 +1376,70 @@ def draw_archive_folder_contents_modal(frame: np.ndarray, output_dir: Optional[P
             menu_buttons["archive_folder_modal_panel"].w, menu_buttons["archive_folder_modal_panel"].h = modal_w, modal_h
 
 
+def draw_archive_folder_delete_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
+    """Confirmation modal for deleting an archive folder."""
+    folder_id = getattr(button_state, "gallery_archive_delete_confirm_folder_id", None)
+    if not folder_id:
+        return
+
+    folders = getattr(button_state, "gallery_archive_folders", [])
+    folder = next((f for f in folders if f.get("id") == folder_id), None)
+    if not folder:
+        button_state.gallery_archive_delete_confirm_folder_id = None
+        return
+
+    folder_name = folder.get("name", "Folder") or "Folder"
+    modal_w = 320
+    modal_h = 120
+    modal_x = (frame.shape[1] - modal_w) // 2
+    modal_y = (frame.shape[0] - modal_h) // 2
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.putText(frame, f"Delete folder \"{folder_name[:20]}\"?", (modal_x + 20, modal_y + 35), font, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.putText(frame, "Files stay in gallery.", (modal_x + 20, modal_y + 58), font, 0.42, (180, 180, 180), 1, cv2.LINE_AA)
+
+    btn_y = modal_y + 75
+    if "archive_delete_yes" not in menu_buttons:
+        menu_buttons["archive_delete_yes"] = Button(modal_x + 15, btn_y, 100, 32, "")
+    else:
+        menu_buttons["archive_delete_yes"].x, menu_buttons["archive_delete_yes"].y = modal_x + 15, btn_y
+    cv2.rectangle(frame, (modal_x + 15, btn_y), (modal_x + 115, btn_y + 32), (60, 60, 120), -1)
+    cv2.putText(frame, "Delete", (modal_x + 35, btn_y + 22), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+
+    if "archive_delete_no" not in menu_buttons:
+        menu_buttons["archive_delete_no"] = Button(modal_x + modal_w - 95, btn_y, 80, 32, "")
+    else:
+        menu_buttons["archive_delete_no"].x, menu_buttons["archive_delete_no"].y = modal_x + modal_w - 95, btn_y
+    cv2.rectangle(frame, (modal_x + modal_w - 95, btn_y), (modal_x + modal_w - 15, btn_y + 32), (80, 80, 85), -1)
+    cv2.putText(frame, "Cancel", (modal_x + modal_w - 72, btn_y + 22), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+
+
 def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     """
     Draw the gallery view showing all saved screenshots and videos.
     Displays items in a grid layout with thumbnails.
     Supports scrolling and clickable thumbnails.
+    When viewing an archive folder, shows folder contents in full-page grid with side dock.
     """
     if output_dir is None:
         return
 
-    items = get_displayed_gallery_items(output_dir)
+    in_folder_view = bool(getattr(button_state, "gallery_archive_folder_view_id", None))
+    if in_folder_view:
+        items = get_folder_displayed_items(output_dir, button_state.gallery_archive_folder_view_id)
+        folders = getattr(button_state, "gallery_archive_folders", [])
+        view_folder = next((f for f in folders if f.get("id") == button_state.gallery_archive_folder_view_id), None)
+        folder_title = (view_folder.get("name", "Folder") or "Folder") if view_folder else "Folder"
+    else:
+        items = get_displayed_gallery_items(output_dir)
+        folder_title = None
 
     if button_state.gallery_viewer_mode == "image":
         draw_image_viewer(frame, items, output_dir)
@@ -1401,7 +1463,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     dock_row_h = DOCK_ROW_HEIGHT
     action_strip_h = dock_row_h - 2
     back_btn_y = 3
-    title = "GALLERY"
+    title = folder_title.upper() if folder_title else "GALLERY"
     font = cv2.FONT_HERSHEY_SIMPLEX
     title_scale = 1.2
     title_thick = 2
@@ -1428,7 +1490,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     # When user clicked Move to with no archive folders, show brief hint
     if button_state.gallery_select_mode and getattr(button_state, "gallery_archive_move_hint_until", 0) > 0:
         if time.time() < button_state.gallery_archive_move_hint_until:
-            hint = "Add folders in Archive panel first"
+            hint = "Add folders in Archive first"
             hint_scale = 0.65
             (hint_w, hint_h), _ = cv2.getTextSize(hint, font, hint_scale, 1)
             hint_x = (frame.shape[1] - hint_w) // 2
@@ -1575,7 +1637,7 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             )
 
     if not items:
-        msg = "No captures yet. Use SHOT or REC to create content."
+        msg = "Folder is empty. Use Move to add items." if in_folder_view else "No captures yet. Use SHOT or REC to create content."
         msg_scale = 0.7
         msg_thick = 1
         (msg_w, msg_h), _ = cv2.getTextSize(msg, font, msg_scale, msg_thick)
@@ -1595,11 +1657,17 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     gap = 15
 
     cols = (content_width - 2 * margin + gap) // (thumb_w + gap)
-    cols = max(2, cols)  # need at least 2 so top-right slot exists for archive
+    cols = max(2, cols)
+    reserve_archive = not in_folder_view
+    if reserve_archive:
+        cols = max(2, cols)  # need at least 2 so top-right slot exists for archive
 
-    # Row 0: cols-1 media slots (top-right reserved for archive); row 1+: cols each
+    # Row 0: cols-1 media slots when archive reserved (top-right for archive); else full cols
     n = len(items)
-    total_rows = 1 + max(0, (n - (cols - 1) + cols - 1) // cols) if n > cols - 1 else 1
+    if reserve_archive:
+        total_rows = 1 + max(0, (n - (cols - 1) + cols - 1) // cols) if n > cols - 1 else 1
+    else:
+        total_rows = max(1, (n + cols - 1) // cols)
     item_height = thumb_h + gap + 50
     total_content_height = grid_start_y + (total_rows * item_height)
     footer_space = 40
@@ -1645,15 +1713,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
     scroll_offset = button_state.gallery_scroll_offset
 
-    # Archive panel at top-right (0, cols-1)
-    arch_row, arch_col = archive_panel_grid_pos(cols)
-    arch_x = grid_start_x + arch_col * (thumb_w + gap)
-    arch_y = grid_start_y + arch_row * (thumb_h + gap + 50) - scroll_offset
-    if arch_y + thumb_h + 50 >= header_h and arch_y <= frame.shape[0]:
-        _draw_archive_panel(frame, arch_x, arch_y, thumb_w, thumb_h, output_dir, header_h)
+    # Archive panel at top-right (0, cols-1) - only in main gallery
+    if reserve_archive:
+        arch_row, arch_col = archive_panel_grid_pos(cols)
+        arch_x = grid_start_x + arch_col * (thumb_w + gap)
+        arch_y = grid_start_y + arch_row * (thumb_h + gap + 50) - scroll_offset
+        if arch_y + thumb_h + 50 >= header_h and arch_y <= frame.shape[0]:
+            _draw_archive_panel(frame, arch_x, arch_y, thumb_w, thumb_h, output_dir, header_h)
 
     for idx, (filepath, item_type, mtime) in enumerate(items):
-        row, col = item_idx_to_grid_pos(idx, cols)
+        if reserve_archive:
+            row, col = item_idx_to_grid_pos(idx, cols)
+        else:
+            row, col = idx // cols, idx % cols
 
         x = grid_start_x + col * (thumb_w + gap)
         y = grid_start_y + row * (thumb_h + gap + 50) - scroll_offset
@@ -1891,8 +1963,10 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
     if button_state.gallery_archive_move_modal_open:
         draw_move_to_modal(frame, output_dir)
-    if getattr(button_state, "gallery_archive_folder_open_id", None):
-        draw_archive_folder_contents_modal(frame, output_dir)
+    if getattr(button_state, "gallery_archive_folder_action_id", None):
+        draw_archive_folder_action_modal(frame, output_dir)
+    if getattr(button_state, "gallery_archive_delete_confirm_folder_id", None):
+        draw_archive_folder_delete_modal(frame, output_dir)
 
     if button_state.gallery_delete_modal_open:
         if button_state.gallery_delete_modal_kind == "batch":
