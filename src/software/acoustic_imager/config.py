@@ -25,11 +25,61 @@ NOISE_POWER = 0.0005
 WIDTH = 1024
 HEIGHT = 600
 ALPHA = 0.7
-
+# Single knob: menu button, dropdown items, top HUD pills, bottom HUD pills (0–1; higher = more opaque)
+HUD_MENU_OPACITY = 0.92
+BUTTON_ALPHA = HUD_MENU_OPACITY  # used by Button.draw for menu dropdown and back button
 BUTTON_HITPAD_PX = 14
 
-FREQ_BAR_WIDTH = 200
-DB_BAR_WIDTH = 50
+# Shared UI blue (BGR) for menu, HUD
+MENU_ACTIVE_BLUE = (130, 82, 32)       # slightly darker blue
+MENU_ACTIVE_BLUE_LIGHT = (165, 110, 48)  # gradient end
+
+# Gallery Action surfaces style: "neon" (dark fill + neon edges) or "classic" (white on blue, pre-neon)
+GALLERY_ACTION_STYLE = "classic"
+
+# Single point of control for action button neon glow (0=off, ~0.32=default, 1=full)
+ACTION_BTN_GLOW = 0.1
+
+# Storage bar: one glow amount for all subelements (label, ring glow, % text, Used/Free); 0=off
+STORAGE_BAR_GLOW = 0.28
+STORAGE_BAR_BRIGHTNESS = 1.15
+ACTION_BTN_BORDER_THICKNESS = 1
+
+# Gallery action buttons: dark fill + neon edge (BGR) — used when GALLERY_ACTION_STYLE == "neon"
+ACTION_BTN_FILL_DARK_TOP = (58, 58, 52)   # dark grey (slightly towards black)
+ACTION_BTN_FILL_DARK_BOT = (32, 32, 28)   # darker grey
+# Neon border color (electric blue) and glow strength (0=off, ~0.4=visible)
+ACTION_BTN_NEON_BORDER_BGR = (255, 210, 100)  # BGR bright cyan-blue
+ACTION_BTN_NEON_GLOW = 0.1                # border glow strength
+ACTION_BTN_FILL_ALPHA = 1
+ACTION_BTN_MODAL_FILL_ALPHA = 1
+# Glassy shine on action buttons (0=off, ~0.11=subtle)
+ACTION_BTN_SHINE_ALPHA = 0.05
+
+# Classic style (when GALLERY_ACTION_STYLE == "classic"): white on blue, same as pre-neon
+# Closed buttons (dock rows): darker blue gradient. Expanded (strip + panel after growth): lighter blue.
+CLASSIC_ACTION_FILL_DARK_TOP = (90, 56, 22)   # BGR darker blue — closed dock rows
+CLASSIC_ACTION_FILL_DARK_BOT = (115, 77, 34)   # darker blue bottom
+CLASSIC_ACTION_FILL_TOP = (130, 82, 32)        # BGR lighter blue — expanded strip/panel (MENU_ACTIVE_BLUE)
+CLASSIC_ACTION_FILL_BOT = (165, 110, 48)      # lighter blue bottom (MENU_ACTIVE_BLUE_LIGHT)
+CLASSIC_ACTION_TEXT_BGR = (255, 255, 255)     # white text on blue
+CLASSIC_ACTION_BORDER_BGR = (255, 255, 255)  # white border
+CLASSIC_ACTION_GLOW = 0.06                 # very minor text/icon glow (0=off)
+
+# Freq bar / bandpass: lighter neon blue so it stands out on dark bar
+FREQ_BAR_BLUE = (230, 170, 80)
+# Gallery filter/sort modal: goldish yellow for selected option (bandpass-style accent)
+MODAL_ACTIVE_GOLD = (0, 200, 255)  # BGR goldish yellow
+
+# Dock and content area gradients (BGR grey to black)
+DOCK_GRADIENT_TOP = (55, 55, 55)
+DOCK_GRADIENT_BOT = (20, 20, 20)
+# Slightly darker for grid view and individual viewer background
+BG_GRADIENT_TOP = (42, 42, 42)
+BG_GRADIENT_BOT = (10, 10, 10)
+
+FREQ_BAR_WIDTH = 150
+DB_BAR_WIDTH = 80
 
 # FPS defaults (MENU controls 30/60/MAX at runtime)
 FPS_TARGET = 60
@@ -42,12 +92,41 @@ CAMERA_HEIGHT = HEIGHT
 USE_CAMERA = True
 USE_LIBCAMERA = True
 
+# Camera post-processing
+CAMERA_BRIGHTNESS_ALPHA = 1.20   # contrast multiplier (1.0 = no change)
+CAMERA_BRIGHTNESS_BETA  = 15      # brightness offset (-100 to +100 typical)
+DETECTION_BOX_COLOR = (0, 215, 255)
+#DETECTION_BOX_COLOR = (150, 180, 0) #teal
+#DETECTION_BOX_COLOR = (0, 200, 200) # yellow
+
 # Bandpass
 F_DISPLAY_MAX = 45000.0
-F_MIN_HZ_DEFAULT = 0.0
-F_MAX_HZ_DEFAULT = F_DISPLAY_MAX
+F_MIN_HZ_DEFAULT = 24000.0
+F_MAX_HZ_DEFAULT = 35000.0
 
 DRAG_MARGIN_PX = 18
+
+# UI visibility (swipe/double-tap): hide offsets in px, animation speed, gesture thresholds
+UI_TOP_HUD_HIDE_OFFSET = -150      # top HUD + dropdown panel move fully up off screen
+UI_BOTTOM_HUD_HIDE_OFFSET = 60     # bottom HUD moves down off screen
+UI_MENU_HIDE_OFFSET = 220          # menu moves right off screen
+UI_MENU_HIDE_OFFSET_Y = 80         # menu moves down off screen (with bottom HUD on swipe down)
+UI_VISIBILITY_ANIM_SPEED = 0.18    # lerp per frame (~60fps: ~0.25s to settle)
+UI_SWIPE_THRESHOLD_PX = 50         # min distance for swipe
+UI_DOUBLE_TAP_MS = 400             # max ms between taps for double-tap
+UI_DOUBLE_TAP_RADIUS_PX = 40       # max distance between taps
+UI_TAP_MAX_MOVE_PX = 15            # max movement to count as tap (not drag)
+# Shared pill size for top and bottom HUD (same size, larger for clickability)
+UI_PILL_H = 48
+UI_PILL_W = 170
+# Battery time-remaining estimate when no hardware data (typical Pi portable pack)
+BATTERY_CAPACITY_MAH = 10000   # mAh
+BATTERY_DISCHARGE_MA = 2000    # mA typical draw
+# Gestures (swipe/double-tap) only active in content area: between dB bar and freq bar, excluding top/bottom strips
+UI_CONTENT_TOP_MARGIN = 58         # below top HUD
+UI_CONTENT_BOTTOM_MARGIN = 62      # above bottom HUD
+# Extra hit padding for bottom HUD pills (better clickability)
+UI_BOTTOM_HUD_HIT_PAD = 8
 
 # Angle grid
 ANGLES = np.linspace(-90, 90, 181)
@@ -102,8 +181,8 @@ PAYLOAD_LEN = N_MICS * N_BINS * 2 * 4  # 8 bytes per bin per mic
 FRAME_BYTES = HEADER_LEN + PAYLOAD_LEN + TRAILER_LEN
 
 # SPI config
-SOURCE_DEFAULT = "SPI_LOOPBACK"   # or "SIM" / "SPI_HW"
-SOURCE_MODES = ("SIM", "SPI_LOOPBACK", "SPI_HW")
+SOURCE_DEFAULT = "SIM"   # or "SIM" / "SPI_HW"
+SOURCE_MODES = ("SIM", "LOOP", "HW")
 
 SPI_BUS = 0
 SPI_DEV = 0

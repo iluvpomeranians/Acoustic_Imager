@@ -59,6 +59,8 @@ static spi_stream_t spi_stream_ctx;
 
 static uint8_t spi_packet[70000];
 
+static uint32_t _print_counter = 0;
+
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
 volatile uint32_t adc_ready_mask = 0;
@@ -72,7 +74,6 @@ volatile uint8_t ready_half[4] = {0};  // One per ADC
 volatile uint32_t irq_events = 0;            // total ADC IRQ events
 volatile uint32_t irq_count_adc[4] = {0};    // per-ADC IRQ counters
 
-static uint32_t _print_counter = 0;
 /* =========================================================================
  * FORWARD DECLARATIONS
  * ========================================================================= */
@@ -110,8 +111,11 @@ void app_init(void) {
 
 
 void app_start(void) {
-// Any additional startup logic can go here
-    // Set GAIN_CNTL to HIGH
+
+  // Any additional startup logic can go here
+  HAL_Delay(1000);  // Wait for peripherals to stabilize
+
+  // Set GAIN_CNTL to HIGH
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_9, GPIO_PIN_SET);
 
   // Calibrate all ADCs before use
@@ -120,9 +124,6 @@ void app_start(void) {
   HAL_ADCEx_Calibration_Start(&hadc3, (uint32_t)ADC_SINGLE_ENDED);
   HAL_ADCEx_Calibration_Start(&hadc4, (uint32_t)ADC_SINGLE_ENDED);
 
-  // Test USB CDC
-  HAL_Delay(1000);
-  usb_cdc_smoke_test();
 
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
@@ -132,6 +133,9 @@ void app_start(void) {
   HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
   HAL_ADC_Start_DMA(&hadc3, (uint32_t*)adc3_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
   HAL_ADC_Start_DMA(&hadc4, (uint32_t*)adc4_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
+
+  usb_dbg_init(16, 200);  // avg over 16 prints, print every 200 ms
+
 }
 
 /**
@@ -140,18 +144,31 @@ void app_start(void) {
  */
 void app_loop(void) {
   // Main application loop - check for ADC data ready and process
-
+  
   // Clear the global mask immediately to avoid missing new events
   __disable_irq();
   uint32_t local_mask = adc_ready_mask;
   adc_ready_mask = 0;
   __enable_irq();
+  // Process the ready half-buffer for this ADC
+
+
+  // TODO: Instead of processing to an output buffer, we could
+  // set the SPI payload buffer as the output of the ADC processing
+  // TODO: The implementation is process_adc_pipeline() is currently
+  // inccorect; we either need a 4-channel output buffer or we need to
+  // send each channel's FFT output sequentially over SPI in this
+  // function.
+  // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
+  // currently dummy values
 
   // FFT Processing Pipeline
   // When any ADC half-buffer completes, process that acoustic window
   if (local_mask && !fft_in_progress) {
     fft_in_progress = 1;
-    
+
+    uint8_t have_offset = 0;
+    uint32_t half_offset_for_print = 0;
     // Check each ADC for ready half-buffers
     for (uint8_t adc = 0; adc < 4; adc++) {
       uint8_t half_flag = (local_mask >> adc) & 1;       // Half-complete
@@ -169,27 +186,20 @@ void app_loop(void) {
           half_offset = ADC_DMA_BUF_SIZE / 2; 
           ready_half[adc] = 1;
         }
-        
-        if (adc == 0) {
-          buf_ptr = adc1_buf;
-          fft_out_ptr = fft_out_adc1;
-        } else if (adc == 1) {
-          buf_ptr = adc2_buf;
-          fft_out_ptr = fft_out_adc2;
-        } else if (adc == 2) {
-          buf_ptr = adc3_buf;
-          fft_out_ptr = fft_out_adc3;
-        } else if (adc == 3) {
-          buf_ptr = adc4_buf;
-          fft_out_ptr = fft_out_adc4;
+      
+        if (!have_offset) {
+            have_offset = 1;
+            half_offset_for_print = half_offset;
         }
+
+        if (adc == 0) { buf_ptr = adc1_buf; fft_out_ptr = fft_out_adc1; }
+        else if (adc == 1) { buf_ptr = adc2_buf; fft_out_ptr = fft_out_adc2; }
+        else if (adc == 2) { buf_ptr = adc3_buf; fft_out_ptr = fft_out_adc3; }
+        else { buf_ptr = adc4_buf; fft_out_ptr = fft_out_adc4; }
         
         if (buf_ptr && fft_out_ptr) {
           // Process the ready half-buffer for this ADC
           uint16_t *active_half = buf_ptr + half_offset;
-
-          // TODO: Instead of processing to an output buffer, we could
-          // set the SPI payload buffer as the output of the ADC processing
 
           // TODO: The implementation is process_adc_pipeline() is currently
           // incorrect; we either need a 4-channel output buffer or we need to
@@ -228,39 +238,35 @@ void app_loop(void) {
 
           spi_stream_tx_blocking(spi_tx_buffer, SPI_PACKET_SIZE);
           // transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
-        
+        }
+
+        if (have_offset) {
+        usb_dbg_push_adc_window_4adc(&adc1_buf[half_offset_for_print],
+                                     &adc2_buf[half_offset_for_print],
+                                     &adc3_buf[half_offset_for_print],
+                                     &adc4_buf[half_offset_for_print],
+                                     FRAME_SIZE);
         }
       }
     }
-    
-    // Clear ready flags after processing
     fft_in_progress = 0;
   }
-
-  /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
   
   if (++_print_counter >= 10000) {
     _print_counter = 0;
     spi_stream_unit_test_build_packet();
     // usb_cdc_smoke_test();
   }
-  //   char _buf[128];
-  //   int _len = snprintf(_buf, sizeof(_buf), "IRQ total:%lu A1:%lu A2:%lu A3:%lu A4:%lu mask:0x%08lX\r\n",
-  //                       (unsigned long)irq_events,
-  //                       (unsigned long)irq_count_adc[0],
-  //                       (unsigned long)irq_count_adc[1],
-  //                       (unsigned long)irq_count_adc[2],
-  //                       (unsigned long)irq_count_adc[3],
-  //                       (unsigned long)local_mask);
-  //   if (_len > 0) {
-  //     extern UART_HandleTypeDef huart2; declared in usart.c / usart.h 
-  //     HAL_UART_Transmit(&huart2, (uint8_t*)_buf, (uint16_t)_len, HAL_MAX_DELAY);
-  //   }
-  // }
-
-  // HAL_Delay(1);  
-
+  HAL_Delay(1);  
 }
+
+
+  /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
+  
+  
+ 
+
+
 
 void test_spi_stream_loop(void) {
   HAL_Delay(1000);
@@ -268,6 +274,7 @@ void test_spi_stream_loop(void) {
   spi_stream_unit_test_nulls();
   spi_stream_unit_test_small_cap();
   spi_stream_unit_test_frame_counter();
+  spi_loopback_unit_test();
 }
 
 void test_dsp_pipeline_loop(void) {
@@ -283,3 +290,4 @@ void test_dsp_pipeline_loop(void) {
  * @brief Static helper function description
  * @return void
  */
+  

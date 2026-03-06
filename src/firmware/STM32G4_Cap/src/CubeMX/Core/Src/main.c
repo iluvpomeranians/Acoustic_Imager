@@ -42,7 +42,7 @@
 #define TEST_SPI_STREAM 1
 #define TEST_DSP_PIPELINE 2
 
-#define MODE TEST_DSP_PIPELINE
+#define MODE RELEASE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/

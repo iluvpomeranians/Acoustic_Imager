@@ -15,6 +15,7 @@ This is the main entry point that orchestrates all modules.
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from pathlib import Path
@@ -59,24 +60,38 @@ from acoustic_imager.dsp.bars import (
     y_to_freq,
 )
 
+from acoustic_imager.system_info import get_system_network_info
+from acoustic_imager.ui.top_hud import draw_hud, handle_hud_click
+from acoustic_imager.ui.bottom_hud import draw_bottom_hud, BOTTOM_HUD_HEIGHT
+from acoustic_imager.state import HUD
+
 # I/O managers
 from acoustic_imager.io.camera_manager import CameraManager
+from acoustic_imager.io.gallery_metadata import load_metadata
 
-# UI components
-from acoustic_imager.ui.ui_components import (
-    button_state,
+# UI components (flat modules alongside hud and video_recorder)
+from acoustic_imager.state import button_state
+from acoustic_imager.ui.button import (
     buttons,
     menu_buttons,
     init_buttons,
     init_menu_buttons,
     update_button_states,
     draw_buttons,
-    draw_menu,
-    draw_recording_timestamp,
-    handle_button_click,
     FPS_MODE_TO_TARGET,
 )
+from acoustic_imager.ui.screenshot import save_screenshot, draw_screenshot_flash
+from acoustic_imager.ui.menu import draw_menu, get_recording_timestamp_rect, _MENU_DROPDOWN_KEYS
+from acoustic_imager.ui.gallery import draw_gallery_view, get_gallery_items
+from acoustic_imager.ui.handlers import (
+    handle_button_click,
+    handle_gallery_click,
+    handle_gallery_mouse,
+    handle_gallery_viewer_mouse,
+    handle_email_modal_click,
+)
 from acoustic_imager.ui.video_recorder import VideoRecorder
+from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
 
 # ===============================================================
 # External dependencies (from parent directories)
@@ -137,6 +152,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     Handle mouse events for:
     - Button clicks (camera, source, debug, menu, etc.)
     - Bandpass filter dragging (frequency bar handles)
+    - Gallery view navigation
     """
     global video_recorder
 
@@ -147,9 +163,135 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     state.CURSOR_POS = (mx, my)
     update_button_states(mx, my)
 
-    # Handle left button down
+    # Always give gallery first dibs on all mouse events (down/move/up)
+    if button_state.gallery_open:
+        if button_state.gallery_viewer_mode == "grid":
+            if handle_gallery_mouse(event, mx, my, flags, state.OUTPUT_DIR):
+                return
+        else:
+            # Viewer (image/video): horizontal swipe with inertia + clicks
+            if handle_gallery_viewer_mouse(event, mx, my, flags, state.OUTPUT_DIR):
+                return
+
+    # Handle left button down: UI (top HUD, menu, bottom HUD) and buttons take priority over gestures
     if event == cv2.EVENT_LBUTTONDOWN:
-        # Check UI buttons first
+        # Check gallery view first (if open)
+        if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
+            return
+
+        # Email Settings modal (when open, handle first)
+        if button_state.email_settings_modal_open:
+            if handle_email_modal_click(mx, my, state.OUTPUT_DIR):
+                state.ui_click_was_on_ui = True
+                return
+
+        # 1) Top HUD pill click
+        try:
+            from acoustic_imager.ui.top_hud import handle_hud_click
+            if hasattr(state, "HUD_RECTS") and state.HUD_RECTS is not None:
+                new_panel = handle_hud_click(mx, my, state.HUD_RECTS, HUD.open_panel)
+                if new_panel != HUD.open_panel:
+                    HUD.open_panel = new_panel
+                    state.ui_click_was_on_ui = True
+                    return
+        except Exception:
+            pass
+
+        # 2) Bottom HUD pills first (so they work when menu is closed; only when bar visible)
+        if state.ui_bottom_hud_offset <= 15:
+            hit_pad = getattr(config, "UI_BOTTOM_HUD_HIT_PAD", 8)
+            for k in ("shot", "rec", "rec_resume", "rec_stop", "gallery"):
+                if k in menu_buttons:
+                    b = menu_buttons[k]
+                    if b.w > 0 and b.h > 0:
+                        if (b.x - hit_pad <= mx < b.x + b.w + hit_pad and
+                                b.y - hit_pad <= my < b.y + b.h + hit_pad):
+                            video_recorder = handle_button_click(
+                                mx, my,
+                                current_frame=state.CURRENT_FRAME,
+                                output_dir=state.OUTPUT_DIR,
+                                camera_available=state.CAMERA_AVAILABLE,
+                                video_recorder=video_recorder,
+                                width=config.WIDTH,
+                                height=config.HEIGHT,
+                            )
+                            state.ui_click_was_on_ui = True
+                            return
+
+        # 3) Menu button and dropdown (only when menu visible; hit-test accounts for offset_x and offset_y)
+        menu_mx = mx - int(state.ui_menu_offset)
+        menu_my = my - int(state.ui_menu_offset_y)
+        if state.ui_menu_offset <= 15 and state.ui_menu_offset_y <= 10:
+            if "menu" in menu_buttons and menu_buttons["menu"].contains(menu_mx, menu_my):
+                video_recorder = handle_button_click(
+                    mx, my,
+                    current_frame=state.CURRENT_FRAME,
+                    output_dir=state.OUTPUT_DIR,
+                    camera_available=state.CAMERA_AVAILABLE,
+                    video_recorder=video_recorder,
+                    width=config.WIDTH,
+                    height=config.HEIGHT,
+                )
+                state.ui_click_was_on_ui = True
+                return
+            if button_state.menu_open:
+                for k in _MENU_DROPDOWN_KEYS:
+                    if k not in menu_buttons:
+                        continue
+                    b = menu_buttons[k]
+                    if b.contains(menu_mx, menu_my):
+                        video_recorder = handle_button_click(
+                            mx, my,
+                            current_frame=state.CURRENT_FRAME,
+                            output_dir=state.OUTPUT_DIR,
+                            camera_available=state.CAMERA_AVAILABLE,
+                            video_recorder=video_recorder,
+                            width=config.WIDTH,
+                            height=config.HEIGHT,
+                        )
+                        state.ui_click_was_on_ui = True
+                        return
+
+        # 4) Recording timestamp bar (if used)
+        if button_state.is_recording and video_recorder is not None:
+            rect = get_recording_timestamp_rect()
+            if rect is not None:
+                rx, ry, rw, rh = rect
+                if rx <= mx <= rx + rw and ry <= my <= ry + rh:
+                    button_state.is_paused = not button_state.is_paused
+                    if button_state.is_paused:
+                        video_recorder.pause_recording()
+                    else:
+                        video_recorder.resume_recording()
+                    state.ui_click_was_on_ui = True
+                    return
+
+        # 5) Bandpass drag: frequency bar
+        bar_left = left_width
+        if mx >= bar_left and mx < config.WIDTH:
+            y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
+            y_max = freq_to_y(state.F_MAX_HZ, h, config.F_DISPLAY_MAX)
+            dmin = abs(my - y_min)
+            dmax = abs(my - y_max)
+            if dmin <= config.DRAG_MARGIN_PX or dmax <= config.DRAG_MARGIN_PX:
+                state.DRAG_TARGET = "min" if dmin <= dmax else "max"
+                state.DRAG_ACTIVE = True
+                f = y_to_freq(my, h, config.F_DISPLAY_MAX)
+                if state.DRAG_TARGET == "min":
+                    state.F_MIN_HZ = min(f, state.F_MAX_HZ)
+                else:
+                    state.F_MAX_HZ = max(f, state.F_MIN_HZ)
+                state.ui_click_was_on_ui = True
+                return
+            if min(y_min, y_max) <= my <= max(y_min, y_max):
+                state.DRAG_TARGET = "box"
+                state.DRAG_ACTIVE = True
+                state.DRAG_START_Y = my
+                state.DRAG_START_F_MIN = state.F_MIN_HZ
+                state.DRAG_START_F_MAX = state.F_MAX_HZ
+                state.ui_click_was_on_ui = True
+                return
+        # 6) Other UI buttons (camera, source, debug)
         for b in buttons.values():
             if b.contains(mx, my):
                 video_recorder = handle_button_click(
@@ -161,64 +303,182 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     width=config.WIDTH,
                     height=config.HEIGHT,
                 )
+                state.ui_click_was_on_ui = True
                 return
 
-        # Check menu buttons
-        if "menu" in menu_buttons and menu_buttons["menu"].contains(mx, my):
-            video_recorder = handle_button_click(
-                mx, my,
-                current_frame=state.CURRENT_FRAME,
-                output_dir=state.OUTPUT_DIR,
-                camera_available=state.CAMERA_AVAILABLE,
-                video_recorder=video_recorder,
-                width=config.WIDTH,
-                height=config.HEIGHT,
-            )
-            return
+        # No UI hit: record drag start for possible swipe/double-tap (only in content area)
+        state.ui_click_was_on_ui = False
+        state.ui_drag_start_x = mx
+        state.ui_drag_start_y = my
+        state.ui_drag_start_time = time.time()
 
-        if button_state.menu_open:
-            for k in ("fps30", "fps60", "fpsmax", "gain", "shot", "rec", "pause"):
-                if k in menu_buttons and menu_buttons[k].contains(mx, my):
-                    video_recorder = handle_button_click(
-                        mx, my,
-                        current_frame=state.CURRENT_FRAME,
-                        output_dir=state.OUTPUT_DIR,
-                        camera_available=state.CAMERA_AVAILABLE,
-                        video_recorder=video_recorder,
-                        width=config.WIDTH,
-                        height=config.HEIGHT,
-                    )
+    # Handle left button up: swipe or double-tap (content area, or swipe-down from bottom strip to hide HUD/menu)
+    if event == cv2.EVENT_LBUTTONUP and not button_state.gallery_open and not state.ui_click_was_on_ui:
+        content_left = config.DB_BAR_WIDTH
+        content_right = left_width
+        content_top = getattr(config, "UI_CONTENT_TOP_MARGIN", 58)
+        content_bottom = h - getattr(config, "UI_CONTENT_BOTTOM_MARGIN", 62)
+        dx = mx - state.ui_drag_start_x
+        dy = my - state.ui_drag_start_y
+        dist = (dx * dx + dy * dy) ** 0.5
+        now = time.time()
+        in_content = (
+            content_left <= mx < content_right and content_top <= my < content_bottom
+            and content_left <= state.ui_drag_start_x < content_right
+            and content_top <= state.ui_drag_start_y < content_bottom
+        )
+        # Drag started in content (raw camera/heatmap area) – use for swipe even if release is outside
+        in_content_start = (
+            content_left <= state.ui_drag_start_x < content_right
+            and content_top <= state.ui_drag_start_y < content_bottom
+        )
+        # Swipe-down from bottom strip (e.g. from bottom HUD area) to hide bottom HUD + menu
+        swipe_down_from_bottom = (
+            not in_content
+            and dist >= config.UI_SWIPE_THRESHOLD_PX
+            and abs(dy) > abs(dx)
+            and dy > 0
+            and state.ui_drag_start_y >= h - 120
+        )
+        # Swipe-down from top strip when top HUD is hidden: bring top HUD back
+        swipe_down_from_top_hidden = (
+            not in_content
+            and dist >= config.UI_SWIPE_THRESHOLD_PX
+            and abs(dy) > abs(dx)
+            and dy > 0
+            and state.ui_drag_start_y <= getattr(config, "UI_CONTENT_TOP_MARGIN", 58) + 20
+            and state.ui_top_hud_offset_target <= float(config.UI_TOP_HUD_HIDE_OFFSET) * 0.5
+        )
+        # Swipe-up from bottom strip when HUD/menu are hidden: bring them back
+        swipe_up_from_bottom_hidden = (
+            not in_content
+            and dist >= config.UI_SWIPE_THRESHOLD_PX
+            and abs(dy) > abs(dx)
+            and dy < 0
+            and state.ui_drag_start_y >= h - 120
+            and (state.ui_bottom_hud_offset_target > 1 or state.ui_menu_offset_y_target > 1)
+        )
+        # Allow gestures when: full content tap/swipe, or swipe that started in content, or swipe in top/bottom strips
+        swipe_started_in_content = in_content_start and dist >= config.UI_SWIPE_THRESHOLD_PX
+        if (
+            not in_content
+            and not swipe_down_from_bottom
+            and not swipe_down_from_top_hidden
+            and not swipe_up_from_bottom_hidden
+            and not swipe_started_in_content
+        ):
+            pass  # do not run gesture
+        else:
+            if dist >= config.UI_SWIPE_THRESHOLD_PX:
+                # Swipe: when menu is open, first swipe down only closes the menu (takes 2 swipes to slide out).
+                if abs(dy) > abs(dx):
+                    if dy > 0:  # swipe down
+                        if button_state.menu_open:
+                            button_state.menu_open = False
+                            return
+                        # Downward swipe from upper/mid area: toggle top HUD; from lower half: hide bottom HUD + menu
+                        mid_y = h // 2
+                        if state.ui_drag_start_y <= mid_y:
+                            if state.ui_top_hud_offset_target < 0:
+                                state.ui_top_hud_offset_target = 0.0
+                            else:
+                                state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
+                        else:
+                            state.ui_bottom_hud_offset_target = float(config.UI_BOTTOM_HUD_HIDE_OFFSET)
+                            state.ui_menu_offset_y_target = float(getattr(config, "UI_MENU_HIDE_OFFSET_Y", 80))
+                    else:  # swipe up
+                        if state.ui_bottom_hud_offset_target > 0 or state.ui_menu_offset_y_target > 0:
+                            state.ui_bottom_hud_offset_target = 0.0
+                            state.ui_menu_offset_y_target = 0.0
+                        elif (
+                            not button_state.menu_open
+                            and state.ui_bottom_hud_offset_target <= 1
+                            and state.ui_menu_offset_y_target <= 1
+                            and state.ui_drag_start_y >= h - 140
+                        ):
+                            # Swipe up from bottom: open the menu (bottom HUD and menu button visible, menu closed)
+                            button_state.menu_open = True
+                        else:
+                            state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
+                else:
+                    if dx < 0:  # swipe left -> show menu (x)
+                        state.ui_menu_offset_target = 0.0
+                    # swipe right does nothing (menu button stays in place)
+                return
+            if dist <= config.UI_TAP_MAX_MOVE_PX and in_content:
+                # Single tap in content area when menu is open: close menu, keep menu button visible
+                if button_state.menu_open:
+                    button_state.menu_open = False
                     return
-
-        # Bandpass drag on frequency bar
-        bar_left = left_width
-        if mx >= bar_left and mx < config.WIDTH:
-            y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
-            y_max = freq_to_y(state.F_MAX_HZ, h, config.F_DISPLAY_MAX)
-            dmin = abs(my - y_min)
-            dmax = abs(my - y_max)
-
-            state.DRAG_TARGET = "min" if dmin <= dmax else "max"
-            state.DRAG_ACTIVE = True
-
-            f = y_to_freq(my, h, config.F_DISPLAY_MAX)
-            if state.DRAG_TARGET == "min":
-                state.F_MIN_HZ = min(f, state.F_MAX_HZ)
-            else:
-                state.F_MAX_HZ = max(f, state.F_MIN_HZ)
+                dt_ms = (now - state.ui_last_tap_time) * 1000
+                tap_dist = ((mx - state.ui_last_tap_x) ** 2 + (my - state.ui_last_tap_y) ** 2) ** 0.5
+                if dt_ms < config.UI_DOUBLE_TAP_MS and tap_dist < config.UI_DOUBLE_TAP_RADIUS_PX:
+                    menu_hide_y = getattr(config, "UI_MENU_HIDE_OFFSET_Y", 80)
+                    menu_hidden = (
+                        state.ui_menu_offset_target >= config.UI_MENU_HIDE_OFFSET * 0.5
+                        or state.ui_menu_offset_y_target >= menu_hide_y * 0.5
+                    )
+                    all_hidden = (
+                        state.ui_top_hud_offset_target <= config.UI_TOP_HUD_HIDE_OFFSET * 0.5
+                        and state.ui_bottom_hud_offset_target >= config.UI_BOTTOM_HUD_HIDE_OFFSET * 0.5
+                        and menu_hidden
+                    )
+                    if all_hidden:
+                        state.ui_top_hud_offset_target = 0.0
+                        state.ui_bottom_hud_offset_target = 0.0
+                        state.ui_menu_offset_target = 0.0
+                        state.ui_menu_offset_y_target = 0.0
+                    else:
+                        state.ui_top_hud_offset_target = float(config.UI_TOP_HUD_HIDE_OFFSET)
+                        state.ui_bottom_hud_offset_target = float(config.UI_BOTTOM_HUD_HIDE_OFFSET)
+                        state.ui_menu_offset_target = float(config.UI_MENU_HIDE_OFFSET)
+                        state.ui_menu_offset_y_target = float(menu_hide_y)
+                        button_state.menu_open = False
+                    state.ui_last_tap_time = 0.0
+                    return
+                state.ui_last_tap_time = now
+                state.ui_last_tap_x = mx
+                state.ui_last_tap_y = my
 
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
+
+        # Handle frequency bar dragging
         bar_left = left_width
         if state.DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
-            f = y_to_freq(my, h, config.F_DISPLAY_MAX)
-            if state.DRAG_TARGET == "min":
-                state.F_MIN_HZ = min(f, state.F_MAX_HZ)
-            elif state.DRAG_TARGET == "max":
-                state.F_MAX_HZ = max(f, state.F_MIN_HZ)
+            if state.DRAG_TARGET == "box":
+                # Drag the entire box - maintain the frequency range
+                freq_range = state.DRAG_START_F_MAX - state.DRAG_START_F_MIN
+
+                # Convert y offset to frequency offset (swap order to fix inverse scrolling)
+                freq_offset = y_to_freq(my, h, config.F_DISPLAY_MAX) - y_to_freq(state.DRAG_START_Y, h, config.F_DISPLAY_MAX)
+
+                # Move both frequencies
+                new_f_min = state.DRAG_START_F_MIN + freq_offset
+                new_f_max = state.DRAG_START_F_MAX + freq_offset
+
+                # Clamp to valid range while maintaining the box size
+                if new_f_min < 0:
+                    new_f_min = 0
+                    new_f_max = freq_range
+                elif new_f_max > config.F_DISPLAY_MAX:
+                    new_f_max = config.F_DISPLAY_MAX
+                    new_f_min = config.F_DISPLAY_MAX - freq_range
+
+                state.F_MIN_HZ = new_f_min
+                state.F_MAX_HZ = new_f_max
+            else:
+                # Drag individual handle
+                f = y_to_freq(my, h, config.F_DISPLAY_MAX)
+                if state.DRAG_TARGET == "min":
+                    state.F_MIN_HZ = min(f, state.F_MAX_HZ)
+                elif state.DRAG_TARGET == "max":
+                    state.F_MAX_HZ = max(f, state.F_MIN_HZ)
 
     # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
+
+        # End frequency bar drag
         state.DRAG_ACTIVE = False
         state.DRAG_TARGET = None
 
@@ -257,14 +517,41 @@ def main() -> None:
     state.OUTPUT_DIR = repo_root / "data" / "heatmap_captures"
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {state.OUTPUT_DIR}")
+
+    # ---- Logging: file + stderr (journalctl captures stderr) ----
+    log_file = state.OUTPUT_DIR / "acoustic_imager.log"
+    log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(log_fmt))
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.INFO)
+    stderr_handler.setFormatter(logging.Formatter(log_fmt))
+    logging.root.setLevel(logging.DEBUG)
+    logging.root.addHandler(file_handler)
+    logging.root.addHandler(stderr_handler)
+
+    # Load persisted gallery metadata (tags, priority, tag_data)
+    prios, file_tags, tag_data = load_metadata(state.OUTPUT_DIR)
+    button_state.gallery_file_priorities = prios
+    button_state.gallery_file_tags = file_tags
+    button_state.gallery_tag_data = tag_data
     print()
 
     # ---- Initialize data sources ----
     global sim_source, spi_hw, spi_loopback
 
     sim_source = SimSource()
-    spi_hw = SPISource(SPIManager(use_frame_ready=True))
+
     spi_loopback = SPILoopbackSource()
+
+    #TODO: DEMO ONLY USB
+    from acoustic_imager.sources.usb_source import USBSource
+    spi_hw = USBSource(port="/dev/ttyACM0", baud=115200)
+
+    #TODO: FOR REAL SPI, USE THIS INSTEAD OF USBSource
+    #spi_hw = SPISource(SPIManager(use_frame_ready=True))
+
 
     # Force initial mode from config if UI didn't set it yet
     if button_state.source_mode not in config.SOURCE_MODES:
@@ -273,9 +560,9 @@ def main() -> None:
     prev_mode = button_state.source_mode
 
     # Start the selected SPI provider (if any)
-    if button_state.source_mode == "SPI_LOOPBACK":
+    if button_state.source_mode == "LOOP":
         spi_loopback.start()
-    elif button_state.source_mode == "SPI_HW":
+    elif button_state.source_mode == "HW":
         spi_hw.start()
 
     # ---- Initialize camera ----
@@ -283,6 +570,18 @@ def main() -> None:
     camera_mgr.detect_and_open()
     if state.CAMERA_AVAILABLE and button_state.camera_enabled:
         camera_mgr.start()
+
+    detector = None
+    if state.CAMERA_AVAILABLE and button_state.camera_enabled:
+        #detector = DetectorClient(target_fps=8.0)
+
+        def frame_provider():
+            f = camera_mgr.get_latest_frame()
+            if f is None or getattr(f, "size", 0) == 0:
+                return None
+            return f   # always BGR now
+
+        #detector.start(frame_provider)
 
     # ---- Create static background ----
     background_full = create_background_frame(config.WIDTH, config.HEIGHT)
@@ -300,13 +599,14 @@ def main() -> None:
     video_recorder = VideoRecorder(state.OUTPUT_DIR, config.WIDTH, config.HEIGHT, fps=30)
 
     # ---- Setup OpenCV window ----
-    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
     cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
 
     # ---- Initialize UI ----
+    button_state.debug_enabled = False
     init_buttons(left_width, state.CAMERA_AVAILABLE)
-    init_menu_buttons(left_width)
+    init_menu_buttons(left_width, config.HEIGHT)
 
     # ---- Loop state ----
     frame_count = 0
@@ -321,6 +621,7 @@ def main() -> None:
     try:
         while True:
             prof.start_frame()
+            elapsed = time.time() - start_time
 
             # ---- FPS estimation ----
             now_t = time.perf_counter()
@@ -354,9 +655,9 @@ def main() -> None:
                 last_spi_fft_data = None
 
                 # start whichever is selected
-                if mode == "SPI_LOOPBACK":
+                if mode == "LOOP":
                     spi_loopback.start()
-                elif mode == "SPI_HW":
+                elif mode == "HW":
                     spi_hw.start()
 
                 prev_mode = mode
@@ -371,12 +672,12 @@ def main() -> None:
             if mode == "SIM":
                 latest_frame = sim_source.read_frame()
                 source_label = "SIM"
-            elif mode == "SPI_LOOPBACK":
+            elif mode == "LOOP":
                 latest_frame = spi_loopback.get_latest()
-                source_label = "SPI_LOOPBACK"
+                source_label = "LOOP"
             else:  # "SPI_HW"
                 latest_frame = spi_hw.get_latest()
-                source_label = "SPI_HW"
+                source_label = "HW"
 
             source_stats = latest_frame.stats
             fft_data = latest_frame.fft_data if latest_frame.ok else None
@@ -469,16 +770,18 @@ def main() -> None:
                 if cam_frame is not None and getattr(cam_frame, "size", 0) > 0:
                     try:
                         if camera_mgr.camera_type == "picamera2":
-                            # RGB -> BGR conversion
-                            cv2.cvtColor(cam_frame, cv2.COLOR_RGB2BGR, dst=cam_bgr)
-                            base_frame[:] = cam_bgr
-                        else:
-                            # Already BGR from OpenCV
+                            # already BGR
                             if cam_frame.shape[1] == config.WIDTH and cam_frame.shape[0] == config.HEIGHT:
                                 base_frame[:] = cam_frame
                             else:
                                 cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT),
-                                          dst=base_frame, interpolation=cv2.INTER_LINEAR)
+                                        dst=base_frame, interpolation=cv2.INTER_LINEAR)
+                        else:
+                            # opencv backend already BGR
+                            if cam_frame.shape[:2] == (config.HEIGHT, config.WIDTH):
+                                base_frame[:] = cam_frame
+                            else:
+                                cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT), dst=base_frame, interpolation=cv2.INTER_LINEAR)
                     except Exception:
                         base_frame[:] = background_full
                 else:
@@ -489,7 +792,7 @@ def main() -> None:
             prof.mark("background")
 
             # ---- Blend heatmap onto background ----
-            output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8)
+            output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8, button_state.colormap_mode)
             prof.mark("blend")
 
             # ---- Draw frequency bar and dB colorbar ----
@@ -497,48 +800,125 @@ def main() -> None:
                 output_frame, fft_data, config.f_axis, f_min, f_max,
                 config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX
             )
-            draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH)
+            draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
             prof.mark("bars")
 
             # ---- Draw debug info ----
             if button_state.debug_enabled:
-                elapsed = time.time() - start_time
-                text_x = config.DB_BAR_WIDTH + 12
+                # Collect debug text lines (abbreviated to save space)
+                debug_lines = [
+                    f"Frame: {frame_count}  t={elapsed:.2f}s",
+                    f"Source: {source_label}",
+                ]
 
-                cv2.putText(output_frame, f"Frame: {frame_count}", (text_x, 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(output_frame, f"t = {elapsed:.2f}s", (text_x, 60),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-                cv2.putText(output_frame, f"Source: {source_label}", (text_x, 90),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-
-                if source_label.startswith("SPI"):
+                if source_label in ("HW", "LOOP"):
                     mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
-                    y0 = 120
-                    dy = 22
-
                     bytes_per_s = config.FRAME_BYTES * fps_ema
                     mbps_bytes = bytes_per_s / 1e6
                     mbps_bits = (bytes_per_s * 8) / 1e6
 
-                    cv2.putText(output_frame, f"SPI {mhz:.0f}MHz", (text_x, y0),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"ok: {source_stats.frames_ok}", (text_x, y0 + 1*dy),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"badParse: {source_stats.bad_parse}   badCRC: {source_stats.bad_crc}",
-                               (text_x, y0 + 2*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"FPS: {fps_ema:5.1f}", (text_x, y0 + 3*dy),
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-                    cv2.putText(output_frame, f"Throughput: {mbps_bytes:.2f} MB/s  ({mbps_bits:.1f} Mb/s)",
-                               (text_x, y0 + 4*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+                    debug_lines.extend([
+                        f"SPI {mhz:.0f}MHz  FPS: {fps_ema:5.1f}",
+                        f"ok:{source_stats.frames_ok} badParse:{source_stats.bad_parse} badCRC:{source_stats.bad_crc}",
+                        f"Throughput: {mbps_bytes:.2f}MB/s ({mbps_bits:.1f}Mb/s)",
+                    ])
                     if source_stats.last_err:
-                        cv2.putText(output_frame, f"lastErr: {source_stats.last_err[:60]}",
-                                   (text_x, y0 + 5*dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+                        debug_lines.append(f"Err: {source_stats.last_err[:40]}")
+
+                # Calculate box dimensions
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.45
+                font_thickness = 1
+                line_height = 18
+                padding = 12
+
+                # Calculate max available width (don't extend beyond menu button)
+                # Menu is at: left_width - 100 - 15
+                max_available_width = left_width - config.DB_BAR_WIDTH - 135
+
+                # Measure max text width
+                max_text_width = 0
+                for line in debug_lines:
+                    (text_w, text_h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
+                    max_text_width = max(max_text_width, text_w)
+
+                # Constrain to max available width
+                box_w = min(max_text_width + 2 * padding, max_available_width)
+                box_h = len(debug_lines) * line_height + 2 * padding
+
+                # Position above bottom HUD pills with clear gap (no overlap)
+                box_x = config.DB_BAR_WIDTH + 10
+                debug_above_bottom_gap = 18  # space between debug box bottom and top of bottom HUD pills
+                box_y = config.HEIGHT - box_h - BOTTOM_HUD_HEIGHT - debug_above_bottom_gap
+
+                # Draw semi-transparent grey background box
+                overlay = output_frame.copy()
+                cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (40, 40, 40), -1)
+                cv2.addWeighted(overlay, 0.7, output_frame, 0.3, 0, output_frame)
+
+                # Draw border
+                cv2.rectangle(output_frame, (box_x, box_y), (box_x + box_w, box_y + box_h), (100, 100, 100), 2, cv2.LINE_AA)
+
+                # Draw text lines
+                text_x = box_x + padding
+                text_y = box_y + padding + 13
+                for line in debug_lines:
+                    cv2.putText(output_frame, line, (text_x, text_y),
+                               font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+                    text_y += line_height
+
+            # ---- UI visibility animation (lerp offsets toward targets) ----
+            speed = config.UI_VISIBILITY_ANIM_SPEED
+            state.ui_top_hud_offset += (state.ui_top_hud_offset_target - state.ui_top_hud_offset) * speed
+            state.ui_bottom_hud_offset += (state.ui_bottom_hud_offset_target - state.ui_bottom_hud_offset) * speed
+            state.ui_menu_offset += (state.ui_menu_offset_target - state.ui_menu_offset) * speed
+            state.ui_menu_offset_y += (state.ui_menu_offset_y_target - state.ui_menu_offset_y) * speed
 
             # ---- Draw UI buttons ----
             draw_buttons(output_frame)
-            draw_menu(output_frame)
-            draw_recording_timestamp(output_frame, video_recorder)
+            if not button_state.gallery_open:
+                draw_bottom_hud(output_frame, video_recorder, offset_y=state.ui_bottom_hud_offset)
+            draw_menu(output_frame, offset_x=state.ui_menu_offset, offset_y=state.ui_menu_offset_y)
+
+            wifi_ssid, ip_addr, device_name = get_system_network_info(frame_count)
+            HUD.connected_ssid = (wifi_ssid or "").strip()
+            hud_rects = draw_hud(
+                output_frame,
+                details_level=HUD.details_level,
+                open_panel=HUD.open_panel,
+                fps_ema=fps_ema,
+                elapsed_s=elapsed,
+                frame_count=frame_count,
+                source_label=source_label,
+                source_stats=source_stats,
+                fps_mode=button_state.fps_mode,
+                frame_bytes=config.FRAME_BYTES,
+                offset_y=state.ui_top_hud_offset,
+                battery_percent=None,  # placeholder until live data
+                time_remaining_sec=None,  # from battery hardware when available
+                wifi_connection_name=wifi_ssid or None,
+                ip_address=ip_addr or None,
+                device_name=device_name or None,
+            )
+
+            state.HUD_RECTS = hud_rects
+
+            # Email modal drawn after top HUD so its dim overlay covers the HUD (higher z-order)
+            if button_state.email_settings_modal_open:
+                from acoustic_imager.ui.email_modal import draw_email_modal
+                draw_email_modal(output_frame, state.OUTPUT_DIR)
+
+            # ---- Draw gallery view if open ----
+            if button_state.gallery_open:
+                draw_gallery_view(output_frame, state.OUTPUT_DIR)
+
+            # ---- Draw screenshot flash effect ----
+            draw_screenshot_flash(output_frame)
+
+            # ---- Battery icon (in time HUD pill when main view; gallery draws its own) ----
+            if button_state.gallery_open:
+                draw_battery_icon_for_view(output_frame, percent=None)  # None = placeholder until live data
+
             prof.mark("ui")
 
             # ---- Store current frame for screenshots ----
@@ -578,7 +958,14 @@ def main() -> None:
             # ---- Check for exit ----
             if cv2.getWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                 break
-            if key == ord("q") or key == 27:  # 'q' or ESC
+            if key == 27 and button_state.email_settings_modal_open:
+                # ESC with email modal open: close modal only (don't exit app)
+                button_state.email_settings_modal_open = False
+                button_state.email_modal_screen = "provider"
+                button_state.email_modal_provider = ""
+                button_state.email_test_status = ""
+                button_state.email_test_message = ""
+            elif key == ord("q") or key == 27:  # 'q' or ESC
                 break
 
             frame_count += 1

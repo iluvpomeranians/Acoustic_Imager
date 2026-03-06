@@ -151,7 +151,7 @@ if /usr/bin/tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
   echo "[acoustic-ui] Session already running."
 else
   exec /usr/bin/tmux new-session -d -s "$TMUX_SESSION" \
-    "$PYTHON_BIN -u -m acoustic_imager.main 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
+    "ACOUSTIC_SPI_BUS=1 ACOUSTIC_SPI_DEV=0 $PYTHON_BIN -u -m acoustic_imager.main 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
 fi
 EOF
 

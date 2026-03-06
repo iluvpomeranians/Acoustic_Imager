@@ -1,0 +1,10 @@
+img = Image("splash.png");
+sprite = Sprite(img);
+
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+x = (screen_width - img.GetWidth()) / 2;
+y = (screen_height - img.GetHeight()) / 2;
+
+sprite.SetPosition(x, y);

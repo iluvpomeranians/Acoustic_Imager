@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import time
 import threading
 from dataclasses import dataclass
@@ -63,9 +64,22 @@ class SPILoopbackSource:
 
         self._bus = int(spi_bus)
         self._dev = int(spi_dev)
+        self._bus   = int(spi_bus)
+        self._dev   = int(spi_dev)
+        self._mode  = int(spi_mode)
+        self._bits  = int(spi_bits)
+        self._max_hz = int(spi_max_speed_hz)
+
+        def _env_int(name: str, default: int) -> int:
+            v = os.getenv(name)
+            return default if v is None else int(v)
+
+        self._bus = _env_int("ACOUSTIC_SPI_BUS", self._bus)
+        self._dev = _env_int("ACOUSTIC_SPI_DEV", self._dev)
+        self._max_hz = _env_int("ACOUSTIC_SPI_HZ", self._max_hz)
+
         self._mode = int(spi_mode)
         self._bits = int(spi_bits)
-        self._max_hz = int(spi_max_speed_hz)
         self._chunk = int(spi_xfer_chunk)
         self._dt = 1.0 / float(update_hz)
         self._crc_every_n = int(crc_every_n)

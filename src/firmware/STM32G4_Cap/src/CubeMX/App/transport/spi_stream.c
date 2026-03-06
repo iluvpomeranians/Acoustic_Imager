@@ -1,7 +1,7 @@
 /**
- * @file template.c
- * @brief Brief description of module functionality
- * @details Detailed description of what this module does and its responsibilities
+ * @file spi_stream.c
+ * @brief SPI streaming module for transmitting FFT data over SPI.
+ * @details 
  */
 
 /* =========================================================================
