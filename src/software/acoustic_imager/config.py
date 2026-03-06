@@ -107,7 +107,7 @@ F_MAX_HZ_DEFAULT = 35000.0
 DRAG_MARGIN_PX = 18
 
 # UI visibility (swipe/double-tap): hide offsets in px, animation speed, gesture thresholds
-UI_TOP_HUD_HIDE_OFFSET = -120      # top HUD moves up off screen
+UI_TOP_HUD_HIDE_OFFSET = -150      # top HUD + dropdown panel move fully up off screen
 UI_BOTTOM_HUD_HIDE_OFFSET = 60     # bottom HUD moves down off screen
 UI_MENU_HIDE_OFFSET = 220          # menu moves right off screen
 UI_MENU_HIDE_OFFSET_Y = 80         # menu moves down off screen (with bottom HUD on swipe down)
@@ -119,6 +119,9 @@ UI_TAP_MAX_MOVE_PX = 15            # max movement to count as tap (not drag)
 # Shared pill size for top and bottom HUD (same size, larger for clickability)
 UI_PILL_H = 48
 UI_PILL_W = 170
+# Battery time-remaining estimate when no hardware data (typical Pi portable pack)
+BATTERY_CAPACITY_MAH = 10000   # mAh
+BATTERY_DISCHARGE_MA = 2000    # mA typical draw
 # Gestures (swipe/double-tap) only active in content area: between dB bar and freq bar, excluding top/bottom strips
 UI_CONTENT_TOP_MARGIN = 58         # below top HUD
 UI_CONTENT_BOTTOM_MARGIN = 62      # above bottom HUD

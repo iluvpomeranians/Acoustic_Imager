@@ -59,6 +59,7 @@ from acoustic_imager.dsp.bars import (
     y_to_freq,
 )
 
+from acoustic_imager.system_info import get_system_network_info
 from acoustic_imager.ui.top_hud import draw_hud, handle_hud_click
 from acoustic_imager.ui.bottom_hud import draw_bottom_hud, BOTTOM_HUD_HEIGHT
 from acoustic_imager.state import HUD
@@ -176,11 +177,10 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
 
-        # 1) Top HUD click (top priority)
+        # 1) Top HUD pill click
         try:
-            from acoustic_imager.state import HUD
             from acoustic_imager.ui.top_hud import handle_hud_click
-            if hasattr(state, "HUD_RECTS"):
+            if hasattr(state, "HUD_RECTS") and state.HUD_RECTS is not None:
                 new_panel = handle_hud_click(mx, my, state.HUD_RECTS, HUD.open_panel)
                 if new_panel != HUD.open_panel:
                     HUD.open_panel = new_panel
@@ -859,6 +859,7 @@ def main() -> None:
                 draw_bottom_hud(output_frame, video_recorder, offset_y=state.ui_bottom_hud_offset)
             draw_menu(output_frame, offset_x=state.ui_menu_offset, offset_y=state.ui_menu_offset_y)
 
+            wifi_ssid, ip_addr, device_name = get_system_network_info(frame_count)
             hud_rects = draw_hud(
                 output_frame,
                 details_level=HUD.details_level,
@@ -872,6 +873,10 @@ def main() -> None:
                 frame_bytes=config.FRAME_BYTES,
                 offset_y=state.ui_top_hud_offset,
                 battery_percent=None,  # placeholder until live data
+                time_remaining_sec=None,  # from battery hardware when available
+                wifi_connection_name=wifi_ssid or None,
+                ip_address=ip_addr or None,
+                device_name=device_name or None,
             )
 
             state.HUD_RECTS = hud_rects

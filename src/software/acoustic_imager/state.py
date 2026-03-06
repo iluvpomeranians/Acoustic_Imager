@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, List
 
 from .config import USE_CAMERA, F_MIN_HZ_DEFAULT, F_MAX_HZ_DEFAULT, SOURCE_DEFAULT
 
@@ -20,7 +20,10 @@ from .config import USE_CAMERA, F_MIN_HZ_DEFAULT, F_MAX_HZ_DEFAULT, SOURCE_DEFAU
 @dataclass
 class HudState:
     details_level: str = "MIN"   # "OFF" | "MIN" | "MAX"
-    open_panel: str = ""         # "" | "time" | "fps" | "net"
+    open_panel: str = ""         # "" | "time" | "fps" | "net" | "battery"
+    wifi_modal_open: bool = False
+    wifi_networks: List[str] = field(default_factory=list)   # SSIDs; placeholder until live scan
+    connected_ssid: str = ""      # currently connected SSID or ""
 
 HUD = HudState()
 
@@ -168,9 +171,10 @@ F_MAX_HZ: float = float(F_MAX_HZ_DEFAULT)
 
 
 # ===============================================================
-# Mouse + shared frame/output handles
+# Mouse + shared frame/output handles (HUD_RECTS set by main loop)
 # ===============================================================
 CURSOR_POS: Tuple[int, int] = (0, 0)
+HUD_RECTS: Optional[Any] = None  # HudRects from top_hud.draw_hud; set each frame when drawing
 
 CURRENT_FRAME: Optional[Any] = None  # typically a numpy ndarray (H,W,3) uint8
 OUTPUT_DIR: Optional[Path] = None

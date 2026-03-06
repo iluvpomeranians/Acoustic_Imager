@@ -90,15 +90,6 @@ def draw_battery_icon(
     if x < 0 or y < 0 or x + BATTERY_BODY_W + BATTERY_TIP_W > w or y + BATTERY_BODY_H > h:
         return
 
-    # Semi-transparent dark background for visibility on any content
-    bg_w = BATTERY_BODY_W + BATTERY_TIP_W + 4
-    bg_h = BATTERY_BODY_H + 4
-    bg_x = max(0, x - 2)
-    bg_y = max(0, y - 2)
-    roi = frame[bg_y : bg_y + bg_h, bg_x : bg_x + bg_w]
-    overlay = np.full_like(roi, (20, 20, 20))
-    cv2.addWeighted(overlay, 0.75, roi, 0.25, 0, dst=roi)
-
     # Battery body outline (rectangle)
     body_x1, body_y1 = x, y
     body_x2 = x + BATTERY_BODY_W
