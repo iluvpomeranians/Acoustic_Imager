@@ -15,6 +15,7 @@ This is the main entry point that orchestrates all modules.
 
 from __future__ import annotations
 
+import logging
 import sys
 import time
 from pathlib import Path
@@ -87,6 +88,7 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_click,
     handle_gallery_mouse,
     handle_gallery_viewer_mouse,
+    handle_email_modal_click,
 )
 from acoustic_imager.ui.video_recorder import VideoRecorder
 from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
@@ -176,6 +178,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Check gallery view first (if open)
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
+
+        # Email Settings modal (when open, handle first)
+        if button_state.email_settings_modal_open:
+            if handle_email_modal_click(mx, my, state.OUTPUT_DIR):
+                state.ui_click_was_on_ui = True
+                return
 
         # 1) Top HUD pill click
         try:
@@ -509,6 +517,19 @@ def main() -> None:
     state.OUTPUT_DIR = repo_root / "data" / "heatmap_captures"
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {state.OUTPUT_DIR}")
+
+    # ---- Logging: file + stderr (journalctl captures stderr) ----
+    log_file = state.OUTPUT_DIR / "acoustic_imager.log"
+    log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(log_fmt))
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.INFO)
+    stderr_handler.setFormatter(logging.Formatter(log_fmt))
+    logging.root.setLevel(logging.DEBUG)
+    logging.root.addHandler(file_handler)
+    logging.root.addHandler(stderr_handler)
 
     # Load persisted gallery metadata (tags, priority, tag_data)
     prios, file_tags, tag_data = load_metadata(state.OUTPUT_DIR)
@@ -860,6 +881,7 @@ def main() -> None:
             draw_menu(output_frame, offset_x=state.ui_menu_offset, offset_y=state.ui_menu_offset_y)
 
             wifi_ssid, ip_addr, device_name = get_system_network_info(frame_count)
+            HUD.connected_ssid = (wifi_ssid or "").strip()
             hud_rects = draw_hud(
                 output_frame,
                 details_level=HUD.details_level,
@@ -880,6 +902,11 @@ def main() -> None:
             )
 
             state.HUD_RECTS = hud_rects
+
+            # Email modal drawn after top HUD so its dim overlay covers the HUD (higher z-order)
+            if button_state.email_settings_modal_open:
+                from acoustic_imager.ui.email_modal import draw_email_modal
+                draw_email_modal(output_frame, state.OUTPUT_DIR)
 
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:
@@ -931,7 +958,14 @@ def main() -> None:
             # ---- Check for exit ----
             if cv2.getWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                 break
-            if key == ord("q") or key == 27:  # 'q' or ESC
+            if key == 27 and button_state.email_settings_modal_open:
+                # ESC with email modal open: close modal only (don't exit app)
+                button_state.email_settings_modal_open = False
+                button_state.email_modal_screen = "provider"
+                button_state.email_modal_provider = ""
+                button_state.email_test_status = ""
+                button_state.email_test_message = ""
+            elif key == ord("q") or key == 27:  # 'q' or ESC
                 break
 
             frame_count += 1

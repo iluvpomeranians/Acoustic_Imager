@@ -424,7 +424,7 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     item_h = 40
     gap = 8
 
-    total_items = 6  # fps, gain, colormap, cam, source, debug (each own row); SHOT/Gallery in bottom HUD
+    total_items = 7  # fps, gain, colormap, cam, source, debug, email_settings; SHOT/Gallery in bottom HUD
     dropdown_h = total_items * (item_h + gap) + gap
     dropdown_y = menu_y - dropdown_h - gap
 
@@ -450,6 +450,9 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     debug_y = src_y + (item_h + gap)
     menu_buttons["debug"] = Button(menu_x, debug_y, menu_w, item_h, "DEBUG")
 
+    email_y = debug_y + (item_h + gap)
+    menu_buttons["email_settings"] = Button(menu_x, email_y, menu_w, item_h, "EMAIL SETTINGS")
+
     # SHOT, Gallery, REC live in bottom HUD (bottom_hud creates/positions them each frame)
     menu_buttons["shot"] = Button(0, 0, 0, 0, "SHOT")
     menu_buttons["gallery"] = Button(0, 0, 0, 0, "GALLERY")
@@ -471,20 +474,35 @@ def update_button_states(mx: int, my: int) -> None:
 
     # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug"):
+        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "email_settings"):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 
     if button_state.gallery_open:
         gallery_keys = ("gallery_back", "gallery_select_mode", "gallery_select_all", "gallery_delete_selected",
-                       "gallery_delete", "gallery_prev", "gallery_next", "gallery_play", "gallery_progress")
+                       "gallery_share_selected", "gallery_delete", "gallery_prev", "gallery_next", "gallery_play", "gallery_progress")
         for k in gallery_keys:
+            if k in menu_buttons:
+                menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
+
+    if getattr(button_state, "share_confirm_modal_open", False):
+        for k in ("share_confirm_send", "share_confirm_cancel"):
+            if k in menu_buttons:
+                menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
+
+    if getattr(button_state, "share_modal_open", False):
+        for k in ("share_modal_ok",):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 
     if button_state.gallery_delete_modal_open:
         for k in ("modal_yes", "modal_no"):
             if k in menu_buttons:
+                menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
+
+    if button_state.email_settings_modal_open:
+        for k in list(menu_buttons.keys()):
+            if k.startswith("email_"):
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 
 

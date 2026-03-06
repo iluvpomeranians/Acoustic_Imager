@@ -76,6 +76,19 @@ def draw_key_bg_clipped(
     )
 
 
+def draw_key_bg_solid(
+    frame: np.ndarray, x: int, y: int, w: int, h: int,
+    bgr: Tuple[int, int, int],
+) -> None:
+    """Draw one key background with a solid color (e.g. white for black-on-white keys). Clips to frame."""
+    fh, fw = frame.shape[:2]
+    x0, x1 = max(0, x), min(fw, x + w)
+    y0, y1 = max(0, y), min(fh, y + h)
+    if x1 <= x0 or y1 <= y0:
+        return
+    frame[y0:y1, x0:x1] = bgr
+
+
 def dimensions_for_scale(scale: float, width_mult: Optional[float] = None) -> dict:
     """
     Return key dimensions and font scales for a given scale factor.

@@ -27,7 +27,9 @@
     "screenshot_20260304_210614.png": "high",
     "screenshot_20260304_210432.png": "high",
     "recording_20260304_182638.mp4": "medium",
-    "recording_20260228_175738.mp4": "high"
+    "recording_20260228_175738.mp4": "high",
+    "screenshot_20260305_123215.png": "",
+    "screenshot_20260305_123210.png": "low"
   },
   "file_tags": {},
   "tag_data": {
@@ -117,6 +119,10 @@
     },
     "recording_20260304_212713.mp4": {
       "asset_type": "wow",
+      "leak_type": ""
+    },
+    "screenshot_20260305_123215.png": {
+      "asset_type": "",
       "leak_type": ""
     }
   }

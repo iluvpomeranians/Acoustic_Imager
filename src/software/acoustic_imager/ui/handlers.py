@@ -2,6 +2,7 @@
 Click and mouse handlers for menu, buttons, and gallery.
 """
 
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -14,12 +15,348 @@ from .button import buttons, menu_buttons
 from .gallery import get_displayed_gallery_items, get_folder_displayed_items, _viewer_rubber_band_offset, _video_read_frame_at
 from .archive_panel import load_archive_folders, add_folder, rename_folder as archive_rename_folder, delete_folder as archive_delete_folder, move_files_to_folder, remove_files_from_all_folders, save_archive_folders
 from .viewer_dock import trigger_viewer_button_feedback
+from .storage_bar import _format_size
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
 from ..state import button_state
 from ..io.gallery_metadata import save_metadata
+from ..io.email_config import (
+    load_config,
+    load_provider_config,
+    save_config,
+    save_provider_config,
+    send_test_email,
+    set_email_verified,
+    send_share_email,
+    get_email_verified,
+    get_share_recipient,
+    SHARE_ATTACHMENT_LIMIT_BYTES,
+    SMTP_PRESETS,
+)
 from .video_recorder import VideoRecorder
+
+
+def _email_cursor_index_from_click(displayed_text: str, click_x_in_field: int, font_scale: float = 0.52) -> int:
+    """Return cursor index (0 to len(displayed_text)) from click x relative to field content start."""
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    if not displayed_text:
+        return 0
+    best = 0
+    for i in range(1, len(displayed_text) + 1):
+        (w, _), _ = cv2.getTextSize(displayed_text[:i], font, font_scale, 1)
+        if w <= click_x_in_field:
+            best = i
+    return best
+
+
+def _save_email_config(output_dir: Optional[Path]) -> None:
+    """Persist current email form for the selected provider to email_config.json."""
+    if not output_dir:
+        return
+    provider = button_state.email_modal_provider or "gmail"
+    form_data = {
+        "email": (button_state.email_form_email or "").strip(),
+        "password": (button_state.email_form_password or "").strip(),
+        "default_to": (button_state.email_form_default_to or "").strip(),
+        "smtp_host": (button_state.email_form_smtp_host or "").strip(),
+        "smtp_port": (button_state.email_form_smtp_port or "587").strip(),
+        "use_tls": button_state.email_form_use_tls,
+    }
+    save_provider_config(output_dir, provider, form_data)
+
+
+def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
+    """Handle clicks when Email Settings modal is open. Returns True if click was consumed."""
+    if not button_state.email_settings_modal_open:
+        return False
+
+    # Provider screen
+    if button_state.email_modal_screen == "provider":
+        for _, key in [("Gmail", "gmail"), ("Outlook", "outlook"), ("Yahoo", "yahoo"), ("Other", "other")]:
+            k = f"email_provider_{key}"
+            if k in menu_buttons and menu_buttons[k].contains(x, y):
+                button_state.email_modal_screen = "form"
+                button_state.email_modal_provider = key
+                if output_dir:
+                    cfg = load_provider_config(output_dir, key)
+                    button_state.email_form_email = (cfg.get("email") or "").strip()
+                    button_state.email_form_password = (cfg.get("password") or "").strip()
+                    button_state.email_form_default_to = (cfg.get("default_to") or "").strip()
+                    button_state.email_form_smtp_host = (cfg.get("smtp_host") or "").strip()
+                    button_state.email_form_smtp_port = str(cfg.get("smtp_port", 587))
+                    button_state.email_form_use_tls = bool(cfg.get("use_tls", True))
+                button_state.email_focused_field = "email"  # first field active by default
+                button_state.email_cursor_index = len(button_state.email_form_email or "")
+                button_state.email_shift_next = False
+                button_state.email_password_visible = False
+                button_state.email_test_status = ""
+                button_state.email_test_message = ""
+                return True
+        if "email_modal_panel" in menu_buttons and menu_buttons["email_modal_panel"].contains(x, y):
+            return True
+        button_state.email_settings_modal_open = False
+        return True
+
+    # Form screen: field focus and click-to-position cursor
+    for field_key in ("email_field_email", "email_field_password", "email_field_default_to", "email_field_smtp_host", "email_field_smtp_port"):
+        if field_key in menu_buttons and menu_buttons[field_key].contains(x, y):
+            field_id = field_key.replace("email_field_", "")
+            button_state.email_focused_field = field_id
+            # Cursor index from click position (content starts at button.x + 8)
+            b = menu_buttons[field_key]
+            rel_x = max(0, x - (b.x + 8))
+            if field_id == "email":
+                val = button_state.email_form_email or ""
+                scale = 0.52
+            elif field_id == "password":
+                val = button_state.email_form_password or ""
+                displayed = "*" * len(val)
+                button_state.email_cursor_index = _email_cursor_index_from_click(displayed, rel_x, 0.52)
+                return True
+            elif field_id == "default_to":
+                val = button_state.email_form_default_to or ""
+                scale = 0.52
+            elif field_id == "smtp_host":
+                val = button_state.email_form_smtp_host or ""
+                scale = 0.44
+            else:
+                val = button_state.email_form_smtp_port or "587"
+                scale = 0.44
+            button_state.email_cursor_index = _email_cursor_index_from_click(val, rel_x, scale)
+            return True
+
+    if "email_password_toggle_visible" in menu_buttons and menu_buttons["email_password_toggle_visible"].contains(x, y):
+        button_state.email_password_visible = not getattr(button_state, "email_password_visible", False)
+        return True
+
+    # Keyboard keys
+    focused = button_state.email_focused_field
+    is_alpha = getattr(button_state, "email_keyboard_mode", "alpha") == "alpha"
+    if focused:
+        # Alpha mode: letters only (numbers are in ?123). Symbol mode: numbers only.
+        chars = "qwertyuiopasdfghjklzxcvbnm" if is_alpha else "1234567890"
+        for c in chars:
+            k = f"email_key_{c}"
+            if k in menu_buttons and menu_buttons[k].contains(x, y):
+                if c.isalpha():
+                    shift_on = getattr(button_state, "email_shift_next", False)
+                    char = c.upper() if shift_on else c.lower()
+                else:
+                    char = c
+                cur = max(0, min(button_state.email_cursor_index, len(getattr(button_state, f"email_form_{focused}", "") or "")))
+                if focused == "email":
+                    v = button_state.email_form_email or ""
+                    button_state.email_form_email = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "password":
+                    v = button_state.email_form_password or ""
+                    button_state.email_form_password = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "default_to":
+                    v = button_state.email_form_default_to or ""
+                    button_state.email_form_default_to = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "smtp_host":
+                    v = button_state.email_form_smtp_host or ""
+                    button_state.email_form_smtp_host = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "smtp_port" and char.isdigit():
+                    v = button_state.email_form_smtp_port or ""
+                    button_state.email_form_smtp_port = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                return True
+        if "email_key_shift" in menu_buttons and menu_buttons["email_key_shift"].contains(x, y):
+            button_state.email_shift_next = not getattr(button_state, "email_shift_next", False)
+            return True
+        # Alpha shortcut row: .com . @ - _ space
+        for key_id, insert_text in (
+            ("email_key_snippet_com", ".com"),
+            ("email_key_dot", "."),
+            ("email_key_at", "@"),
+            ("email_key_dash", "-"),
+            ("email_key_underscore", "_"),
+            ("email_key_space", " "),
+        ):
+            if key_id in menu_buttons and menu_buttons[key_id].contains(x, y):
+                cur = max(0, min(button_state.email_cursor_index, len(getattr(button_state, f"email_form_{focused}", "") or "")))
+                if focused == "email":
+                    v = button_state.email_form_email or ""
+                    button_state.email_form_email = v[:cur] + insert_text + v[cur:]
+                    button_state.email_cursor_index = cur + len(insert_text)
+                elif focused == "password":
+                    v = button_state.email_form_password or ""
+                    button_state.email_form_password = v[:cur] + insert_text + v[cur:]
+                    button_state.email_cursor_index = cur + len(insert_text)
+                elif focused == "default_to":
+                    v = button_state.email_form_default_to or ""
+                    button_state.email_form_default_to = v[:cur] + insert_text + v[cur:]
+                    button_state.email_cursor_index = cur + len(insert_text)
+                elif focused == "smtp_host":
+                    v = button_state.email_form_smtp_host or ""
+                    button_state.email_form_smtp_host = v[:cur] + insert_text + v[cur:]
+                    button_state.email_cursor_index = cur + len(insert_text)
+                elif focused == "smtp_port" and insert_text.isdigit():
+                    v = button_state.email_form_smtp_port or ""
+                    button_state.email_form_smtp_port = v[:cur] + insert_text + v[cur:]
+                    button_state.email_cursor_index = cur + len(insert_text)
+                return True
+        if "email_key_backspace" in menu_buttons and menu_buttons["email_key_backspace"].contains(x, y):
+            cur = button_state.email_cursor_index
+            if cur <= 0:
+                return True
+            if focused == "email":
+                v = button_state.email_form_email or ""
+                button_state.email_form_email = v[: cur - 1] + v[cur:]
+                button_state.email_cursor_index = cur - 1
+            elif focused == "password":
+                v = button_state.email_form_password or ""
+                button_state.email_form_password = v[: cur - 1] + v[cur:]
+                button_state.email_cursor_index = cur - 1
+            elif focused == "default_to":
+                v = button_state.email_form_default_to or ""
+                button_state.email_form_default_to = v[: cur - 1] + v[cur:]
+                button_state.email_cursor_index = cur - 1
+            elif focused == "smtp_host":
+                v = button_state.email_form_smtp_host or ""
+                button_state.email_form_smtp_host = v[: cur - 1] + v[cur:]
+                button_state.email_cursor_index = cur - 1
+            elif focused == "smtp_port":
+                v = button_state.email_form_smtp_port or ""
+                button_state.email_form_smtp_port = v[: cur - 1] + v[cur:] or "587"
+                button_state.email_cursor_index = cur - 1
+            return True
+        if "email_key_clear" in menu_buttons and menu_buttons["email_key_clear"].contains(x, y):
+            if focused == "email":
+                button_state.email_form_email = ""
+            elif focused == "password":
+                button_state.email_form_password = ""
+            elif focused == "default_to":
+                button_state.email_form_default_to = ""
+            elif focused == "smtp_host":
+                button_state.email_form_smtp_host = ""
+            elif focused == "smtp_port":
+                button_state.email_form_smtp_port = "587"
+            button_state.email_cursor_index = 0
+            return True
+        if "email_key_done" in menu_buttons and menu_buttons["email_key_done"].contains(x, y):
+            button_state.email_focused_field = ""
+            button_state.email_cursor_index = 0
+            return True
+        if "email_key_switch_sym" in menu_buttons and menu_buttons["email_key_switch_sym"].contains(x, y):
+            button_state.email_keyboard_mode = "symbol"
+            return True
+        if "email_key_switch_alpha" in menu_buttons and menu_buttons["email_key_switch_alpha"].contains(x, y):
+            button_state.email_keyboard_mode = "alpha"
+            return True
+        # Symbol-mode keys (single chars like @ . _ - etc.)
+        for k, char in (
+            ("email_key_@", "@"), ("email_key_.", "."), ("email_key__", "_"), ("email_key_-", "-"),
+            ("email_key_!", "!"), ("email_key_#", "#"), ("email_key_$", "$"), ("email_key_%", "%"),
+            ("email_key_&", "&"), ("email_key_*", "*"), ("email_key_(", "("), ("email_key_)", ")"),
+            ("email_key_+", "+"), ("email_key_=", "="), ("email_key_,", ","), ("email_key_<", "<"),
+            ("email_key_>", ">"), ("email_key_/", "/"), ("email_key_?", "?"), ("email_key_:", ":"),
+            ("email_key_;", ";"), ("email_key_'", "'"), ('email_key_"', '"'), ("email_key_[", "["),
+            ("email_key_]", "]"), ("email_key_{", "{"), ("email_key_}", "}"), ("email_key_\\", "\\"),
+        ):
+            if k in menu_buttons and menu_buttons[k].contains(x, y):
+                focused = button_state.email_focused_field
+                cur = max(0, min(button_state.email_cursor_index, len(getattr(button_state, f"email_form_{focused}", "") or "")))
+                if focused == "email":
+                    v = button_state.email_form_email or ""
+                    button_state.email_form_email = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "password":
+                    v = button_state.email_form_password or ""
+                    button_state.email_form_password = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "default_to":
+                    v = button_state.email_form_default_to or ""
+                    button_state.email_form_default_to = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "smtp_host":
+                    v = button_state.email_form_smtp_host or ""
+                    button_state.email_form_smtp_host = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                elif focused == "smtp_port" and char.isdigit():
+                    v = button_state.email_form_smtp_port or ""
+                    button_state.email_form_smtp_port = v[:cur] + char + v[cur:]
+                    button_state.email_cursor_index = cur + 1
+                return True
+
+    # Send Test: only when all required fields are filled; run in background thread
+    if "email_send_test" in menu_buttons and menu_buttons["email_send_test"].contains(x, y):
+        provider = button_state.email_modal_provider or "gmail"
+        email_ok = (button_state.email_form_email or "").strip()
+        password_ok = (button_state.email_form_password or "").strip()
+        smtp_ok = provider != "other" or bool((button_state.email_form_smtp_host or "").strip())
+        if email_ok and password_ok and smtp_ok:
+            form_data = {
+                "email": (button_state.email_form_email or "").strip(),
+                "password": (button_state.email_form_password or "").strip(),
+                "default_to": (button_state.email_form_default_to or "").strip(),
+                "smtp_host": (button_state.email_form_smtp_host or "").strip(),
+                "smtp_port": (button_state.email_form_smtp_port or "587").strip(),
+                "use_tls": button_state.email_form_use_tls,
+            }
+            button_state.email_test_status = "sending"
+            button_state.email_test_message = ""
+
+            def _run_send_test() -> None:
+                ok, msg = send_test_email(provider, form_data)
+                button_state.email_test_status = "ok" if ok else "error"
+                button_state.email_test_message = msg
+                if ok and output_dir:
+                    set_email_verified(output_dir, True)
+
+            thread = threading.Thread(target=_run_send_test, daemon=True)
+            thread.start()
+        return True
+
+    if "email_save" in menu_buttons and menu_buttons["email_save"].contains(x, y):
+        _save_email_config(output_dir)
+        button_state.email_settings_modal_open = False
+        button_state.email_modal_screen = "provider"
+        button_state.email_modal_provider = ""
+        button_state.email_focused_field = ""
+        button_state.email_cursor_index = 0
+        button_state.email_keyboard_mode = "alpha"
+        button_state.email_shift_next = False
+        button_state.email_password_visible = False
+        button_state.email_test_status = ""
+        button_state.email_test_message = ""
+        return True
+
+    if "email_cancel" in menu_buttons and menu_buttons["email_cancel"].contains(x, y):
+        button_state.email_settings_modal_open = False
+        button_state.email_modal_screen = "provider"
+        button_state.email_modal_provider = ""
+        button_state.email_focused_field = ""
+        button_state.email_cursor_index = 0
+        button_state.email_keyboard_mode = "alpha"
+        button_state.email_shift_next = False
+        button_state.email_password_visible = False
+        button_state.email_test_status = ""
+        button_state.email_test_message = ""
+        return True
+
+    # Consume click if inside form panel or keyboard region (so only negative space left/right of form closes)
+    in_form = "email_modal_panel" in menu_buttons and menu_buttons["email_modal_panel"].contains(x, y)
+    in_keyboard = "email_modal_keyboard_region" in menu_buttons and menu_buttons["email_modal_keyboard_region"].contains(x, y)
+    if in_form or in_keyboard:
+        return True
+    # Click outside (e.g. negative space left/right of form above keyboard): close without saving (like Cancel)
+    button_state.email_settings_modal_open = False
+    button_state.email_modal_screen = "provider"
+    button_state.email_modal_provider = ""
+    button_state.email_focused_field = ""
+    button_state.email_cursor_index = 0
+    button_state.email_keyboard_mode = "alpha"
+    button_state.email_shift_next = False
+    button_state.email_password_visible = False
+    button_state.email_test_status = ""
+    button_state.email_test_message = ""
+    return True
 
 
 def _persist_gallery_metadata(output_dir: Optional[Path]) -> None:
@@ -107,13 +444,18 @@ def _open_tag_modal(output_dir: Optional[Path]) -> None:
     tag_data = getattr(button_state, 'gallery_tag_data', {})
     existing = tag_data.get(first_path.name, {}) if first_path else {}
 
+    asset_name_val = first_path.stem if first_path else ""
     button_state.gallery_tag_field_values = {
-        "asset_name": first_path.stem if first_path else "",
+        "asset_name": asset_name_val,
         "asset_type": existing.get("asset_type", ""),
         "leak_type":  existing.get("leak_type",  ""),
     }
-    button_state.gallery_tag_active_field = ""
-    button_state.gallery_tag_keyboard_query = ""
+    # Auto-select Asset Name so user can edit immediately
+    button_state.gallery_tag_active_field = "asset_name"
+    button_state.gallery_tag_keyboard_query = asset_name_val
+    button_state.gallery_tag_cursor_index = len(asset_name_val)
+    button_state.gallery_keyboard_mode = "alpha"
+    button_state.gallery_keyboard_shift_next = False
     button_state.gallery_tag_modal_open = True
     button_state.gallery_priority_modal_open = False
     button_state.gallery_rename_modal_open = False
@@ -352,14 +694,41 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     if folder_action_id:
         in_rename = getattr(button_state, "gallery_archive_rename_folder_id", None) == folder_action_id
         if in_rename:
-            # Rename mode: keyboard (tag-style), Save, Cancel
-            for c in "abcdefghijklmnopqrstuvwxyz0123456789":
-                key = f"archive_rename_key_{c}"
-                if key in menu_buttons and menu_buttons[key].contains(x, y):
-                    button_state.gallery_archive_rename_query = (getattr(button_state, "gallery_archive_rename_query", "") or "") + c
-                    return True
+            # Rename mode: standard keyboard (alpha/symbol, ?123, Shift, shortcut row)
+            if "archive_rename_key_switch_sym" in menu_buttons and menu_buttons["archive_rename_key_switch_sym"].contains(x, y):
+                button_state.gallery_keyboard_mode = "symbol"
+                return True
+            if "archive_rename_key_switch_alpha" in menu_buttons and menu_buttons["archive_rename_key_switch_alpha"].contains(x, y):
+                button_state.gallery_keyboard_mode = "alpha"
+                return True
+            if "archive_rename_key_shift" in menu_buttons and menu_buttons["archive_rename_key_shift"].contains(x, y):
+                button_state.gallery_keyboard_shift_next = not button_state.gallery_keyboard_shift_next
+                return True
+            q = getattr(button_state, "gallery_archive_rename_query", "") or ""
+            shift = getattr(button_state, "gallery_keyboard_shift_next", False)
+            is_alpha = getattr(button_state, "gallery_keyboard_mode", "alpha") == "alpha"
+            if is_alpha:
+                for c in "qwertyuiopasdfghjklzxcvbnm":
+                    key = f"archive_rename_key_{c}"
+                    if key in menu_buttons and menu_buttons[key].contains(x, y):
+                        button_state.gallery_archive_rename_query = q + (c.upper() if shift else c.lower())
+                        if shift:
+                            button_state.gallery_keyboard_shift_next = False
+                        return True
+                for suffix, insert in [("snippet_com", ".com"), ("dot", "."), ("at", "@"), ("dash", "-"), ("underscore", "_"), ("space", " ")]:
+                    key = f"archive_rename_key_{suffix}"
+                    if key in menu_buttons and menu_buttons[key].contains(x, y):
+                        button_state.gallery_archive_rename_query = q + insert
+                        return True
+            else:
+                _sym = "1234567890@._-!#$%&*()+=[{]};:'\"\"(</>?\\,"
+                for c in _sym:
+                    suf = "\\" if c == "\\" else c
+                    key = "archive_rename_key_" + suf
+                    if key in menu_buttons and menu_buttons[key].contains(x, y):
+                        button_state.gallery_archive_rename_query = q + c
+                        return True
             if "archive_rename_key_backspace" in menu_buttons and menu_buttons["archive_rename_key_backspace"].contains(x, y):
-                q = getattr(button_state, "gallery_archive_rename_query", "") or ""
                 button_state.gallery_archive_rename_query = q[:-1]
                 return True
             if "archive_rename_key_clear" in menu_buttons and menu_buttons["archive_rename_key_clear"].contains(x, y):
@@ -374,7 +743,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     )
                 button_state.gallery_archive_rename_folder_id = None
                 button_state.gallery_archive_rename_query = ""
-                button_state.gallery_archive_folder_action_id = None  # close action modal too
+                button_state.gallery_archive_folder_action_id = None
                 return True
         else:
             # Action mode: Rename | Delete | Cancel
@@ -383,6 +752,8 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 if folder:
                     button_state.gallery_archive_rename_folder_id = folder_action_id
                     button_state.gallery_archive_rename_query = folder.get("name", "Folder") or "Folder"
+                    button_state.gallery_keyboard_mode = "alpha"
+                    button_state.gallery_keyboard_shift_next = False
                 return True
             if "archive_folder_delete" in menu_buttons and menu_buttons["archive_folder_delete"].contains(x, y):
                 button_state.gallery_archive_delete_confirm_folder_id = folder_action_id
@@ -403,8 +774,27 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         button_state.gallery_archive_delete_confirm_folder_id = None
         return True
 
-    # Archive panel (only visible in main gallery, not in folder view)
-    if not getattr(button_state, "gallery_archive_folder_view_id", None) and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y):
+    # Archive panel (only visible in main gallery, not in folder view).
+    # Stop propagation: when an action modal (Tags, Priority, Rename, Filter, Sort, Search) is open
+    # and the click is inside its panel, do not activate the archive panel.
+    _on_action_modal_panel = False
+    if button_state.gallery_tag_modal_open and (
+        ("tag_modal_panel" in menu_buttons and menu_buttons["tag_modal_panel"].contains(x, y))
+        or ("gallery_tags_modal_panel" in menu_buttons and menu_buttons["gallery_tags_modal_panel"].contains(x, y))
+    ):
+        _on_action_modal_panel = True
+    elif button_state.gallery_priority_modal_open and "gallery_priority_modal_panel" in menu_buttons and menu_buttons["gallery_priority_modal_panel"].contains(x, y):
+        _on_action_modal_panel = True
+    elif button_state.gallery_rename_modal_open and "rename_keyboard_panel" in menu_buttons and menu_buttons["rename_keyboard_panel"].contains(x, y):
+        _on_action_modal_panel = True
+    elif button_state.gallery_filter_modal_open and "gallery_filter_modal_panel" in menu_buttons and menu_buttons["gallery_filter_modal_panel"].contains(x, y):
+        _on_action_modal_panel = True
+    elif button_state.gallery_sort_modal_open and "gallery_sort_modal_panel" in menu_buttons and menu_buttons["gallery_sort_modal_panel"].contains(x, y):
+        _on_action_modal_panel = True
+    elif getattr(button_state, "gallery_search_keyboard_open", False) and "search_keyboard_panel" in menu_buttons and menu_buttons["search_keyboard_panel"].contains(x, y):
+        _on_action_modal_panel = True
+
+    if not getattr(button_state, "gallery_archive_folder_view_id", None) and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y) and not _on_action_modal_panel:
         if "archive_add_btn" in menu_buttons and menu_buttons["archive_add_btn"].contains(x, y):
             if output_dir:
                 folders = getattr(button_state, "gallery_archive_folders", [])
@@ -461,6 +851,8 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.gallery_tag_modal_open = False
                 button_state.gallery_tags_modal_open = False
                 button_state.gallery_priority_modal_open = False
+                button_state.gallery_keyboard_mode = "alpha"
+                button_state.gallery_keyboard_shift_next = False
             return True
 
     # Priority modal option clicks
@@ -485,8 +877,41 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             return True
         button_state.gallery_priority_modal_open = False
 
-    # Rename keyboard clicks
+    # Rename keyboard (standard: alpha/symbol, ?123, Shift, shortcut row)
     if button_state.gallery_rename_modal_open:
+        if "rename_key_switch_sym" in menu_buttons and menu_buttons["rename_key_switch_sym"].contains(x, y):
+            button_state.gallery_keyboard_mode = "symbol"
+            return True
+        if "rename_key_switch_alpha" in menu_buttons and menu_buttons["rename_key_switch_alpha"].contains(x, y):
+            button_state.gallery_keyboard_mode = "alpha"
+            return True
+        if "rename_key_shift" in menu_buttons and menu_buttons["rename_key_shift"].contains(x, y):
+            button_state.gallery_keyboard_shift_next = not button_state.gallery_keyboard_shift_next
+            return True
+        q = button_state.gallery_rename_query or ""
+        shift = getattr(button_state, "gallery_keyboard_shift_next", False)
+        is_alpha = getattr(button_state, "gallery_keyboard_mode", "alpha") == "alpha"
+        if is_alpha:
+            for c in "qwertyuiopasdfghjklzxcvbnm":
+                key = f"rename_key_{c}"
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_rename_query = q + (c.upper() if shift else c.lower())
+                    if shift:
+                        button_state.gallery_keyboard_shift_next = False
+                    return True
+            for suffix, insert in [("snippet_com", ".com"), ("dot", "."), ("at", "@"), ("dash", "-"), ("underscore", "_"), ("space", " ")]:
+                key = f"rename_key_{suffix}"
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_rename_query = q + insert
+                    return True
+        else:
+            _sym = "1234567890@._-!#$%&*()+=[{]};:'\"\"(</>?\\,"
+            for c in _sym:
+                suf = "\\" if c == "\\" else c
+                key = "rename_key_" + suf
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_rename_query = q + c
+                    return True
         if "rename_key_done" in menu_buttons and menu_buttons["rename_key_done"].contains(x, y):
             _apply_rename(output_dir)
             button_state.gallery_rename_modal_open = False
@@ -495,39 +920,67 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_rename_query = ""
             return True
         if "rename_key_backspace" in menu_buttons and menu_buttons["rename_key_backspace"].contains(x, y):
-            button_state.gallery_rename_query = (button_state.gallery_rename_query or "")[:-1]
+            button_state.gallery_rename_query = q[:-1]
             return True
-        for c in "abcdefghijklmnopqrstuvwxyz0123456789":
-            key = f"rename_key_{c}"
-            if key in menu_buttons and menu_buttons[key].contains(x, y):
-                button_state.gallery_rename_query = (button_state.gallery_rename_query or "") + c
-                return True
         if "rename_keyboard_panel" in menu_buttons and menu_buttons["rename_keyboard_panel"].contains(x, y):
             return True
         button_state.gallery_rename_modal_open = False
         return True
 
-    # ── Tag edit modal (keyboard merged; auto-save on field switch / Done / close) ─
+    # ── Tag edit modal (standard keyboard: alpha/symbol, ?123, Shift, shortcut row) ─
     if button_state.gallery_tag_modal_open:
-        # Tag keyboard keys (always visible when modal open)
         if button_state.gallery_tag_active_field:
-            for c in "abcdefghijklmnopqrstuvwxyz0123456789":
-                bk = f"tag_key_{c}"
-                if bk in menu_buttons and menu_buttons[bk].contains(x, y):
-                    button_state.gallery_tag_keyboard_query = (
-                        button_state.gallery_tag_keyboard_query or "") + c
-                    return True
+            # Mode / shift
+            if "tag_key_switch_sym" in menu_buttons and menu_buttons["tag_key_switch_sym"].contains(x, y):
+                button_state.gallery_keyboard_mode = "symbol"
+                return True
+            if "tag_key_switch_alpha" in menu_buttons and menu_buttons["tag_key_switch_alpha"].contains(x, y):
+                button_state.gallery_keyboard_mode = "alpha"
+                return True
+            if "tag_key_shift" in menu_buttons and menu_buttons["tag_key_shift"].contains(x, y):
+                button_state.gallery_keyboard_shift_next = not button_state.gallery_keyboard_shift_next
+                return True
+            q = button_state.gallery_tag_keyboard_query or ""
+            shift = getattr(button_state, "gallery_keyboard_shift_next", False)
+            is_alpha = getattr(button_state, "gallery_keyboard_mode", "alpha") == "alpha"
+            # Alpha: letters (with shift) + shortcut row
+            if is_alpha:
+                for c in "qwertyuiopasdfghjklzxcvbnm":
+                    bk = f"tag_key_{c}"
+                    if bk in menu_buttons and menu_buttons[bk].contains(x, y):
+                        button_state.gallery_tag_keyboard_query = q + (c.upper() if shift else c.lower())
+                        button_state.gallery_tag_cursor_index = len(button_state.gallery_tag_keyboard_query)
+                        if shift:
+                            button_state.gallery_keyboard_shift_next = False
+                        return True
+                for suffix, insert in [("snippet_com", ".com"), ("dot", "."), ("at", "@"), ("dash", "-"), ("underscore", "_"), ("space", " ")]:
+                    if f"tag_key_{suffix}" in menu_buttons and menu_buttons[f"tag_key_{suffix}"].contains(x, y):
+                        button_state.gallery_tag_keyboard_query = q + insert
+                        button_state.gallery_tag_cursor_index = len(button_state.gallery_tag_keyboard_query)
+                        return True
+            else:
+                # Symbol mode: all symbol chars (key_id uses \ for backslash, " for quote)
+                _sym = "1234567890@._-!#$%&*()+=[{]};:'\"\"(</>?\\,"
+                for c in _sym:
+                    suf = "\\" if c == "\\" else c
+                    k = "tag_key_" + suf
+                    if k in menu_buttons and menu_buttons[k].contains(x, y):
+                        button_state.gallery_tag_keyboard_query = q + c
+                        button_state.gallery_tag_cursor_index = len(button_state.gallery_tag_keyboard_query)
+                        return True
             if "tag_key_backspace" in menu_buttons and menu_buttons["tag_key_backspace"].contains(x, y):
-                button_state.gallery_tag_keyboard_query = (
-                    button_state.gallery_tag_keyboard_query or "")[:-1]
+                button_state.gallery_tag_keyboard_query = q[:-1]
+                button_state.gallery_tag_cursor_index = max(0, len(button_state.gallery_tag_keyboard_query))
                 return True
             if "tag_key_clear" in menu_buttons and menu_buttons["tag_key_clear"].contains(x, y):
                 button_state.gallery_tag_keyboard_query = ""
+                button_state.gallery_tag_cursor_index = 0
                 return True
             if "tag_key_done" in menu_buttons and menu_buttons["tag_key_done"].contains(x, y):
                 _apply_tag_save(output_dir)
                 button_state.gallery_tag_modal_open = False
                 button_state.gallery_tag_active_field = ""
+                button_state.gallery_tag_cursor_index = 0
                 return True
         if "tag_keyboard_panel" in menu_buttons and menu_buttons["tag_keyboard_panel"].contains(x, y):
             return True
@@ -546,6 +999,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                     prefill = button_state.gallery_tag_field_values.get(fkey, "")
                 button_state.gallery_tag_active_field = fkey
                 button_state.gallery_tag_keyboard_query = prefill
+                button_state.gallery_tag_cursor_index = len(prefill)
                 return True
 
         # Absorb clicks on modal panel
@@ -555,6 +1009,7 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         _apply_tag_save(output_dir)
         button_state.gallery_tag_modal_open = False
         button_state.gallery_tag_active_field = ""
+        button_state.gallery_tag_cursor_index = 0
         return True
 
     # ── Viewer tag info panel ─────────────────────────────────────────────────
@@ -575,6 +1030,8 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             if button_state.gallery_search_keyboard_open:
                 button_state.gallery_filter_modal_open = False
                 button_state.gallery_sort_modal_open = False
+                button_state.gallery_keyboard_mode = "alpha"
+                button_state.gallery_keyboard_shift_next = False
             return True
         if "gallery_dock_filter" in menu_buttons and menu_buttons["gallery_dock_filter"].contains(x, y):
             button_state.gallery_filter_modal_open = not button_state.gallery_filter_modal_open
@@ -614,6 +1071,39 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
         # fall through so the same click can hit thumbnails or other controls
 
     if button_state.gallery_search_keyboard_open:
+        if "search_key_switch_sym" in menu_buttons and menu_buttons["search_key_switch_sym"].contains(x, y):
+            button_state.gallery_keyboard_mode = "symbol"
+            return True
+        if "search_key_switch_alpha" in menu_buttons and menu_buttons["search_key_switch_alpha"].contains(x, y):
+            button_state.gallery_keyboard_mode = "alpha"
+            return True
+        if "search_key_shift" in menu_buttons and menu_buttons["search_key_shift"].contains(x, y):
+            button_state.gallery_keyboard_shift_next = not button_state.gallery_keyboard_shift_next
+            return True
+        q = button_state.gallery_search_query or ""
+        shift = getattr(button_state, "gallery_keyboard_shift_next", False)
+        is_alpha = getattr(button_state, "gallery_keyboard_mode", "alpha") == "alpha"
+        if is_alpha:
+            for c in "qwertyuiopasdfghjklzxcvbnm":
+                key = f"search_key_{c}"
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_search_query = q + (c.upper() if shift else c.lower())
+                    if shift:
+                        button_state.gallery_keyboard_shift_next = False
+                    return True
+            for suffix, insert in [("snippet_com", ".com"), ("dot", "."), ("at", "@"), ("dash", "-"), ("underscore", "_"), ("space", " ")]:
+                key = f"search_key_{suffix}"
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_search_query = q + insert
+                    return True
+        else:
+            _sym = "1234567890@._-!#$%&*()+=[{]};:'\"\"(</>?\\,"
+            for c in _sym:
+                suf = "\\" if c == "\\" else c
+                key = "search_key_" + suf
+                if key in menu_buttons and menu_buttons[key].contains(x, y):
+                    button_state.gallery_search_query = q + c
+                    return True
         if "search_key_done" in menu_buttons and menu_buttons["search_key_done"].contains(x, y):
             button_state.gallery_search_keyboard_open = False
             return True
@@ -621,13 +1111,8 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
             button_state.gallery_search_query = ""
             return True
         if "search_key_backspace" in menu_buttons and menu_buttons["search_key_backspace"].contains(x, y):
-            button_state.gallery_search_query = (button_state.gallery_search_query or "")[:-1]
+            button_state.gallery_search_query = q[:-1]
             return True
-        for c in "abcdefghijklmnopqrstuvwxyz0123456789":
-            key = f"search_key_{c}"
-            if key in menu_buttons and menu_buttons[key].contains(x, y):
-                button_state.gallery_search_query = (button_state.gallery_search_query or "") + c
-                return True
         if "search_keyboard_panel" in menu_buttons and menu_buttons["search_keyboard_panel"].contains(x, y):
             return True
         button_state.gallery_search_keyboard_open = False
@@ -725,6 +1210,86 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 if button_state.gallery_selected_items:
                     button_state.gallery_delete_modal_open = True
                     button_state.gallery_delete_modal_kind = "batch"
+                return True
+
+        if getattr(button_state, "share_confirm_modal_open", False):
+            if "share_confirm_send" in menu_buttons and menu_buttons["share_confirm_send"].contains(x, y):
+                # User confirmed: close confirm modal and start send in background
+                paths_to_send = [Path(p) for p in button_state.share_confirm_paths]
+                button_state.share_confirm_modal_open = False
+                button_state.share_confirm_paths = []
+                button_state.share_modal_open = True
+                button_state.share_modal_sending = True
+                button_state.share_modal_title = "Share"
+                button_state.share_modal_message = "Sending..."
+
+                def _run_share() -> None:
+                    ok, msg, details = send_share_email(output_dir, paths_to_send)
+                    button_state.share_modal_sending = False
+                    if ok:
+                        button_state.share_modal_title = "Sent"
+                        to_email = details.get("to_email", "")
+                        ni = details.get("n_images", 0)
+                        nv = details.get("n_videos", 0)
+                        parts = [f"Sent to {to_email}"]
+                        if ni or nv:
+                            parts.append(f"{ni} image(s), {nv} video(s)")
+                        button_state.share_modal_message = "\n".join(parts)
+                    else:
+                        button_state.share_modal_title = "Error"
+                        button_state.share_modal_message = msg
+
+                thread = threading.Thread(target=_run_share, daemon=True)
+                thread.start()
+                return True
+            if "share_confirm_cancel" in menu_buttons and menu_buttons["share_confirm_cancel"].contains(x, y):
+                button_state.share_confirm_modal_open = False
+                button_state.share_confirm_paths = []
+                return True
+            # Tap outside modal (dimmed area): close without sending
+            if "share_confirm_modal_panel" in menu_buttons and not menu_buttons["share_confirm_modal_panel"].contains(x, y):
+                button_state.share_confirm_modal_open = False
+                button_state.share_confirm_paths = []
+                return True
+
+        if getattr(button_state, "share_modal_open", False):
+            if "share_modal_ok" in menu_buttons and menu_buttons["share_modal_ok"].contains(x, y):
+                button_state.share_modal_open = False
+                return True
+
+        if button_state.gallery_select_mode and "gallery_share_selected" in menu_buttons and menu_buttons["gallery_share_selected"].w > 0:
+            if menu_buttons["gallery_share_selected"].contains(x, y) and output_dir:
+                view_id = getattr(button_state, "gallery_archive_folder_view_id", None)
+                items = get_folder_displayed_items(output_dir, view_id) if view_id else get_displayed_gallery_items(output_dir)
+                paths = [items[i][0] for i in sorted(button_state.gallery_selected_items) if 0 <= i < len(items)]
+                if not paths:
+                    button_state.share_modal_open = True
+                    button_state.share_modal_title = "Share"
+                    button_state.share_modal_message = "No files selected."
+                    return True
+                total_size = 0
+                for p in paths:
+                    try:
+                        total_size += p.stat().st_size
+                    except OSError:
+                        pass
+                if total_size > SHARE_ATTACHMENT_LIMIT_BYTES:
+                    button_state.share_modal_open = True
+                    button_state.share_modal_title = "Too many files"
+                    button_state.share_modal_message = "Attachments too large (max 25 MB)."
+                    return True
+
+                # Open confirm modal with request details; send only after user clicks Send
+                n_images = sum(1 for p in paths if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp"))
+                n_videos = sum(1 for p in paths if p.suffix.lower() in (".mp4", ".avi", ".webm", ".mov"))
+                size_str = _format_size(total_size)
+                button_state.share_confirm_modal_open = True
+                button_state.share_confirm_to_email = get_share_recipient(output_dir)
+                button_state.share_confirm_n_images = n_images
+                button_state.share_confirm_n_videos = n_videos
+                button_state.share_confirm_size_str = size_str
+                button_state.share_confirm_file_count = len(paths)
+                button_state.share_confirm_paths = [str(p) for p in paths]
                 return True
 
         if hasattr(button_state, 'gallery_thumbnail_rects'):
@@ -879,6 +1444,14 @@ def handle_menu_click(
 
     if "debug" in menu_buttons and menu_buttons["debug"].contains(x, y):
         button_state.debug_enabled = not button_state.debug_enabled
+        return video_recorder
+
+    if "email_settings" in menu_buttons and menu_buttons["email_settings"].contains(x, y):
+        button_state.email_settings_modal_open = True
+        button_state.menu_open = False
+        button_state.email_modal_screen = "provider"
+        button_state.email_modal_provider = ""
+        button_state.email_keyboard_mode = "alpha"
         return video_recorder
 
     return video_recorder

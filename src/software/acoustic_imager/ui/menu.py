@@ -24,7 +24,7 @@ def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bg
 
 
 # Keys for menu dropdown (positions are shifted by offset_x when drawing)
-_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug")
+_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "email_settings")
 
 
 def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -> None:
@@ -66,9 +66,9 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     if not button_state.menu_open:
         return
 
-    # SHOT and Gallery live in bottom HUD only; menu dropdown has 6 rows (fps, gain, colormap, cam, source, debug)
+    # SHOT and Gallery live in bottom HUD only; menu dropdown has 7 rows (fps, gain, colormap, cam, source, debug, email_settings)
     item_h, gap, menu_w = 40, 8, menu_btn.w
-    dropdown_h = 6 * (item_h + gap) + gap
+    dropdown_h = 7 * (item_h + gap) + gap
     dropdown_y = menu_btn.y - dropdown_h - gap
     oy = int(offset_y)
 
@@ -98,6 +98,7 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     menu_buttons["cam"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
     menu_buttons["source"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
     menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    menu_buttons["email_settings"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
             menu_buttons[k].y -= oy

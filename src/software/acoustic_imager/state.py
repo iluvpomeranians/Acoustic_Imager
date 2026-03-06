@@ -41,6 +41,22 @@ class ButtonState:
     # MENU states
     menu_open: bool = False
     fps_mode: str = "MAX"       # "30" | "60" | "MAX"
+    email_settings_modal_open: bool = False
+    email_modal_screen: str = "provider"   # "provider" | "form"
+    email_modal_provider: str = ""         # "gmail" | "outlook" | "yahoo" | "other"
+    email_form_email: str = ""
+    email_form_password: str = ""
+    email_form_default_to: str = ""
+    email_form_smtp_host: str = ""
+    email_form_smtp_port: str = "587"
+    email_form_use_tls: bool = True
+    email_focused_field: str = ""          # "email" | "password" | "default_to" | "smtp_host" | "smtp_port"
+    email_cursor_index: int = 0            # insertion point in the focused field (0 to len(text))
+    email_keyboard_mode: str = "alpha"     # "alpha" | "symbol" for form keyboard
+    email_shift_next: bool = False        # next letter key inserts uppercase (for password etc.)
+    email_password_visible: bool = False  # show password characters (eye toggle)
+    email_test_status: str = ""          # "" | "sending" | "ok" | "error"
+    email_test_message: str = ""         # short message for UI (e.g. "Sent!" or error)
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
@@ -91,6 +107,21 @@ class ButtonState:
     gallery_delete_modal_subtitle: str = "This action cannot be undone."
     gallery_storage_dirty: bool = False  # set when file(s) deleted so storage bar syncs and updates
 
+    # Share (email) result/warning modal: message + OK
+    share_modal_open: bool = False
+    share_modal_sending: bool = False  # True while send is in progress (threaded)
+    share_modal_title: str = "Share"
+    share_modal_message: str = ""  # multi-line shown in modal
+
+    # Share confirm modal (before send): details + Send / Cancel
+    share_confirm_modal_open: bool = False
+    share_confirm_to_email: str = ""
+    share_confirm_n_images: int = 0
+    share_confirm_n_videos: int = 0
+    share_confirm_size_str: str = ""
+    share_confirm_file_count: int = 0
+    share_confirm_paths: List[str] = field(default_factory=list)  # paths to send when user confirms
+
     # Gallery dock: filter (type), sort, search
     gallery_filter_type: str = "all"  # "all" | "image" | "video"
     gallery_sort_by: str = "date"  # "date" | "name" | "size"
@@ -121,6 +152,9 @@ class ButtonState:
     gallery_tag_active_field: str = ""        # "asset_name" | "asset_type" | "leak_type"
     gallery_tag_keyboard_open: bool = False
     gallery_tag_keyboard_query: str = ""
+    gallery_tag_cursor_index: int = 0         # cursor position in active field for blinking caret
+    gallery_keyboard_mode: str = "alpha"      # "alpha" | "symbol" for tag/rename/search/archive_rename
+    gallery_keyboard_shift_next: bool = False
     gallery_tag_field_values: dict = field(default_factory=dict)  # live values during edit session
     gallery_tag_data: dict = field(default_factory=dict)          # filename → {"asset_type": str, "leak_type": str}
     gallery_tag_info_open: bool = False                           # viewer: read-only info panel

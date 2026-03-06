@@ -36,14 +36,16 @@ from .grid_side_dock import (
 from .storage_bar import _format_size, feathered_composite
 from .keyboard import (
     KEY_WIDTH_MULT_COMPACT,
-    ROWS_QWERTY as _TK_ROWS,
-    ROW_NUMBERS as _TK_NUMS,
-    SPECIAL_KEYS_COMPACT as _TK_SPECIAL,
     COMPACT_KEY_SCALE,
     dimensions_for_scale,
     draw_key_bg_clipped,
     KEY_BORDER_BGR as _TK_KEY_BORDER,
     KEY_TEXT_BGR as _TK_KEY_TEXT,
+)
+from .standard_keyboard import (
+    draw_standard_alpha_keyboard,
+    draw_standard_symbol_keyboard,
+    compute_standard_keyboard_dimensions,
 )
 from .priority_circle import draw_priority_circle_neon
 from .archive_panel import (
@@ -57,7 +59,9 @@ from .archive_panel import (
     archive_panel_grid_pos,
     MAX_FOLDERS,
 )
-from ..state import button_state
+from ..state import button_state, HUD
+from .. import state as app_state
+from ..io.email_config import get_email_verified
 from ..config import (
     MENU_ACTIVE_BLUE,
     MENU_ACTIVE_BLUE_LIGHT,
@@ -408,98 +412,81 @@ def draw_tag_info_panel(frame: np.ndarray, filepath: Path) -> None:
         b.x, b.y, b.w, b.h = panel_x, panel_y, panel_w, panel_h
 
 
-def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) -> None:
-    """Compact QWERTY keyboard for tag field editing. Same width as Edit Tags modal, below the form."""
+def _draw_tag_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int, available_height: int = 0, fused: bool = False) -> None:
+    """Reuse standard keyboard from standard_keyboard module; when fused=True no separate panel (keyboard is part of Edit Tags modal)."""
     fh, _ = frame.shape[:2]
-    n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
-    panel_w = form_w
-    panel_h = _TK_BAR_H + n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
-    px = form_x
-    py = min(y_top, fh - panel_h - 4)
-
-    roi = frame[py: py + panel_h, px: px + panel_w]
-    if GALLERY_ACTION_STYLE == "classic":
-        fill_top, fill_bot = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
-        panel_border = CLASSIC_ACTION_BORDER_BGR
+    n_rows = 5
+    # Fused: tighter gap and margins to maximize key surface; standalone: original spacing
+    if fused and available_height > 0:
+        key_gap = 5
+        keyboard_region_h = max(120, available_height - _TK_BAR_H - 2)
+        panel_bottom_margin = 4
     else:
-        fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
-        panel_border = ACTION_BTN_NEON_BORDER_BGR
-    grad = _vertical_gradient(panel_h, panel_w, fill_top, fill_bot)
-    cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
-    if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
-        pad = 16
-        gx0, gy0 = max(0, px - pad), max(0, py - pad)
-        gx1 = min(frame.shape[1], px + panel_w + pad)
-        gy1 = min(frame.shape[0], py + panel_h + pad)
-        if gx1 > gx0 and gy1 > gy0:
-            glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
-            lx, ly = px - gx0, py - gy0
-            cv2.rectangle(glow_patch, (lx, ly), (lx + panel_w, ly + panel_h), panel_border, 8, cv2.LINE_AA)
-            glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
-            feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
-    cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
+        key_gap = 6
+        keyboard_region_h = max(120, available_height - _TK_BAR_H - 4) if available_height > 0 else 200
+        panel_bottom_margin = 6
+    dims = compute_standard_keyboard_dimensions(form_w, keyboard_region_h, key_gap=key_gap, n_rows=n_rows)
+    key_w, key_h, sp_w = dims["key_w"], dims["key_h"], dims["sp_w"]
+    keyboard_h = n_rows * (key_h + key_gap) + key_gap
+    panel_w = form_w
+    panel_h = _TK_BAR_H + keyboard_h + panel_bottom_margin
+    px = form_x
+    py = y_top
+
+    if not fused:
+        roi = frame[py: py + panel_h, px: px + panel_w]
+        if GALLERY_ACTION_STYLE == "classic":
+            fill_top, fill_bot = CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT
+            panel_border = CLASSIC_ACTION_BORDER_BGR
+        else:
+            fill_top, fill_bot = ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT
+            panel_border = ACTION_BTN_NEON_BORDER_BGR
+        grad = _vertical_gradient(panel_h, panel_w, fill_top, fill_bot)
+        cv2.addWeighted(grad, ACTION_BTN_FILL_ALPHA, roi, 1.0 - ACTION_BTN_FILL_ALPHA, 0.0, dst=roi)
+        if GALLERY_ACTION_STYLE != "classic" and ACTION_BTN_NEON_GLOW > 0:
+            pad = 16
+            gx0, gy0 = max(0, px - pad), max(0, py - pad)
+            gx1 = min(frame.shape[1], px + panel_w + pad)
+            gy1 = min(frame.shape[0], py + panel_h + pad)
+            if gx1 > gx0 and gy1 > gy0:
+                glow_patch = np.zeros((gy1 - gy0, gx1 - gx0, 3), dtype=np.uint8)
+                lx, ly = px - gx0, py - gy0
+                cv2.rectangle(glow_patch, (lx, ly), (lx + panel_w, ly + panel_h), panel_border, 8, cv2.LINE_AA)
+                glow_patch = cv2.GaussianBlur(glow_patch, (0, 0), 6.0)
+                feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
+        cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
 
     font = cv2.FONT_HERSHEY_SIMPLEX
     field_key = button_state.gallery_tag_active_field
     query = button_state.gallery_tag_keyboard_query
     bar_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
-    # Active field label in the bar
     field_label = next((lbl for k, lbl, _ in _TAG_FIELDS if k == field_key), "")
     bar_text = f"{field_label}: {query[:30]}" if field_label else query[:35]
     cv2.putText(frame, bar_text, (px + 8, py + _TK_BAR_H - 10),
                 font, 0.48, bar_text_color, 1, cv2.LINE_AA)
 
-    key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
-    key_y = py + _TK_BAR_H + _TK_GAP
-    for row in _TK_ROWS:
-        row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
-        key_x = px + (panel_w - row_w) // 2
-        for c in row:
-            kx, ky = key_x, key_y
-            draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-            (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
-            cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                        font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-            bkey = f"tag_key_{c}"
-            if bkey not in menu_buttons:
-                menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
-            else:
-                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-            key_x += _TK_W + _TK_GAP
-        key_y += _TK_H + _TK_GAP
-    row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
-    key_x = px + (panel_w - row_w) // 2
-    for c in _TK_NUMS:
-        kx, ky = key_x, key_y
-        draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-        (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
-        cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                    font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-        bkey = f"tag_key_{c}"
-        if bkey not in menu_buttons:
-            menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
-        else:
-            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-        key_x += _TK_W + _TK_GAP
-    key_y += _TK_H + _TK_GAP
-    sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
-    key_x = px + (panel_w - sp_row_w) // 2
-    for label, val in _TK_SPECIAL:
-        kx, ky = key_x, key_y
-        draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
-        cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
-                    font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-        bkey = f"tag_key_{val}"
-        if bkey not in menu_buttons:
-            menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
-        else:
-            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-            menu_buttons[bkey].w = _TK_SP_W
-        key_x += _TK_SP_W + _TK_GAP
+    # Keys always use dark text on light gray gradient (never classic white — keys are not classic buttons)
+    key_border = _TK_KEY_BORDER
+    key_text = _TK_KEY_TEXT
+    key_fill = None
+    key_y = py + _TK_BAR_H + key_gap
+    key_font = 0.66 if key_h > 32 else 0.56
+    key_font_special = 0.62 if key_h > 32 else 0.52
+    is_symbol = getattr(button_state, "gallery_keyboard_mode", "alpha") == "symbol"
+    shift_highlight = getattr(button_state, "gallery_keyboard_shift_next", False)
+    if is_symbol:
+        draw_standard_symbol_keyboard(
+            frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+            "tag_key_", font, key_font, key_font_special,
+            key_border_bgr=key_border, key_text_bgr=key_text, key_fill_bgr=key_fill,
+        )
+    else:
+        draw_standard_alpha_keyboard(
+            frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+            "tag_key_", font, key_font, key_font_special, shift_highlight,
+            key_border_bgr=key_border, key_text_bgr=key_text,
+            shift_highlight_color=MENU_ACTIVE_BLUE, key_fill_bgr=key_fill,
+        )
 
     if "tag_keyboard_panel" not in menu_buttons:
         menu_buttons["tag_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
@@ -515,7 +502,8 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
     dock_x = fw - GRID_SIDE_DOCK_WIDTH
     form_x = MODAL_EDGE_MARGIN
     form_w = dock_x - form_x  # extend to kiss dock (no gap west of storage)
-    form_h = 230  # title + 3 fields (no Cancel/Save; keyboard merged below)
+    # Tighter form so keyboard + preview bar move up and get more vertical space
+    form_h = 208  # title + 3 fields (reduced from 230 to expand keyboard upward)
     tags_row_top = header_h + 3
     form_y = min(tags_row_top, fh - form_h - 4)
     # No form background: dock draws strip + panel with same growth animation as other modals
@@ -549,8 +537,8 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
     input_x = form_x + lbl_w + 20
     input_w = form_w - lbl_w - 36
     input_h = 40
-    row_start_y = form_y + 56
-    row_gap = 58
+    row_start_y = form_y + 52
+    row_gap = 50  # tighter so preview bar + keyboard sit higher
 
     for fi, (fkey, flabel, placeholder) in enumerate(_TAG_FIELDS):
         ry = row_start_y + fi * row_gap
@@ -562,11 +550,13 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
                     font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
         is_active = (button_state.gallery_tag_active_field == fkey)
-        border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
-        input_bg = (28, 28, 34)  # dark fill for inputs; text uses form_text_color (white on classic blue, white on neon)
+        # Selected field: white border (active). Other two: no visible border (match input bg).
+        input_bg = (28, 28, 34)
+        border = (255, 255, 255) if is_active else input_bg
+        border_thick = 2 if is_active else 1
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h), input_bg, -1)
         cv2.rectangle(frame, (input_x, ry), (input_x + input_w, ry + input_h),
-                      border, 2 if is_active else 1, cv2.LINE_AA)
+                      border, border_thick, cv2.LINE_AA)
 
         if is_active:
             display = button_state.gallery_tag_keyboard_query
@@ -584,6 +574,16 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
             cv2.putText(frame, placeholder, (input_x + 9, ry + input_h // 2 + 7),
                         font, 0.45, placeholder_color, 1, cv2.LINE_AA)
 
+        # Blinking cursor in active field (same as email form)
+        if is_active:
+            cursor_index = max(0, min(getattr(button_state, "gallery_tag_cursor_index", 0), len(display)))
+            prefix = display[:cursor_index]
+            (cw, _), _ = cv2.getTextSize(prefix, font, 0.48, 1)
+            cursor_x = input_x + 9 + cw
+            if int(time.time() * 2) % 2 == 0:
+                cy1, cy2 = ry + 6, ry + input_h - 6
+                cv2.line(frame, (cursor_x, cy1), (cursor_x, cy2), (255, 255, 255), 2, cv2.LINE_AA)
+
         bkey = f"tag_field_{fkey}"
         if bkey not in menu_buttons:
             menu_buttons[bkey] = Button(input_x, ry, input_w, input_h, flabel)
@@ -591,16 +591,23 @@ def draw_tag_modal(frame: np.ndarray, output_dir: Optional[Path], header_h: int)
             b = menu_buttons[bkey]
             b.x, b.y, b.w, b.h = input_x, ry, input_w, input_h
 
-    # No band drawn: dock already fills the modal area with one continuous gradient; drawing a band created a visible separate bar under the inputs.
+    # ── Keyboard fused with modal; maximize space (preview bar + keys upward, spread width) ──
+    available_below = fh - (form_y + form_h) - 4
+    key_gap = 5  # slightly tighter for larger key surfaces
+    n_rows = 5
+    keyboard_region_h = max(120, available_below - _TK_BAR_H - 2)
+    dims = compute_standard_keyboard_dimensions(form_w, keyboard_region_h, key_gap=key_gap, n_rows=n_rows)
+    key_h = dims["key_h"]
+    keyboard_h = n_rows * (key_h + key_gap) + key_gap
+    keyboard_panel_h = _TK_BAR_H + keyboard_h + 4
+    _draw_tag_keyboard(frame, form_y + form_h, form_x, form_w, available_below, fused=True)
 
-    # ── Keyboard (merged into modal, always visible) ─────────────────────────────
-    _draw_tag_keyboard(frame, form_y + form_h, form_x, form_w)
-
+    # Single panel covering form + keyboard so they are one fused Edit Tags modal
     if "tag_modal_panel" not in menu_buttons:
-        menu_buttons["tag_modal_panel"] = Button(form_x, form_y, form_w, form_h, "")
+        menu_buttons["tag_modal_panel"] = Button(form_x, form_y, form_w, form_h + keyboard_panel_h, "")
     else:
         b = menu_buttons["tag_modal_panel"]
-        b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h
+        b.x, b.y, b.w, b.h = form_x, form_y, form_w, form_h + keyboard_panel_h
 
 
 def _viewer_rubber_band_offset(offset: float, idx: int, n: int) -> float:
@@ -1197,6 +1204,137 @@ def draw_delete_modal(
     menu_buttons["modal_no"].draw(frame, transparent=True)
 
 
+def draw_share_modal(frame: np.ndarray) -> None:
+    """Small modal: title, message (multi-line), OK button. Used for share result or warnings. While sending, no OK."""
+    title = getattr(button_state, "share_modal_title", "Share")
+    message = getattr(button_state, "share_modal_message", "")
+    sending = getattr(button_state, "share_modal_sending", False)
+    modal_w = 420
+    line_h = 24
+    lines = message.split("\n") if message else [""]
+    msg_h = min(120, len(lines) * line_h + 20)
+    modal_h = 80 + msg_h + 55
+    modal_x = (frame.shape[1] - modal_w) // 2
+    modal_y = (frame.shape[0] - modal_h) // 2
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    title_scale = 0.64
+    (tw, title_h), _ = cv2.getTextSize(title, font, title_scale, 2)
+    tit_x = modal_x + (modal_w - tw) // 2
+    tit_y = modal_y + 38
+    cv2.putText(frame, title, (tit_x, tit_y), font, title_scale, (255, 255, 255), 2, cv2.LINE_AA)
+
+    msg_scale = 0.48
+    for i, line in enumerate(lines[:5]):
+        msg_y = modal_y + 62 + i * line_h
+        cv2.putText(frame, line[:60], (modal_x + 20, msg_y), font, msg_scale, (220, 220, 220), 1, cv2.LINE_AA)
+
+    # OK only when not sending (thread finished or warning)
+    if not sending:
+        ok_btn_w = 100
+        ok_btn_h = 40
+        ok_btn_x = modal_x + (modal_w - ok_btn_w) // 2
+        ok_btn_y = modal_y + modal_h - ok_btn_h - 18
+        if "share_modal_ok" not in menu_buttons:
+            menu_buttons["share_modal_ok"] = Button(ok_btn_x, ok_btn_y, ok_btn_w, ok_btn_h, "OK")
+        else:
+            b = menu_buttons["share_modal_ok"]
+            b.x, b.y, b.w, b.h = ok_btn_x, ok_btn_y, ok_btn_w, ok_btn_h
+        menu_buttons["share_modal_ok"].is_active = True
+        menu_buttons["share_modal_ok"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE)
+    else:
+        if "share_modal_ok" in menu_buttons:
+            menu_buttons["share_modal_ok"].w = 0
+            menu_buttons["share_modal_ok"].h = 0
+
+
+def draw_share_confirm_modal(frame: np.ndarray) -> None:
+    """Modal before sending: 'Send by email?' with details (To, files, size) and Send / Cancel buttons."""
+    to_email = getattr(button_state, "share_confirm_to_email", "") or ""
+    n_images = getattr(button_state, "share_confirm_n_images", 0)
+    n_videos = getattr(button_state, "share_confirm_n_videos", 0)
+    size_str = getattr(button_state, "share_confirm_size_str", "")
+    file_count = getattr(button_state, "share_confirm_file_count", 0)
+    lines = [
+        f"To: {to_email[:50]}" if to_email else "To: (not set)",
+        f"Files: {file_count} ({n_images} image(s), {n_videos} video(s))",
+        f"Size: {size_str}",
+        "",
+        "Send these as attachments?",
+    ]
+    title = "Send by email?"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    title_scale = 0.72
+    msg_scale = 0.52
+    line_h = 28
+    padding_h = 40
+    title_top = 32
+    msg_top = 58
+    btn_h = 42
+    btn_gap = 18
+    btn_bottom_margin = 24
+
+    (title_w, title_th), _ = cv2.getTextSize(title, font, title_scale, 2)
+    msg_lines = lines[:6]
+    content_h = msg_top + len(msg_lines) * line_h + 20 + btn_h + btn_bottom_margin
+    modal_w = max(460, title_w + 2 * padding_h)
+    modal_h = content_h
+    modal_x = (frame.shape[1] - modal_w) // 2
+    modal_y = (frame.shape[0] - modal_h) // 2
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, 0), (frame.shape[1], frame.shape[0]), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (48, 48, 48), -1)
+    cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (120, 120, 120), 2, cv2.LINE_AA)
+
+    # Hit area for modal content (tap outside this closes the modal)
+    if "share_confirm_modal_panel" not in menu_buttons:
+        menu_buttons["share_confirm_modal_panel"] = Button(modal_x, modal_y, modal_w, modal_h, "")
+    else:
+        b = menu_buttons["share_confirm_modal_panel"]
+        b.x, b.y, b.w, b.h = modal_x, modal_y, modal_w, modal_h
+
+    tit_x = modal_x + (modal_w - title_w) // 2
+    tit_y = modal_y + title_top
+    cv2.putText(frame, title, (tit_x, tit_y), font, title_scale, (255, 255, 255), 2, cv2.LINE_AA)
+
+    for i, line in enumerate(msg_lines):
+        text = (line[:62] if line else "").strip()
+        if text:
+            (lw, lh), _ = cv2.getTextSize(text, font, msg_scale, 1)
+            msg_x = modal_x + (modal_w - lw) // 2
+            msg_y = modal_y + msg_top + i * line_h + int(line_h * 0.35)
+            cv2.putText(frame, text, (msg_x, msg_y), font, msg_scale, (235, 235, 235), 1, cv2.LINE_AA)
+
+    btn_w = 100
+    btn_y = modal_y + modal_h - btn_h - btn_bottom_margin
+    total_btns_w = btn_w * 2 + btn_gap
+    btn_block_x = modal_x + (modal_w - total_btns_w) // 2
+    send_btn_x = btn_block_x
+    cancel_btn_x = btn_block_x + btn_w + btn_gap
+    if "share_confirm_send" not in menu_buttons:
+        menu_buttons["share_confirm_send"] = Button(send_btn_x, btn_y, btn_w, btn_h, "Send")
+    else:
+        b = menu_buttons["share_confirm_send"]
+        b.x, b.y, b.w, b.h = send_btn_x, btn_y, btn_w, btn_h
+    if "share_confirm_cancel" not in menu_buttons:
+        menu_buttons["share_confirm_cancel"] = Button(cancel_btn_x, btn_y, btn_w, btn_h, "Cancel")
+    else:
+        b = menu_buttons["share_confirm_cancel"]
+        b.x, b.y, b.w, b.h = cancel_btn_x, btn_y, btn_w, btn_h
+    menu_buttons["share_confirm_send"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE)
+    menu_buttons["share_confirm_cancel"].draw(frame, transparent=True, active_color=(120, 120, 120))
+
+
 def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     """Modal to choose a folder when moving selected items. When inside a folder, includes 'Gallery' to remove from folder."""
     folders = getattr(button_state, "gallery_archive_folders", [])
@@ -1249,14 +1387,17 @@ def draw_move_to_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
 
 
 def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, form_w: int) -> None:
-    """Unified blue panel for folder rename: title + input at top, keyboard below. Text only in input bar."""
+    """Unified blue panel for folder rename: title + input at top, standard keyboard below."""
     fh, _ = frame.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
-    form_h = 100  # title + input row (enough for title, label, input, and gap above keyboard)
-    form_to_keyboard_gap = 10  # clear space between input field and first row of keys
-    n_rows = len(_TK_ROWS) + 2  # letter rows + numbers + special
-    keyboard_h = n_rows * (_TK_H + _TK_GAP) + _TK_GAP + 6
-    panel_h = form_h + form_to_keyboard_gap + keyboard_h
+    form_h = 100
+    form_to_keyboard_gap = 10
+    key_gap = 6
+    n_rows = 5
+    dims = compute_standard_keyboard_dimensions(form_w, 200, key_gap=key_gap, n_rows=n_rows)
+    key_w, key_h, sp_w = dims["key_w"], dims["key_h"], dims["sp_w"]
+    keyboard_h = n_rows * (key_h + key_gap) + key_gap
+    panel_h = form_h + form_to_keyboard_gap + keyboard_h + 6
     panel_w = form_w
     px = form_x
     py = min(y_top, fh - panel_h - 4)
@@ -1283,7 +1424,6 @@ def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, fo
             feathered_composite(frame, gy0, gy1, gx0, gx1, glow_patch, ACTION_BTN_NEON_GLOW, feather_px=14)
     cv2.rectangle(frame, (px, py), (px + panel_w - 1, py + panel_h - 1), panel_border, max(1, ACTION_BTN_BORDER_THICKNESS), cv2.LINE_AA)
 
-    # Form section at top of panel: title + Rename input (text only here, not on keyboard)
     form_text_color = CLASSIC_ACTION_TEXT_BGR if GALLERY_ACTION_STYLE == "classic" else (240, 240, 240)
     title = "Rename folder"
     (tw, th), _ = cv2.getTextSize(title, font, 0.60, 1)
@@ -1305,57 +1445,27 @@ def _draw_archive_rename_keyboard(frame: np.ndarray, y_top: int, form_x: int, fo
     cv2.putText(frame, query[:40], (input_x + 9, ry + input_h // 2 + 7),
                 font, 0.48, form_text_color, 1, cv2.LINE_AA)
 
-    key_border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else DOCK_ROW_WHITE_BORDER
+    # Keys always dark text on light gray (same as tag keyboard)
+    key_border = _TK_KEY_BORDER
+    key_text = _TK_KEY_TEXT
     key_y = py + form_h + form_to_keyboard_gap
-    for row in _TK_ROWS:
-        row_w = len(row) * (_TK_W + _TK_GAP) - _TK_GAP
-        key_x = px + (panel_w - row_w) // 2
-        for c in row:
-            kx, ky = key_x, key_y
-            draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-            cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-            (cw, ch), _ = cv2.getTextSize(c.upper(), font, _TK_FONT_KEY, 1)
-            cv2.putText(frame, c.upper(), (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                        font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-            bkey = f"archive_rename_key_{c}"
-            if bkey not in menu_buttons:
-                menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
-            else:
-                menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-            key_x += _TK_W + _TK_GAP
-        key_y += _TK_H + _TK_GAP
-    row_w = len(_TK_NUMS) * (_TK_W + _TK_GAP) - _TK_GAP
-    key_x = px + (panel_w - row_w) // 2
-    for c in _TK_NUMS:
-        kx, ky = key_x, key_y
-        draw_key_bg_clipped(frame, kx, ky, _TK_W, _TK_H)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-        (cw, ch), _ = cv2.getTextSize(c, font, _TK_FONT_KEY, 1)
-        cv2.putText(frame, c, (kx + (_TK_W - cw) // 2, ky + (_TK_H + ch) // 2),
-                    font, _TK_FONT_KEY, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-        bkey = f"archive_rename_key_{c}"
-        if bkey not in menu_buttons:
-            menu_buttons[bkey] = Button(kx, ky, _TK_W, _TK_H, c)
-        else:
-            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-        key_x += _TK_W + _TK_GAP
-    key_y += _TK_H + _TK_GAP
-    sp_row_w = len(_TK_SPECIAL) * (_TK_SP_W + _TK_GAP) - _TK_GAP
-    key_x = px + (panel_w - sp_row_w) // 2
-    for label, val in _TK_SPECIAL:
-        kx, ky = key_x, key_y
-        draw_key_bg_clipped(frame, kx, ky, _TK_SP_W, _TK_H)
-        cv2.rectangle(frame, (kx, ky), (kx + _TK_SP_W, ky + _TK_H), key_border, 1, cv2.LINE_AA)
-        (tw, _), _ = cv2.getTextSize(label, font, _TK_FONT_SPECIAL, 1)
-        cv2.putText(frame, label, (kx + (_TK_SP_W - tw) // 2, ky + _TK_H - 9),
-                    font, _TK_FONT_SPECIAL, _TK_KEY_TEXT, 1, cv2.LINE_AA)
-        bkey = f"archive_rename_key_{val}"
-        if bkey not in menu_buttons:
-            menu_buttons[bkey] = Button(kx, ky, _TK_SP_W, _TK_H, label)
-        else:
-            menu_buttons[bkey].x, menu_buttons[bkey].y = kx, ky
-            menu_buttons[bkey].w = _TK_SP_W
-        key_x += _TK_SP_W + _TK_GAP
+    key_font = 0.66 if key_h > 32 else 0.56
+    key_font_special = 0.62 if key_h > 32 else 0.52
+    is_symbol = getattr(button_state, "gallery_keyboard_mode", "alpha") == "symbol"
+    shift_highlight = getattr(button_state, "gallery_keyboard_shift_next", False)
+    if is_symbol:
+        draw_standard_symbol_keyboard(
+            frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+            "archive_rename_key_", font, key_font, key_font_special,
+            key_border_bgr=key_border, key_text_bgr=key_text,
+        )
+    else:
+        draw_standard_alpha_keyboard(
+            frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+            "archive_rename_key_", font, key_font, key_font_special, shift_highlight,
+            key_border_bgr=key_border, key_text_bgr=key_text,
+            shift_highlight_color=MENU_ACTIVE_BLUE,
+        )
 
     if "archive_rename_keyboard_panel" not in menu_buttons:
         menu_buttons["archive_rename_keyboard_panel"] = Button(px, py, panel_w, panel_h, "")
@@ -1632,6 +1742,40 @@ def _draw_gallery_header(
             gradient_colors=_grad_del, fill_alpha=ACTION_BTN_FILL_ALPHA, neon_border_color=_border_del,
         )
 
+    # EMAIL (Share) button: right next to DELETE, only when selection + online + email verified
+    email_verified = bool(getattr(app_state, "OUTPUT_DIR", None) and get_email_verified(app_state.OUTPUT_DIR))
+    online = bool((HUD.connected_ssid or "").strip())
+    show_share_btn = (
+        button_state.gallery_select_mode
+        and button_state.gallery_selected_items
+        and online
+        and email_verified
+    )
+    if show_share_btn:
+        email_btn_w = 88  # enough for "EMAIL" label
+        email_btn_h = delete_btn_h
+        delete_right = delete_btn_x + delete_btn_w
+        # Center EMAIL in the gap between DELETE and the "GALLERY" title text
+        gap_center = (delete_right + title_x) // 2
+        email_btn_x = gap_center - email_btn_w // 2
+        email_btn_y = action_btn_y
+        if "gallery_share_selected" not in menu_buttons:
+            menu_buttons["gallery_share_selected"] = Button(email_btn_x, email_btn_y, email_btn_w, email_btn_h, "EMAIL")
+        else:
+            menu_buttons["gallery_share_selected"].x, menu_buttons["gallery_share_selected"].y = email_btn_x, email_btn_y
+            menu_buttons["gallery_share_selected"].w, menu_buttons["gallery_share_selected"].h = email_btn_w, email_btn_h
+        _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
+        _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
+        menu_buttons["gallery_share_selected"].is_active = True
+        menu_buttons["gallery_share_selected"].draw(
+            frame, transparent=True, active_color=MENU_ACTIVE_BLUE,
+            gradient_colors=_grad, fill_alpha=ACTION_BTN_FILL_ALPHA, neon_border_color=_border,
+        )
+    else:
+        if "gallery_share_selected" in menu_buttons:
+            menu_buttons["gallery_share_selected"].w = 0
+            menu_buttons["gallery_share_selected"].h = 0
+
     if items:
         _grad = (CLASSIC_ACTION_FILL_TOP, CLASSIC_ACTION_FILL_BOT) if GALLERY_ACTION_STYLE == "classic" else (ACTION_BTN_FILL_DARK_TOP, ACTION_BTN_FILL_DARK_BOT)
         _border = CLASSIC_ACTION_BORDER_BGR if GALLERY_ACTION_STYLE == "classic" else ACTION_BTN_NEON_BORDER_BGR
@@ -1698,11 +1842,19 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         draw_image_viewer(frame, items, output_dir)
         if button_state.gallery_delete_modal_open:
             draw_delete_modal(frame)
+        if getattr(button_state, "share_confirm_modal_open", False):
+            draw_share_confirm_modal(frame)
+        if getattr(button_state, "share_modal_open", False):
+            draw_share_modal(frame)
         return
     elif button_state.gallery_viewer_mode == "video":
         draw_video_viewer(frame, items, output_dir)
         if button_state.gallery_delete_modal_open:
             draw_delete_modal(frame)
+        if getattr(button_state, "share_confirm_modal_open", False):
+            draw_share_confirm_modal(frame)
+        if getattr(button_state, "share_modal_open", False):
+            draw_share_modal(frame)
         return
 
     fh, fw = frame.shape[0], frame.shape[1]
@@ -2035,17 +2187,18 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     # Redraw header on top so scrolled content (archive panel, thumbnails) goes under it
     _draw_gallery_header(frame, header_h, items, folder_title)
 
-    # Side dock first so strip + panel grow from Tags button (same as Filter/Sort); then form content on top
-    draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
-    if button_state.gallery_tag_modal_open:
-        draw_tag_modal(frame, output_dir, header_h)
-
+    # Archive modals first (lower z-order) so Tags/Priority/Rename/Search/Filter/Sort modals draw on top
     if button_state.gallery_archive_move_modal_open:
         draw_move_to_modal(frame, output_dir)
     if getattr(button_state, "gallery_archive_folder_action_id", None):
         draw_archive_folder_action_modal(frame, output_dir, header_h)
     if getattr(button_state, "gallery_archive_delete_confirm_folder_id", None):
         draw_archive_folder_delete_modal(frame, output_dir)
+
+    # Side dock and action modals (Tags, Priority, Rename, Filter, Sort, Search) on top of archive modals
+    draw_grid_side_dock(frame, header_h, items, output_dir, button_state.gallery_scroll_offset)
+    if button_state.gallery_tag_modal_open:
+        draw_tag_modal(frame, output_dir, header_h)
 
     if button_state.gallery_delete_modal_open:
         if button_state.gallery_delete_modal_kind == "batch":
@@ -2059,3 +2212,8 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
             )
         else:
             draw_delete_modal(frame)
+
+    if getattr(button_state, "share_confirm_modal_open", False):
+        draw_share_confirm_modal(frame)
+    if getattr(button_state, "share_modal_open", False):
+        draw_share_modal(frame)

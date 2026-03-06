@@ -41,13 +41,16 @@ from ..state import button_state
 from .button import Button, menu_buttons, _add_glassy_shine
 from .keyboard import (
     ROWS_QWERTY as KEYBOARD_ROWS_QWERTY,
-    ROW_NUMBERS as KEYBOARD_ROW_NUMBERS,
-    SPECIAL_KEYS_FULL as KEYBOARD_SPECIAL,
     FULL_KEY_SCALE as KEY_SCALE,
     draw_key_bg_clipped,
     dimensions_for_scale,
     KEY_BORDER_BGR as KEYBOARD_KEY_BORDER,
     KEY_TEXT_BGR as KEYBOARD_KEY_TEXT,
+)
+from .standard_keyboard import (
+    draw_standard_alpha_keyboard,
+    draw_standard_symbol_keyboard,
+    compute_standard_keyboard_dimensions,
 )
 from .priority_circle import draw_priority_circle_neon
 from .storage_bar import draw_storage_bar, feathered_composite
@@ -484,7 +487,9 @@ def _get_active_modal_info(
             content_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
             px = MODAL_EDGE_MARGIN
             total_w = content_w + MODAL_CONNECTOR_WIDTH
-            return ("tags", row_y, row_h, px, total_w, 280)
+            # Full height so Edit Tags + keyboard are one fused modal
+            modal_h = max(280, fh - row_y - 8)
+            return ("tags", row_y, row_h, px, total_w, modal_h)
         if button_state.gallery_priority_modal_open:
             panel_h = MODAL_TITLE_H + len(PRIORITY_OPTIONS) * MODAL_OPTION_H + 10
             row_y = dock_y + inset_y + row_h + div
@@ -492,22 +497,24 @@ def _get_active_modal_info(
             total_w = MODAL_PANEL_W + MODAL_CONNECTOR_WIDTH
             return ("priority", row_y, row_h, px, total_w, panel_h)
         if button_state.gallery_rename_modal_open:
-            num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
-            num_rows = num_letter_rows + 1 + 1
-            total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
-            panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
             row_y = dock_y + inset_y + 2 * (row_h + div)
+            # Use full height below rename row so keys expand to fill the modal
+            panel_h = max(
+                KEYBOARD_BAR_H + 120,
+                fh - row_y - 12,
+            )
             content_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
             px = MODAL_EDGE_MARGIN
             total_w = content_w + MODAL_CONNECTOR_WIDTH
             return ("rename", row_y, row_h, px, total_w, panel_h)
     else:
         if button_state.gallery_search_keyboard_open:
-            num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
-            num_rows = num_letter_rows + 1 + 1
-            total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
-            panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
             row_y = dock_y + inset_y
+            # Use full height below search row so keys can expand to fill the modal
+            panel_h = max(
+                KEYBOARD_BAR_H + 120,
+                fh - row_y - 12,
+            )
             content_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
             px = MODAL_EDGE_MARGIN
             total_w = content_w + MODAL_CONNECTOR_WIDTH
@@ -928,89 +935,49 @@ def _draw_rename_keyboard(
     frame: np.ndarray, dock_x: int, dock_y: int, vis_left: int = -1, draw_panel: bool = True,
     content_visible: bool = True,
 ) -> None:
-    """Rename keyboard aligned with Row 3 (Rename button) in select mode. Extends from left edge to dock."""
+    """Standard keyboard (alpha/symbol, ?123, Shift, shortcut row); expands to fill modal height."""
     fh, fw = frame.shape[:2]
-    num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
-    num_rows = num_letter_rows + 1 + 1
-    total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
     panel_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
-    panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
-    special_w = KEY_W * 2
-
     row3_top_y = dock_y + DOCK_TOP_INSET_Y + 2 * (DOCK_ROW_HEIGHT + DOCK_DIVIDER_THICKNESS)
     py = row3_top_y
-    if py + panel_h > fh - 2:
-        py = fh - panel_h - 2
+    # Use full height below rename row so keys expand to fill available space
+    panel_h = max(KEYBOARD_BAR_H + 120, fh - py - 12)
     px = MODAL_EDGE_MARGIN
-    if draw_panel and content_visible and vis_left < 0:
+    if draw_panel and content_visible:
         _draw_modal_panel_connected(
             frame, px, py, panel_w, panel_h,
             top_bgr=_modal_seam_color(DOCK_ROW_HEIGHT, panel_h),
         )
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    if content_visible and (vis_left < 0 or px + panel_w >= vis_left):
+    if content_visible:
         display = button_state.gallery_rename_query if button_state.gallery_rename_query else "New name..."
         _put_text_white_glow(frame, display[:40], px + 10, py + KEYBOARD_BAR_H - 10, font, KEYBOARD_FONT_BAR, color=MODAL_TEXT_COLOR)
 
-    key_y = py + KEYBOARD_BAR_H + KEY_GAP
-    for row in KEYBOARD_ROWS_QWERTY:
-        key_x = px + (panel_w - (len(row) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
-        for c in row:
-            if vis_left >= 0 and key_x + KEY_W < vis_left:
-                key_x += KEY_W + KEY_GAP
-                continue
-            if content_visible:
-                draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-                cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
-                (cw, ch), _ = cv2.getTextSize(c.upper(), font, KEYBOARD_FONT_KEY, 1)
-                cv2.putText(frame, c.upper(), (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
-                            font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
-            key = f"rename_key_{c}"
-            if key not in menu_buttons:
-                menu_buttons[key] = Button(key_x, key_y, KEY_W, KEY_H, c)
-            else:
-                menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
-            key_x += KEY_W + KEY_GAP
-        key_y += KEY_H + KEY_GAP
-
-    key_x = px + (panel_w - (len(KEYBOARD_ROW_NUMBERS) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
-    for c in KEYBOARD_ROW_NUMBERS:
-        if vis_left >= 0 and key_x + KEY_W < vis_left:
-            key_x += KEY_W + KEY_GAP
-            continue
-        if content_visible:
-            draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
-            (cw, ch), _ = cv2.getTextSize(c, font, KEYBOARD_FONT_KEY, 1)
-            cv2.putText(frame, c, (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
-                        font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
-        key = f"rename_key_{c}"
-        if key not in menu_buttons:
-            menu_buttons[key] = Button(key_x, key_y, KEY_W, KEY_H, c)
+    keyboard_region_h = panel_h - KEYBOARD_BAR_H - KEYBOARD_FOOTER_GAP
+    key_gap = 6
+    n_rows = 5
+    dims = compute_standard_keyboard_dimensions(panel_w, keyboard_region_h, key_gap=key_gap, n_rows=n_rows)
+    key_w, key_h, sp_w = dims["key_w"], dims["key_h"], dims["sp_w"]
+    key_y = py + KEYBOARD_BAR_H + key_gap
+    key_font = 0.66 if key_h > 32 else 0.56
+    key_font_special = 0.62 if key_h > 32 else 0.52
+    is_symbol = getattr(button_state, "gallery_keyboard_mode", "alpha") == "symbol"
+    shift_highlight = getattr(button_state, "gallery_keyboard_shift_next", False)
+    if content_visible:
+        if is_symbol:
+            draw_standard_symbol_keyboard(
+                frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+                "rename_key_", font, key_font, key_font_special,
+                key_border_bgr=ACTION_KEY_BORDER, key_text_bgr=KEYBOARD_KEY_TEXT,
+            )
         else:
-            menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
-        key_x += KEY_W + KEY_GAP
-    key_y += KEY_H + KEY_GAP
-
-    key_x = px + (panel_w - (len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) - KEY_GAP)) // 2
-    for label, value in KEYBOARD_SPECIAL:
-        if vis_left >= 0 and key_x + special_w < vis_left:
-            key_x += special_w + KEY_GAP
-            continue
-        if content_visible:
-            draw_key_bg_clipped(frame, key_x, key_y, special_w, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
-            (tw, _), _ = cv2.getTextSize(label, font, KEYBOARD_FONT_SPECIAL, 1)
-            cv2.putText(frame, label, (key_x + (special_w - tw) // 2, key_y + KEY_H - 10),
-                        font, KEYBOARD_FONT_SPECIAL, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
-        key = f"rename_key_{value}"
-        if key not in menu_buttons:
-            menu_buttons[key] = Button(key_x, key_y, special_w, KEY_H, label)
-        else:
-            menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
-            menu_buttons[key].w = special_w
-        key_x += special_w + KEY_GAP
+            draw_standard_alpha_keyboard(
+                frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+                "rename_key_", font, key_font, key_font_special, shift_highlight,
+                key_border_bgr=ACTION_KEY_BORDER, key_text_bgr=KEYBOARD_KEY_TEXT,
+                shift_highlight_color=MENU_ACTIVE_BLUE,
+            )
 
     total_w = panel_w + MODAL_CONNECTOR_WIDTH
     if "rename_keyboard_panel" not in menu_buttons:
@@ -1024,85 +991,50 @@ def _draw_search_keyboard(
     frame: np.ndarray, dock_x: int, dock_y: int, vis_left: int = -1, draw_panel: bool = True,
     content_visible: bool = True,
 ) -> None:
-    """Draw on-screen keyboard aligned with top of Search button. Extends from left edge to dock."""
+    """Standard keyboard (alpha/symbol, ?123, Shift, shortcut row); expands to fill modal height."""
     fh, fw = frame.shape[:2]
-    num_letter_rows = len(KEYBOARD_ROWS_QWERTY)
-    num_rows = num_letter_rows + 1 + 1  # letters + number row + special
-    total_key_h = num_rows * (KEY_H + KEY_GAP) + KEY_GAP
     panel_w = dock_x - MODAL_GAP_WEST - MODAL_EDGE_MARGIN
-    panel_h = KEYBOARD_BAR_H + total_key_h + KEYBOARD_FOOTER_GAP
-    special_w = KEY_W * 2
     search_row_top = dock_y + DOCK_TOP_INSET_Y
     py = search_row_top
-    if py + panel_h > fh - 2:
-        py = fh - panel_h - 2
+    # Use full height below search row so keys expand to fill available space
+    panel_h = max(KEYBOARD_BAR_H + 120, fh - py - 12)
     px = MODAL_EDGE_MARGIN
-    if draw_panel and content_visible and vis_left < 0:
+    if draw_panel and content_visible:
         _draw_modal_panel_connected(
             frame, px, py, panel_w, panel_h,
             top_bgr=_modal_seam_color(DOCK_ROW_HEIGHT, panel_h),
         )
 
     font = cv2.FONT_HERSHEY_SIMPLEX
-    if content_visible and (vis_left < 0 or px + panel_w >= vis_left):
+    if content_visible:
         display = button_state.gallery_search_query if button_state.gallery_search_query else "Search..."
         _put_text_white_glow(frame, display[:40], px + 10, py + KEYBOARD_BAR_H - 10, font, KEYBOARD_FONT_BAR, color=MODAL_TEXT_COLOR)
-    key_y = py + KEYBOARD_BAR_H + KEY_GAP
-    for row in KEYBOARD_ROWS_QWERTY:
-        key_x = px + (panel_w - (len(row) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
-        for c in row:
-            if vis_left >= 0 and key_x + KEY_W < vis_left:
-                key_x += KEY_W + KEY_GAP
-                continue
-            if content_visible:
-                draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-                cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
-                (cw, ch), _ = cv2.getTextSize(c.upper(), font, KEYBOARD_FONT_KEY, 1)
-                cv2.putText(frame, c.upper(), (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
-                            font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
-            key = f"search_key_{c}"
-            if key not in menu_buttons:
-                menu_buttons[key] = Button(key_x, key_y, KEY_W, KEY_H, c)
-            else:
-                menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
-            key_x += KEY_W + KEY_GAP
-        key_y += KEY_H + KEY_GAP
-    key_x = px + (panel_w - (len(KEYBOARD_ROW_NUMBERS) * (KEY_W + KEY_GAP) - KEY_GAP)) // 2
-    for c in KEYBOARD_ROW_NUMBERS:
-        if vis_left >= 0 and key_x + KEY_W < vis_left:
-            key_x += KEY_W + KEY_GAP
-            continue
-        if content_visible:
-            draw_key_bg_clipped(frame, key_x, key_y, KEY_W, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + KEY_W, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
-            (cw, ch), _ = cv2.getTextSize(c, font, KEYBOARD_FONT_KEY, 1)
-            cv2.putText(frame, c, (key_x + (KEY_W - cw) // 2, key_y + (KEY_H + ch) // 2),
-                        font, KEYBOARD_FONT_KEY, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
-        key = f"search_key_{c}"
-        if key not in menu_buttons:
-            menu_buttons[key] = Button(key_x, key_y, KEY_W, KEY_H, c)
+
+    keyboard_region_h = panel_h - KEYBOARD_BAR_H - KEYBOARD_FOOTER_GAP
+    key_gap = 6
+    n_rows = 5
+    dims = compute_standard_keyboard_dimensions(panel_w, keyboard_region_h, key_gap=key_gap, n_rows=n_rows)
+    key_w, key_h, sp_w = dims["key_w"], dims["key_h"], dims["sp_w"]
+    key_y = py + KEYBOARD_BAR_H + key_gap
+    key_font = 0.66 if key_h > 32 else 0.56
+    key_font_special = 0.62 if key_h > 32 else 0.52
+    is_symbol = getattr(button_state, "gallery_keyboard_mode", "alpha") == "symbol"
+    shift_highlight = getattr(button_state, "gallery_keyboard_shift_next", False)
+    if content_visible:
+        if is_symbol:
+            draw_standard_symbol_keyboard(
+                frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+                "search_key_", font, key_font, key_font_special,
+                key_border_bgr=ACTION_KEY_BORDER, key_text_bgr=KEYBOARD_KEY_TEXT,
+            )
         else:
-            menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
-        key_x += KEY_W + KEY_GAP
-    key_y += KEY_H + KEY_GAP
-    key_x = px + (panel_w - (len(KEYBOARD_SPECIAL) * (special_w + KEY_GAP) - KEY_GAP)) // 2
-    for label, value in KEYBOARD_SPECIAL:
-        if vis_left >= 0 and key_x + special_w < vis_left:
-            key_x += special_w + KEY_GAP
-            continue
-        if content_visible:
-            draw_key_bg_clipped(frame, key_x, key_y, special_w, KEY_H)
-            cv2.rectangle(frame, (key_x, key_y), (key_x + special_w, key_y + KEY_H), ACTION_KEY_BORDER, 1, cv2.LINE_AA)
-            (tw, _), _ = cv2.getTextSize(label, font, KEYBOARD_FONT_SPECIAL, 1)
-            cv2.putText(frame, label, (key_x + (special_w - tw) // 2, key_y + KEY_H - 10),
-                        font, KEYBOARD_FONT_SPECIAL, KEYBOARD_KEY_TEXT, 1, cv2.LINE_AA)
-        key = f"search_key_{value}"
-        if key not in menu_buttons:
-            menu_buttons[key] = Button(key_x, key_y, special_w, KEY_H, label)
-        else:
-            menu_buttons[key].x, menu_buttons[key].y = key_x, key_y
-            menu_buttons[key].w = special_w
-        key_x += special_w + KEY_GAP
+            draw_standard_alpha_keyboard(
+                frame, px, key_y, panel_w, key_w, key_h, sp_w, key_gap,
+                "search_key_", font, key_font, key_font_special, shift_highlight,
+                key_border_bgr=ACTION_KEY_BORDER, key_text_bgr=KEYBOARD_KEY_TEXT,
+                shift_highlight_color=MENU_ACTIVE_BLUE,
+            )
+
     total_w = panel_w + MODAL_CONNECTOR_WIDTH
     if "search_keyboard_panel" not in menu_buttons:
         menu_buttons["search_keyboard_panel"] = Button(px, py, total_w, panel_h, "")
