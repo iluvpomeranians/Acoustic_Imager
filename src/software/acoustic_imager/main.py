@@ -52,6 +52,10 @@ from acoustic_imager.dsp.heatmap import (
     spectra_to_heatmap_absolute,
     build_w_lut_u8,
     blend_heatmap_left,
+    draw_crosshairs,
+    find_local_max,
+    CROSSHAIR_TRACK_RADIUS,
+    CROSSHAIR_DISMISS_RADIUS_PX,
 )
 from acoustic_imager.dsp.bars import (
     draw_db_colorbar,
@@ -443,6 +447,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 dt_ms = (now - state.ui_last_tap_time) * 1000
                 tap_dist = ((mx - state.ui_last_tap_x) ** 2 + (my - state.ui_last_tap_y) ** 2) ** 0.5
                 if dt_ms < config.UI_DOUBLE_TAP_MS and tap_dist < config.UI_DOUBLE_TAP_RADIUS_PX:
+                    # Double-tap has priority: hide/show HUD
                     menu_hide_y = getattr(config, "UI_MENU_HIDE_OFFSET_Y", 80)
                     menu_hidden = (
                         state.ui_menu_offset_target >= config.UI_MENU_HIDE_OFFSET * 0.5
@@ -465,6 +470,26 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                         state.ui_menu_offset_y_target = float(menu_hide_y)
                         button_state.menu_open = False
                     state.ui_last_tap_time = 0.0
+                    return
+                # Single tap: crosshair toggle in heatmap (if crosshairs enabled)
+                if button_state.crosshairs_enabled and 0 <= mx < left_width and 0 <= my < h:
+                    dx = mx - int(button_state.crosshair_x)
+                    dy = my - int(button_state.crosshair_y)
+                    dist_sq = dx * dx + dy * dy
+                    if button_state.crosshair_visible and dist_sq <= CROSSHAIR_DISMISS_RADIUS_PX * CROSSHAIR_DISMISS_RADIUS_PX:
+                        button_state.crosshair_visible = False
+                    else:
+                        button_state.crosshair_visible = True
+                        button_state.crosshair_x = float(mx)
+                        button_state.crosshair_y = float(my)
+                        # Reset trend/acceleration state for new track
+                        button_state.crosshair_level_history = []
+                        button_state.crosshair_trend_history = []
+                        button_state.crosshair_prev_baseline_db = None
+                        button_state.crosshair_next_boundary_time = 0.0
+                    state.ui_last_tap_time = now
+                    state.ui_last_tap_x = mx
+                    state.ui_last_tap_y = my
                     return
                 state.ui_last_tap_time = now
                 state.ui_last_tap_x = mx
@@ -724,6 +749,8 @@ def main() -> None:
             prof.mark("read_source")
 
             # ---- Beamforming + Heatmap generation ----
+            spec_matrix = None
+            band_freqs = np.array([], dtype=np.float64)
             if source_label == "SIM":
                 # Filter sources by bandpass
                 selected_indices = [
@@ -736,6 +763,7 @@ def main() -> None:
                 else:
                     n_sel = len(selected_indices)
                     spec_matrix = np.zeros((n_sel, len(config.ANGLES)), dtype=np.float32)
+                    band_freqs = np.array([float(config.SIM_SOURCE_FREQS[i]) for i in selected_indices], dtype=np.float64)
                     power = np.zeros(n_sel, dtype=np.float32)
 
                     running_max_power = 1e-12
@@ -771,6 +799,7 @@ def main() -> None:
                     heatmap_left = np.zeros((config.HEIGHT, left_width), dtype=np.uint8)
                 else:
                     spec_matrix = np.zeros((len(bins), len(config.ANGLES)), dtype=np.float32)
+                    band_freqs = np.array([float(config.f_axis[b]) for b in bins], dtype=np.float64)
                     power = np.zeros(len(bins), dtype=np.float32)
 
                     for i, f_idx in enumerate(bins):
@@ -833,6 +862,75 @@ def main() -> None:
             )
             draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
             prof.mark("bars")
+
+            # ---- Crosshairs on heatmap (5mm cross, local freq at this blob, click to show/dismiss, auto-tracking) ----
+            if button_state.crosshairs_enabled and button_state.crosshair_visible:
+                # Auto-tracking: stick to local max in heatmap
+                cx = int(button_state.crosshair_x)
+                cy = int(button_state.crosshair_y)
+                nx, ny = find_local_max(heatmap_left, cx, cy, CROSSHAIR_TRACK_RADIUS)
+                # If blob left the screen (edge) or faded (very low intensity), hide crosshair until next click
+                edge_margin = 3
+                blob_gone = (
+                    nx < edge_margin or nx >= left_width - edge_margin
+                    or ny < edge_margin or ny >= config.HEIGHT - edge_margin
+                    or int(heatmap_left[ny, nx]) < 12
+                )
+                if blob_gone:
+                    button_state.crosshair_visible = False
+                else:
+                    button_state.crosshair_x = float(nx)
+                    button_state.crosshair_y = float(ny)
+                    # Current dB at tracked pixel for trend
+                    val_at = int(heatmap_left[ny, nx])
+                    db_at = config.REL_DB_MIN + (val_at / 255.0) * (config.REL_DB_MAX - config.REL_DB_MIN)
+                    now_t = time.time()
+                    # Append to level history (keep 60 s)
+                    button_state.crosshair_level_history.append((now_t, db_at))
+                    max_history_t = 60.0
+                    button_state.crosshair_level_history = [
+                        (t, d) for t, d in button_state.crosshair_level_history if t >= now_t - max_history_t
+                    ]
+                    # 3 s trend: baseline = mean of [boundary-3, boundary], current = mean of last 3 s
+                    trend_db = None
+                    if button_state.crosshair_next_boundary_time <= 0:
+                        button_state.crosshair_next_boundary_time = now_t + 3.0
+                    elif now_t >= button_state.crosshair_next_boundary_time:
+                        boundary = button_state.crosshair_next_boundary_time
+                        prev_3 = [(t, d) for t, d in button_state.crosshair_level_history if boundary - 3 <= t < boundary]
+                        if prev_3:
+                            baseline = sum(d for _, d in prev_3) / len(prev_3)
+                            if button_state.crosshair_prev_baseline_db is not None:
+                                trend_db = baseline - button_state.crosshair_prev_baseline_db
+                                button_state.crosshair_trend_history.append(trend_db)
+                                if len(button_state.crosshair_trend_history) > 4:
+                                    button_state.crosshair_trend_history = button_state.crosshair_trend_history[-4:]
+                            button_state.crosshair_prev_baseline_db = baseline
+                        button_state.crosshair_next_boundary_time = boundary + 3.0
+                    # Live trend: current 3 s mean vs previous 3 s mean
+                    if trend_db is None and button_state.crosshair_level_history:
+                        recent = [(t, d) for t, d in button_state.crosshair_level_history if t >= now_t - 3]
+                        if recent and button_state.crosshair_prev_baseline_db is not None:
+                            cur_mean = sum(d for _, d in recent) / len(recent)
+                            trend_db = cur_mean - button_state.crosshair_prev_baseline_db
+                    # 12 s acceleration: slope of trend over last 4 samples (4 × 3 s)
+                    accel_db = None
+                    if len(button_state.crosshair_trend_history) >= 2:
+                        th = button_state.crosshair_trend_history
+                        accel_db = (th[-1] - th[0]) / max(1, len(th) - 1)  # dB per 3 s period
+                    # Frequency dominant at this location
+                    if spec_matrix is not None and band_freqs.size > 0:
+                        n_ang = spec_matrix.shape[1]
+                        angle_idx = int(np.clip(nx * (n_ang - 1) / max(1, left_width), 0, n_ang - 1))
+                        row = int(np.argmax(spec_matrix[:, angle_idx]))
+                        f_peak_hz = float(band_freqs[row])
+                    else:
+                        f_peak_hz = (f_min + f_max) / 2.0
+                    draw_crosshairs(
+                        output_frame, nx, ny, left_width, config.HEIGHT,
+                        heatmap_left, config.REL_DB_MIN, config.REL_DB_MAX, f_peak_hz,
+                        trend_db=trend_db, accel_db=accel_db,
+                    )
 
             # ---- Draw debug info ----
             if button_state.debug_enabled:

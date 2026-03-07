@@ -37,6 +37,8 @@ SPECTRUM_CURVE_BGR = (255, 255, 200)
 SPECTRUM_CURVE_THICKNESS = 2
 DB_LABEL_COLOR = (200, 200, 200)
 RULER_TICK_COLOR = (180, 180, 180)
+# Extra gap (px) between tick baseline and the vertical scale numbers
+RULER_LABEL_GAP_ABOVE_TICKS = 14
 
 # Subsample curve to reduce polylines cost (step 2 = every 2nd bin)
 CURVE_SUBSAMPLE = 2
@@ -67,6 +69,8 @@ def _get_cached_db_ruler(bar_w: int, full_bar_bg: np.ndarray) -> np.ndarray:
     thickness = 1
 
     cv2.line(strip, (graph_left, y_baseline), (graph_right, y_baseline), RULER_TICK_COLOR, 1, cv2.LINE_AA)
+    # "dB" label at left of ruler (small, so numbers are clearly dB scale)
+    cv2.putText(strip, "dB", (graph_left, strip_h - 2), font, 0.32, DB_LABEL_COLOR, 1, cv2.LINE_AA)
     for db in range(int(SPECTRUM_DB_MIN), int(SPECTRUM_DB_MAX) + 1, 10):
         frac = (db - SPECTRUM_DB_MIN) / db_span
         x = int(np.clip(graph_left + frac * graph_width, graph_left, graph_right))
@@ -79,7 +83,7 @@ def _get_cached_db_ruler(bar_w: int, full_bar_bg: np.ndarray) -> np.ndarray:
         rotated = cv2.rotate(canvas, cv2.ROTATE_90_COUNTERCLOCKWISE)
         r_h, r_w = rotated.shape
         x0 = max(0, min(bar_w - r_w, x - r_w // 2))
-        y0 = max(0, min(strip_h - r_h, y_baseline - r_h - 10))
+        y0 = max(0, min(strip_h - r_h, y_baseline - r_h - RULER_LABEL_GAP_ABOVE_TICKS))
         roi = strip[y0 : y0 + r_h, x0 : x0 + r_w]
         if roi.size > 0:
             r_h_roi, r_w_roi = roi.shape[0], roi.shape[1]

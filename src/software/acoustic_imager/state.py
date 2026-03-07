@@ -61,6 +61,15 @@ class ButtonState:
     debug_enabled: bool = True
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
     spectrum_analyzer_mode: str = "dB"  # "dB" | "NORM" | "LITE" (LITE = NORM without bandpass overlay, for performance)
+    crosshairs_enabled: bool = True     # heatmap crosshairs with freq/dB tooltip (menu: ON/OFF)
+    crosshair_visible: bool = False     # True after click on heatmap; click again near crosshair to dismiss
+    crosshair_x: float = 0.0            # position (updated each frame to local max when visible)
+    crosshair_y: float = 0.0
+    # 3 s trend / 12 s acceleration (smart tracking)
+    crosshair_level_history: List[Tuple[float, float]] = field(default_factory=list)  # (t, db), last 60 s
+    crosshair_trend_history: List[float] = field(default_factory=list)   # trend dB at each 3 s boundary, keep 4
+    crosshair_prev_baseline_db: Optional[float] = None
+    crosshair_next_boundary_time: float = 0.0
 
     # Gallery state
     gallery_open: bool = False

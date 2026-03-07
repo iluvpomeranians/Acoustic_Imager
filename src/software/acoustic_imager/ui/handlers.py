@@ -1463,6 +1463,11 @@ def handle_menu_click(
         button_state.email_keyboard_mode = "alpha"
         return video_recorder
 
+    if "crosshairs" in menu_buttons and menu_buttons["crosshairs"].contains(x, y):
+        button_state.crosshairs_enabled = not button_state.crosshairs_enabled
+        menu_buttons["crosshairs"].text = "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF"
+        return video_recorder
+
     return video_recorder
 
 

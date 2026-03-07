@@ -424,7 +424,7 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     item_h = 40
     gap = 8
 
-    total_items = 8  # fps, gain, colormap, cam, source, debug, spectrum_analyzer, email_settings; SHOT/Gallery in bottom HUD
+    total_items = 9  # fps, gain, colormap, cam, source, debug, spectrum_analyzer, email_settings, crosshairs; SHOT/Gallery in bottom HUD
     dropdown_h = total_items * (item_h + gap) + gap
     dropdown_y = menu_y - dropdown_h - gap
 
@@ -456,6 +456,9 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     email_y = spectrum_y + (item_h + gap)
     menu_buttons["email_settings"] = Button(menu_x, email_y, menu_w, item_h, "EMAIL SETTINGS")
 
+    crosshairs_y = email_y + (item_h + gap)
+    menu_buttons["crosshairs"] = Button(menu_x, crosshairs_y, menu_w, item_h, "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF")
+
     # SHOT, Gallery, REC live in bottom HUD (bottom_hud creates/positions them each frame)
     menu_buttons["shot"] = Button(0, 0, 0, 0, "SHOT")
     menu_buttons["gallery"] = Button(0, 0, 0, 0, "GALLERY")
@@ -477,7 +480,7 @@ def update_button_states(mx: int, my: int) -> None:
 
     # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "spectrum_analyzer", "email_settings"):
+        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "spectrum_analyzer", "email_settings", "crosshairs"):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 
