@@ -146,6 +146,84 @@ PROTRACTOR_FILL_BGR = (220, 200, 160)   # light blue-ish
 PROTRACTOR_OUTLINE_BGR = (0, 0, 0)
 PROTRACTOR_ARROW_BGR = (0, 0, 255)      # red arrow
 
+# Cache: static protractor (no arrow/text) keyed by (w, h)
+_PROTRACTOR_STATIC_CACHE: dict[tuple[int, int], np.ndarray] = {}
+
+# EMA smoothing for tooltip (alpha = new value weight; 0.35 = smooth)
+_TOOLTIP_EMA_ALPHA = 0.35
+_TOOLTIP_SMOOTH: dict[str, float] = {}  # db, f_peak_khz, angle_deg, trend_db, accel_db, distance, tx, ty
+
+# Precomputed max tooltip box size (set once)
+_TOOLTIP_BOX_W: Optional[int] = None
+_TOOLTIP_BOX_H: Optional[int] = None
+_TOOLTIP_PROTRACTOR_X0: Optional[int] = None
+_TOOLTIP_LINE_H: Optional[int] = None
+
+
+def _ensure_tooltip_box_size() -> tuple[int, int, int, int]:
+    """Compute max tooltip box (box_w, box_h, protractor_x0, line_h) once; return cached."""
+    global _TOOLTIP_BOX_W, _TOOLTIP_BOX_H, _TOOLTIP_PROTRACTOR_X0, _TOOLTIP_LINE_H
+    if _TOOLTIP_BOX_W is not None:
+        return (_TOOLTIP_BOX_W, _TOOLTIP_BOX_H, _TOOLTIP_PROTRACTOR_X0, _TOOLTIP_LINE_H)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.45
+    thick = 1
+    pad = 6
+    worst = ["-60 dB", "99.9 kHz", "99.99 m", "3s: +99.9 dB", "12s: +0.00/3s"]
+    box_w = pad * 2
+    (_, th), _ = cv2.getTextSize("0 dB", font, scale, thick)
+    _TOOLTIP_LINE_H = th
+    for txt in worst:
+        (tw, _), _ = cv2.getTextSize(txt, font, scale, thick)
+        box_w = max(box_w, tw + 2 * pad)
+    box_h = pad * 2 + 5 * (th + 2) + 7
+    box_h = max(box_h, PROTRACTOR_H + 4)
+    (tw1, _), _ = cv2.getTextSize("-60 dB", font, scale, thick)
+    (tw2, _), _ = cv2.getTextSize("99.9 kHz", font, scale, thick)
+    _TOOLTIP_PROTRACTOR_X0 = pad + max(tw1, tw2) + PROTRACTOR_BUFFER_PX
+    _TOOLTIP_BOX_W = max(box_w, _TOOLTIP_PROTRACTOR_X0 + PROTRACTOR_W + 2)
+    _TOOLTIP_BOX_H = box_h
+    return (_TOOLTIP_BOX_W, _TOOLTIP_BOX_H, _TOOLTIP_PROTRACTOR_X0, _TOOLTIP_LINE_H)
+
+
+def _tooltip_ema(key: str, raw: float, alpha: float = _TOOLTIP_EMA_ALPHA) -> float:
+    """Return EMA-smoothed value; updates _TOOLTIP_SMOOTH[key]. First call uses raw."""
+    if key not in _TOOLTIP_SMOOTH:
+        _TOOLTIP_SMOOTH[key] = float(raw)
+        return float(raw)
+    prev = _TOOLTIP_SMOOTH[key]
+    out = alpha * raw + (1.0 - alpha) * prev
+    _TOOLTIP_SMOOTH[key] = out
+    return out
+
+
+def _get_static_protractor_base(w: int, h: int) -> np.ndarray:
+    """Build or return cached static protractor (semicircle, ticks, center dot) on tooltip BG."""
+    key = (w, h)
+    if key in _PROTRACTOR_STATIC_CACHE:
+        return _PROTRACTOR_STATIC_CACHE[key]
+    base = np.empty((h, w, 3), dtype=np.uint8)
+    base[:] = CROSSHAIR_TOOLTIP_BG
+    cx = w // 2
+    r = min((w - 4) // 2, (h - 6) // 2)
+    if r < 4:
+        _PROTRACTOR_STATIC_CACHE[key] = base
+        return base
+    cy = r + 2
+    cv2.ellipse(base, (cx, cy), (r, r), 0, 180, 360, PROTRACTOR_FILL_BGR, -1, cv2.LINE_AA)
+    cv2.ellipse(base, (cx, cy), (r, r), 0, 180, 360, PROTRACTOR_OUTLINE_BGR, 1, cv2.LINE_AA)
+    cv2.line(base, (cx - r, cy), (cx + r, cy), PROTRACTOR_OUTLINE_BGR, 1, cv2.LINE_AA)
+    for deg in [0, 30, 60, 90, 120, 150, 180]:
+        a_rad = np.deg2rad(180 - deg)
+        tx = cx + int((r - 2) * np.cos(a_rad))
+        ty = cy - int((r - 2) * np.sin(a_rad))
+        tx2 = cx + int(r * np.cos(a_rad))
+        ty2 = cy - int(r * np.sin(a_rad))
+        cv2.line(base, (tx, ty), (tx2, ty2), PROTRACTOR_OUTLINE_BGR, 1, cv2.LINE_AA)
+    cv2.circle(base, (cx, cy), 2, PROTRACTOR_OUTLINE_BGR, -1, cv2.LINE_AA)
+    _PROTRACTOR_STATIC_CACHE[key] = base
+    return base
+
 
 def find_local_max(heatmap: np.ndarray, cx: int, cy: int, radius: int) -> tuple[int, int]:
     """Return (x, y) of pixel with max value in heatmap within radius of (cx, cy)."""
@@ -178,43 +256,31 @@ def _draw_protractor_180(
     h: int,
     angle_deg: Optional[float],
 ) -> None:
-    """Draw a 180° protractor (semicircle, flat base at bottom) with dynamic arrow and degree text.
-    angle_deg: DOA in plane of array; 0° = normal (arrow up), +90° = right, -90° = left.
-    """
+    """Draw a 180° protractor: blit cached static shape, then arrow + degree text only."""
     if w < 10 or h < 10:
         return
     cx = x0 + w // 2
     r = min((w - 4) // 2, (h - 6) // 2)
     if r < 4:
         return
-    cy = y0 + r + 2   # center so flat base at y0 + 2*r + 2
-    # Semicircle: top arc (OpenCV: 0=right, 90=down; top half = 180° to 360°)
-    cv2.ellipse(frame, (cx, cy), (r, r), 0, 180, 360, PROTRACTOR_FILL_BGR, -1, cv2.LINE_AA)
-    cv2.ellipse(frame, (cx, cy), (r, r), 0, 180, 360, PROTRACTOR_OUTLINE_BGR, 1, cv2.LINE_AA)
-    # Flat base
-    cv2.line(frame, (cx - r, cy), (cx + r, cy), PROTRACTOR_OUTLINE_BGR, 1, cv2.LINE_AA)
-    # Tick marks along arc (0°=left, 90°=top, 180°=right) and center dot
-    for deg in [0, 30, 60, 90, 120, 150, 180]:
-        # Circle: angle 0=right, 90=top; we want 0=left, 90=top, 180=right so use 180-deg
-        a_rad = np.deg2rad(180 - deg)
-        tx = cx + int((r - 2) * np.cos(a_rad))
-        ty = cy - int((r - 2) * np.sin(a_rad))
-        tx2 = cx + int(r * np.cos(a_rad))
-        ty2 = cy - int(r * np.sin(a_rad))
-        cv2.line(frame, (tx, ty), (tx2, ty2), PROTRACTOR_OUTLINE_BGR, 1, cv2.LINE_AA)
-    cv2.circle(frame, (cx, cy), 2, PROTRACTOR_OUTLINE_BGR, -1, cv2.LINE_AA)
-    # Dynamic arrow (0° = up, 90° = right, -90° = left)
+    cy = y0 + r + 2
+    # Blit cached static protractor (semicircle, ticks, center dot)
+    base = _get_static_protractor_base(w, h)
+    h_clip = min(h, base.shape[0])
+    w_clip = min(w, base.shape[1])
+    frame[y0 : y0 + h_clip, x0 : x0 + w_clip] = base[:h_clip, :w_clip]
+    # Dynamic arrow only
     arrow_len = int(r * 0.65)
     if angle_deg is not None:
         rad = np.deg2rad(angle_deg)
         ex = int(cx + arrow_len * np.sin(rad))
         ey = int(cy - arrow_len * np.cos(rad))
         cv2.arrowedLine(frame, (cx, cy), (ex, ey), PROTRACTOR_ARROW_BGR, 2, cv2.LINE_AA, tipLength=0.25)
-    # Degree text just below protractor base (one decimal; use " deg" - OpenCV default font doesn't render °)
+    # Degree text only
     label = f"{angle_deg:.1f} deg" if angle_deg is not None else "-- deg"
     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)
     lx = cx - tw // 2
-    ly = cy + 2 + th   # baseline 2px below flat base so text sits just under protractor
+    ly = cy + 2 + th
     cv2.putText(frame, label, (lx, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.35, CROSSHAIR_TOOLTIP_TEXT, 1, cv2.LINE_AA)
 
 
@@ -257,19 +323,44 @@ def draw_crosshairs(
     cv2.line(frame, (cx, y0), (cx, y1), CROSSHAIR_COLOR, CROSSHAIR_THICKNESS, cv2.LINE_AA)
 
     val = int(heatmap_left[cy, cx])
-    db = rel_db_min + (val / 255.0) * (rel_db_max - rel_db_min)
-    f_peak_khz = f_peak_hz / 1000.0
+    db_raw = rel_db_min + (val / 255.0) * (rel_db_max - rel_db_min)
+    f_peak_khz_raw = f_peak_hz / 1000.0
+    angle_raw = float(angle_deg) if angle_deg is not None else None
+    # EMA smoothing to reduce wobble
+    db = _tooltip_ema("db", db_raw)
+    f_peak_khz = _tooltip_ema("f_peak_khz", f_peak_khz_raw)
+    if angle_raw is not None:
+        angle_deg_smooth = _tooltip_ema("angle_deg", angle_raw)
+        angle_deg_smooth = round(angle_deg_smooth * 2.0) / 2.0  # quantize to 0.5°
+    else:
+        if "angle_deg" in _TOOLTIP_SMOOTH:
+            angle_deg_smooth = _TOOLTIP_SMOOTH["angle_deg"]
+        else:
+            angle_deg_smooth = None
+    if trend_db is not None:
+        trend_smooth = _tooltip_ema("trend_db", trend_db)
+    else:
+        trend_smooth = _TOOLTIP_SMOOTH.get("trend_db")
+    if accel_db is not None:
+        accel_smooth = _tooltip_ema("accel_db", accel_db)
+    else:
+        accel_smooth = _TOOLTIP_SMOOTH.get("accel_db")
+    dist_smooth = None
+    if distance_to_source_m is not None:
+        dist_smooth = _tooltip_ema("distance", distance_to_source_m)
+    else:
+        dist_smooth = _TOOLTIP_SMOOTH.get("distance")
+
     line1 = f"{db:+.0f} dB"
     line2 = f"{f_peak_khz:.1f} kHz"
-    line3 = f"{distance_to_source_m:.2f} m" if distance_to_source_m is not None else "-- m"
+    line3 = f"{dist_smooth:.2f} m" if dist_smooth is not None else "-- m"
     lines = [(line1, CROSSHAIR_TOOLTIP_TEXT), (line2, CROSSHAIR_TOOLTIP_TEXT), (line3, CROSSHAIR_TOOLTIP_TEXT)]
-    # Always show 3s/12s slots; use placeholder until first avg is ready
-    if trend_db is not None:
-        lines.append((f"3s: {trend_db:+.1f} dB", _trend_color(trend_db)))
+    if trend_smooth is not None:
+        lines.append((f"3s: {trend_smooth:+.1f} dB", _trend_color(trend_smooth)))
     else:
         lines.append(("3s: -- dB", TREND_COLOR_PENDING))
-    if accel_db is not None:
-        lines.append((f"12s: {accel_db:+.2f}/3s", _trend_color(accel_db, 0.05)))
+    if accel_smooth is not None:
+        lines.append((f"12s: {accel_smooth:+.2f}/3s", _trend_color(accel_smooth, 0.05)))
     else:
         lines.append(("12s: --/3s", TREND_COLOR_PENDING))
 
@@ -277,52 +368,39 @@ def draw_crosshairs(
     scale = 0.45
     thick = 1
     pad = 6
-    box_w = pad * 2
-    box_h = pad * 2
-    for txt, _ in lines:
-        (tw, th), _ = cv2.getTextSize(txt, font, scale, thick)
-        box_w = max(box_w, tw + 2 * pad)
-        box_h += th + 2
-    # Extra height for horizontal bar between kHz and timed measurements (gap + line + gap)
-    box_h += 7
-    text_w = box_w
-    # Protractor: 3px buffer from right edge of dB/kHz text (use max of first two line widths)
-    (tw1, _), _ = cv2.getTextSize(lines[0][0], font, scale, thick)
-    (tw2, _), _ = cv2.getTextSize(lines[1][0], font, scale, thick)
-    max_db_khz_w = max(tw1, tw2)
-    protractor_x0 = pad + max_db_khz_w + PROTRACTOR_BUFFER_PX
-    box_w = max(text_w, protractor_x0 + PROTRACTOR_W + 2)
-    box_h = max(box_h, PROTRACTOR_H + 4)
-    tx = cx + 14
-    ty = cy - 4
-    if tx + box_w > left_width:
-        tx = cx - box_w - 14
-    if ty < 0:
-        ty = cy + 20
-    if ty + box_h > height:
-        ty = cy - box_h - 8
-    tx = max(2, min(left_width - int(box_w) - 2, tx))
-    ty = max(2, min(height - int(box_h) - 2, ty))
-    cv2.rectangle(frame, (int(tx), int(ty)), (int(tx + box_w), int(ty + box_h)), CROSSHAIR_TOOLTIP_BG, -1)
-    cv2.rectangle(frame, (int(tx), int(ty)), (int(tx + box_w), int(ty + box_h)), CROSSHAIR_COLOR, 1, cv2.LINE_AA)
-    # 180° protractor in top-right; left edge = 3px after end of dB/kHz text
+    box_w, box_h, protractor_x0, line_h = _ensure_tooltip_box_size()
+    tx_raw = float(cx + 14)
+    ty_raw = float(cy - 4)
+    if tx_raw + box_w > left_width:
+        tx_raw = float(cx - box_w - 14)
+    if ty_raw < 0:
+        ty_raw = float(cy + 20)
+    if ty_raw + box_h > height:
+        ty_raw = float(cy - box_h - 8)
+    tx_raw = float(max(2, min(left_width - box_w - 2, int(tx_raw))))
+    ty_raw = float(max(2, min(height - box_h - 2, int(ty_raw))))
+    tx = int(_tooltip_ema("tx", tx_raw))
+    ty = int(_tooltip_ema("ty", ty_raw))
+    tx = max(2, min(left_width - box_w - 2, tx))
+    ty = max(2, min(height - box_h - 2, ty))
+
+    cv2.rectangle(frame, (tx, ty), (tx + box_w, ty + box_h), CROSSHAIR_TOOLTIP_BG, -1)
+    cv2.rectangle(frame, (tx, ty), (tx + box_w, ty + box_h), CROSSHAIR_COLOR, 1, cv2.LINE_AA)
     _draw_protractor_180(
         frame,
-        int(tx + protractor_x0),
-        int(ty + 2),
+        tx + protractor_x0,
+        ty + 2,
         PROTRACTOR_W,
-        min(PROTRACTOR_H, int(box_h) - 4),
-        angle_deg,
+        min(PROTRACTOR_H, box_h - 4),
+        angle_deg_smooth,
     )
     y_off = ty + pad
     for i, (txt, color) in enumerate(lines):
-        (_, th), _ = cv2.getTextSize(txt, font, scale, thick)
-        cv2.putText(frame, txt, (int(tx + pad), int(y_off + th)), font, scale, color, thick, cv2.LINE_AA)
-        y_off += th + 2
-        # Small horizontal bar between distance (index 2) and timed measurements (3s, 12s)
+        cv2.putText(frame, txt, (tx + pad, y_off + line_h), font, scale, color, thick, cv2.LINE_AA)
+        y_off += line_h + 2
         if i == 2:
             bar_y = int(y_off + 2)
-            bar_left = int(tx + pad)
-            bar_right = int(tx + box_w - pad)
+            bar_left = tx + pad
+            bar_right = tx + box_w - pad
             cv2.line(frame, (bar_left, bar_y), (bar_right, bar_y), CROSSHAIR_COLOR, 1, cv2.LINE_AA)
             y_off = bar_y + 4
