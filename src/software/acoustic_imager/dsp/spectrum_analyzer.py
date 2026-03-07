@@ -38,53 +38,57 @@ SPECTRUM_CURVE_THICKNESS = 2
 DB_LABEL_COLOR = (200, 200, 200)
 RULER_TICK_COLOR = (180, 180, 180)
 
+# Subsample curve to reduce polylines cost (step 2 = every 2nd bin)
+CURVE_SUBSAMPLE = 2
 
-def _draw_db_ruler_bottom(bar: np.ndarray, bar_w: int, graph_h: int) -> None:
-    """Draw a horizontal dB ruler at the bottom; labels are rotated 90° CCW so they read vertically."""
-    h = bar.shape[0]
+# Cache for dB ruler strip (bar_w, h) -> (RULER_HEIGHT, bar_w, 3); panel gradient depends on h
+_RULER_CACHE: dict[tuple[int, int], np.ndarray] = {}
+
+
+def _get_cached_db_ruler(bar_w: int, full_bar_bg: np.ndarray) -> np.ndarray:
+    """Return the bottom ruler strip (RULER_HEIGHT x bar_w), drawing once per (bar_w, h) and caching."""
+    h = full_bar_bg.shape[0]
+    key = (bar_w, h)
+    cached = _RULER_CACHE.get(key)
+    if cached is not None:
+        return cached
+    h = full_bar_bg.shape[0]
+    strip = full_bar_bg[h - RULER_HEIGHT : h, :].copy()
     graph_left = BAR_MARGIN_LEFT
     graph_right = bar_w - BAR_MARGIN_RIGHT
     graph_width = max(1, graph_right - graph_left)
     db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
-
-    # Ruler baseline at the very bottom edge of the bar
-    y_baseline = h - 1
-    tick_len_px = 8   # short tick stubs above the baseline
-    y_tick_top = y_baseline - tick_len_px
+    strip_h = strip.shape[0]
+    y_baseline = strip_h - 1
+    y_tick_top = y_baseline - 8
     y_tick_bottom = y_baseline
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 0.35
     thickness = 1
 
-    cv2.line(bar, (graph_left, y_baseline), (graph_right, y_baseline), RULER_TICK_COLOR, 1, cv2.LINE_AA)
-
+    cv2.line(strip, (graph_left, y_baseline), (graph_right, y_baseline), RULER_TICK_COLOR, 1, cv2.LINE_AA)
     for db in range(int(SPECTRUM_DB_MIN), int(SPECTRUM_DB_MAX) + 1, 10):
         frac = (db - SPECTRUM_DB_MIN) / db_span
-        x = int(graph_left + frac * graph_width)
-        x = int(np.clip(x, graph_left, graph_right))
-        cv2.line(bar, (x, y_tick_top), (x, y_tick_bottom), RULER_TICK_COLOR, 1, cv2.LINE_AA)
+        x = int(np.clip(graph_left + frac * graph_width, graph_left, graph_right))
+        cv2.line(strip, (x, y_tick_top), (x, y_tick_bottom), RULER_TICK_COLOR, 1, cv2.LINE_AA)
         label = f"{db}" if db != 0 else "0"
         (tw, th), _ = cv2.getTextSize(label, font, font_scale, thickness)
         pad = 2
-        # Draw label on small canvas, rotate 90° CCW, then paste so it reads vertically
-        canvas_w = tw + 2 * pad
-        canvas_h = th + 2 * pad
-        canvas = np.zeros((canvas_h, canvas_w), dtype=np.uint8)
+        canvas = np.zeros((th + 2 * pad, tw + 2 * pad), dtype=np.uint8)
         cv2.putText(canvas, label, (pad, pad + th), font, font_scale, 255, thickness, cv2.LINE_AA)
         rotated = cv2.rotate(canvas, cv2.ROTATE_90_COUNTERCLOCKWISE)
         r_h, r_w = rotated.shape
-        # Place vertical label above the baseline with a bit of gap so minus doesn't touch the ruler
-        x0 = x - r_w // 2
-        y0 = max(0, y_baseline - r_h - 10)
-        x0 = max(0, min(bar_w - r_w, x0))
-        y0 = max(0, min(h - r_h, y0))
-        roi = bar[y0 : y0 + r_h, x0 : x0 + r_w]
+        x0 = max(0, min(bar_w - r_w, x - r_w // 2))
+        y0 = max(0, min(strip_h - r_h, y_baseline - r_h - 10))
+        roi = strip[y0 : y0 + r_h, x0 : x0 + r_w]
         if roi.size > 0:
             r_h_roi, r_w_roi = roi.shape[0], roi.shape[1]
             mask = rotated[:r_h_roi, :r_w_roi] > 128
             if mask.any():
                 for c in range(3):
                     roi[:, :, c][mask] = DB_LABEL_COLOR[c]
+    _RULER_CACHE[key] = strip
+    return strip
 
 
 def draw_spectrum_analyzer(
@@ -115,7 +119,8 @@ def draw_spectrum_analyzer(
     f_valid = f_axis[valid]
     mag_valid = mag2[valid]
 
-    bar = _get_panel_bg(h, bar_w).copy()
+    panel_bg = _get_panel_bg(h, bar_w)
+    bar = panel_bg.copy()
 
     use_db = mode == "dB"
     draw_curve = mode != "LITE"   # LITE skips the continuous spectrum curve (saves FPS)
@@ -141,40 +146,60 @@ def draw_spectrum_analyzer(
             mag_norm = mag_valid / (float(np.max(mag_valid)) + 1e-12)
             frac = (mag_norm ** 0.4).astype(np.float64)
 
-        for f, f_val in zip(f_valid, frac):
-            y = int(graph_h_safe - 1 - (float(f) / f_display_max) * (graph_h_safe - 1))
-            y = int(np.clip(y, 0, graph_h_safe - 1))
-            length = int(float(f_val) * graph_width)
-            x0 = graph_right - length
+        # Vectorized bar drawing: one segment per row (max length per row), slice assign
+        y_float = (graph_h_safe - 1) - (f_valid.astype(np.float64) / f_display_max) * (graph_h_safe - 1)
+        y_int = np.clip(y_float.astype(np.int32), 0, graph_h_safe - 1)
+        length_all = (frac * graph_width).astype(np.int32)
+        length_all = np.clip(length_all, 0, graph_width)
+        in_band = (f_valid >= float(f_min)) & (f_valid <= float(f_max))
+        t_row = np.arange(graph_h_safe, dtype=np.float64) / max(1, graph_h_safe - 1)
+        color_top = np.array(GRAPH_COLOR_TOP, dtype=np.float64)
+        color_bot = np.array(GRAPH_COLOR_BOT, dtype=np.float64)
+        dim_top = np.array(GRAPH_DIM_TOP, dtype=np.float64)
+        dim_bot = np.array(GRAPH_DIM_BOT, dtype=np.float64)
+        length_per_row = np.zeros(graph_h_safe, dtype=np.int32)
+        in_band_per_row = np.zeros(graph_h_safe, dtype=bool)
+        for i in range(len(y_int)):
+            r = y_int[i]
+            if length_all[i] >= length_per_row[r]:
+                length_per_row[r] = length_all[i]
+                in_band_per_row[r] = in_band[i]
+        for row in range(graph_h_safe):
+            L = length_per_row[row]
+            if L <= 0:
+                continue
+            x0 = int(np.clip(graph_right - L, graph_left, graph_right))
             x1 = graph_right
-            x0 = int(np.clip(x0, graph_left, graph_right))
-            x1 = int(np.clip(x1, graph_left, graph_right))
-
-            t = y / max(1, graph_h_safe - 1)
-            if float(f_min) <= float(f) <= float(f_max):
-                color = tuple(int((1 - t) * GRAPH_COLOR_TOP[c] + t * GRAPH_COLOR_BOT[c]) for c in range(3))
+            t = t_row[row]
+            if in_band_per_row[row]:
+                color = ((1 - t) * color_top + t * color_bot).astype(np.uint8)
             else:
-                color = tuple(int((1 - t) * GRAPH_DIM_TOP[c] + t * GRAPH_DIM_BOT[c]) for c in range(3))
-            if length > 0:
-                cv2.line(bar, (x0, y), (x1, y), color, 1)
+                color = ((1 - t) * dim_top + t * dim_bot).astype(np.uint8)
+            bar[row, x0:x1, :] = color
 
         if draw_curve:
-            pts = []
-            for f, f_val in zip(f_valid, frac):
-                y = int(np.clip(graph_h_safe - 1 - (float(f) / f_display_max) * (graph_h_safe - 1), 0, graph_h_safe - 1))
-                length = int(float(f_val) * graph_width)
-                x = graph_right - length
-                x = int(np.clip(x, graph_left, graph_right))
-                pts.append((x, y))
-            if len(pts) >= 2:
-                pts_arr = np.array(pts, dtype=np.int32)
+            step = max(1, CURVE_SUBSAMPLE)
+            idx = np.arange(0, len(f_valid), step)
+            if len(idx) < 2:
+                idx = np.arange(len(f_valid))
+            f_sub = f_valid[idx]
+            frac_sub = frac[idx]
+            y_curve = np.clip(
+                (graph_h_safe - 1) - (f_sub.astype(np.float64) / f_display_max) * (graph_h_safe - 1),
+                0, graph_h_safe - 1
+            ).astype(np.int32)
+            length_curve = (frac_sub * graph_width).astype(np.int32)
+            x_curve = np.clip(graph_right - length_curve, graph_left, graph_right).astype(np.int32)
+            pts_arr = np.column_stack((x_curve, y_curve)).astype(np.int32)
+            if len(pts_arr) >= 2:
                 cv2.polylines(
                     bar, [pts_arr], isClosed=False,
                     color=SPECTRUM_CURVE_BGR, thickness=SPECTRUM_CURVE_THICKNESS, lineType=cv2.LINE_AA
                 )
 
         if use_db:
-            _draw_db_ruler_bottom(bar, bar_w, graph_h)
+            ruler_strip = _get_cached_db_ruler(bar_w, panel_bg)
+            bar[graph_h : h, :] = ruler_strip
 
     # ---- Bandpass overlay (sliding window; all modes) ----
     if draw_bandpass:
@@ -189,10 +214,12 @@ def draw_spectrum_analyzer(
         y_top = min(y_min, y_max)
         y_bottom = max(y_min, y_max)
         if y_bottom > y_top:
-            overlay = bar.copy()
             tint_blue = (240, 180, 70)
-            cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), tint_blue, -1)
-            cv2.addWeighted(overlay, 0.12, bar, 0.88, 0, bar)
+            roi = bar[y_top : y_bottom + 1, 1 : bar_w - 1]
+            overlay_roi = np.full((roi.shape[0], roi.shape[1], 3), tint_blue, dtype=roi.dtype)
+            blended = np.empty_like(roi)
+            cv2.addWeighted(overlay_roi, 0.12, roi, 0.88, 0, blended)
+            np.copyto(roi, blended)
 
         font = cv2.FONT_HERSHEY_SIMPLEX
         for (txt, y_pos) in [(f"{fmin_khz:5.1f} kHz", y_min_txt), (f"{fmax_khz:5.1f} kHz", y_max_txt)]:
