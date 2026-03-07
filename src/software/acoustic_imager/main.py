@@ -37,7 +37,7 @@ import os
 # ===============================================================
 from acoustic_imager import config
 from acoustic_imager import state
-from acoustic_imager.custom_types import LatestFrame
+from acoustic_imager.custom_types import LatestFrame, SourceStats
 
 # Data sources
 from acoustic_imager.sources.sim_source import SimSource
@@ -814,10 +814,18 @@ def main() -> None:
             if mode == "SIM":
                 latest_frame = sim_source.read_frame()
                 source_label = "SIM"
+            elif mode == "REF":
+                # 0 dB reference: flat FFT so all spectrum bars sit at peak (baseline test)
+                ref_fft = np.ones((config.N_MICS, config.N_BINS), dtype=np.complex64)
+                latest_frame = LatestFrame(
+                    fft_data=ref_fft, frame_id=0, ok=True,
+                    stats=SourceStats(frames_ok=0, last_err="", sclk_hz_rep=0),
+                )
+                source_label = "REF"
             elif mode == "LOOP":
                 latest_frame = spi_loopback.get_latest()
                 source_label = "LOOP"
-            else:  # "SPI_HW"
+            else:  # "HW"
                 latest_frame = spi_hw.get_latest()
                 source_label = "HW"
 
@@ -838,7 +846,10 @@ def main() -> None:
             # ---- Beamforming + Heatmap generation ----
             spec_matrix = None
             band_freqs = np.array([], dtype=np.float64)
-            if source_label == "SIM":
+            if source_label == "REF":
+                # 0 dB reference: uniform heatmap (spread across whole view), no MUSIC blobs
+                heatmap_left = np.full((config.HEIGHT, left_width), 255, dtype=np.uint8)
+            elif source_label == "SIM":
                 # Filter sources by bandpass
                 selected_indices = [
                     i for i, f in enumerate(config.SIM_SOURCE_FREQS)

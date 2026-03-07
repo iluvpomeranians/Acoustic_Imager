@@ -183,8 +183,8 @@ PAYLOAD_LEN = N_MICS * N_BINS * 2 * 4  # 8 bytes per bin per mic
 FRAME_BYTES = HEADER_LEN + PAYLOAD_LEN + TRAILER_LEN
 
 # SPI config
-SOURCE_DEFAULT = "SIM"   # or "SIM" / "SPI_HW"
-SOURCE_MODES = ("SIM", "LOOP", "HW")
+SOURCE_DEFAULT = "SIM"   # or "LOOP" / "HW" / "REF"
+SOURCE_MODES = ("SIM", "LOOP", "HW", "REF")  # REF = 0 dB reference baseline (flat spectrum)
 
 SPI_BUS = 0
 SPI_DEV = 0
