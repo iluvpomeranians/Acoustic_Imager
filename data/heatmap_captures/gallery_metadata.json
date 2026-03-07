@@ -29,7 +29,11 @@
     "recording_20260304_182638.mp4": "medium",
     "recording_20260228_175738.mp4": "high",
     "screenshot_20260305_123215.png": "",
-    "screenshot_20260305_123210.png": "low"
+    "screenshot_20260305_123210.png": "low",
+    "cool.png": "medium",
+    "recording_20260306_001057.mp4": "low",
+    "screenshot_20260306_000326.png": "low",
+    "recording_20260306_000321.mp4": "low"
   },
   "file_tags": {},
   "tag_data": {
@@ -124,6 +128,26 @@
     "screenshot_20260305_123215.png": {
       "asset_type": "",
       "leak_type": ""
+    },
+    "recording_20260306_001057.mp4": {
+      "asset_type": "",
+      "leak_type": ""
+    },
+    "screenshot_20260306_000326.png": {
+      "asset_type": "",
+      "leak_type": ""
+    },
+    "recording_20260306_000321.mp4": {
+      "asset_type": "",
+      "leak_type": ""
+    },
+    "screenshot_20260306_003657.png": {
+      "asset_type": "ccxx",
+      "leak_type": "iik"
+    },
+    "cool.png": {
+      "asset_type": "dog",
+      "leak_type": "cqt"
     }
   }
 }

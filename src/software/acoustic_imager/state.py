@@ -60,9 +60,11 @@ class ButtonState:
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
+    spectrum_analyzer_enabled: bool = True  # spectrum analyzer (dB scale + smooth curve) on freq bar; toggle in MENU
 
     # Gallery state
     gallery_open: bool = False
+    gallery_pill_pressed: bool = False  # True while finger is down on Gallery pill (trigger on release)
     gallery_scroll_offset: int = 0
     gallery_selected_item: Optional[int] = None
     gallery_viewer_mode: str = "grid"  # "grid" | "image" | "video"

@@ -208,8 +208,9 @@ def draw_bottom_hud(
             _draw_rec_icon(frame, rec_cx, rec_cy, size=8, is_active=False)
             cv2.putText(frame, rec_text, (rec_start + icon_w + gap_icon_text, text_baseline), font, 0.52, (255, 255, 255), 1, cv2.LINE_AA)
 
-    # ── Gallery pill ──
-    _draw_pill(frame, x_gallery, y, PILL_W, PILL_H, is_active=button_state.gallery_open, alpha=BOTTOM_PILL_ALPHA)
+    # ── Gallery pill (same blue as top HUD when active or pressed) ──
+    gallery_active = button_state.gallery_open or getattr(button_state, "gallery_pill_pressed", False)
+    _draw_pill(frame, x_gallery, y, PILL_W, PILL_H, is_active=gallery_active, alpha=BOTTOM_PILL_ALPHA)
     (gal_tw, gal_th), _ = cv2.getTextSize("GALLERY", font, 0.48, 1)
     gal_start_x = x_gallery + (PILL_W - (icon_w + gap_icon_text + gal_tw)) // 2
     _draw_gallery_icon(frame, gal_start_x + icon_w // 2, cy, size=ICON_SIZE)

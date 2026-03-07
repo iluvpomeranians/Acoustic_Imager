@@ -54,11 +54,11 @@ from acoustic_imager.dsp.heatmap import (
     blend_heatmap_left,
 )
 from acoustic_imager.dsp.bars import (
-    draw_frequency_bar,
     draw_db_colorbar,
     freq_to_y,
     y_to_freq,
 )
+from acoustic_imager.dsp.spectrum_analyzer import draw_spectrum_analyzer
 
 from acoustic_imager.system_info import get_system_network_info
 from acoustic_imager.ui.top_hud import draw_hud, handle_hud_click
@@ -200,7 +200,15 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # 2) Bottom HUD pills first (so they work when menu is closed; only when bar visible)
         if state.ui_bottom_hud_offset <= 15:
             hit_pad = getattr(config, "UI_BOTTOM_HUD_HIT_PAD", 8)
-            for k in ("shot", "rec", "rec_resume", "rec_stop", "gallery"):
+            # Gallery: trigger on release (set pressed state here; actual open on LBUTTONUP)
+            if "gallery" in menu_buttons:
+                b = menu_buttons["gallery"]
+                if b.w > 0 and b.h > 0 and (b.x - hit_pad <= mx < b.x + b.w + hit_pad and
+                        b.y - hit_pad <= my < b.y + b.h + hit_pad):
+                    button_state.gallery_pill_pressed = True
+                    state.ui_click_was_on_ui = True
+                    return
+            for k in ("shot", "rec", "rec_resume", "rec_stop"):
                 if k in menu_buttons:
                     b = menu_buttons[k]
                     if b.w > 0 and b.h > 0:
@@ -312,7 +320,29 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         state.ui_drag_start_y = my
         state.ui_drag_start_time = time.time()
 
-    # Handle left button up: swipe or double-tap (content area, or swipe-down from bottom strip to hide HUD/menu)
+    # Handle left button up: Gallery pill (trigger on release) then swipe/double-tap
+    if event == cv2.EVENT_LBUTTONUP and button_state.gallery_pill_pressed:
+        button_state.gallery_pill_pressed = False
+        if state.ui_bottom_hud_offset <= 15 and "gallery" in menu_buttons:
+            b = menu_buttons["gallery"]
+            if b.w > 0 and b.h > 0:
+                hit_pad = getattr(config, "UI_BOTTOM_HUD_HIT_PAD", 8)
+                if (b.x - hit_pad <= mx < b.x + b.w + hit_pad and
+                        b.y - hit_pad <= my < b.y + b.h + hit_pad):
+                    from acoustic_imager.ui.archive_panel import load_archive_folders
+                    if button_state.is_recording and video_recorder is not None:
+                        video_recorder.stop_recording()
+                        button_state.is_recording = False
+                        button_state.is_paused = False
+                        button_state.gallery_storage_dirty = True
+                    button_state.gallery_open = True
+                    button_state.menu_open = False
+                    button_state.gallery_storage_dirty = True
+                    if state.OUTPUT_DIR:
+                        button_state.gallery_archive_folders = load_archive_folders(state.OUTPUT_DIR)
+                    return
+        return
+
     if event == cv2.EVENT_LBUTTONUP and not button_state.gallery_open and not state.ui_click_was_on_ui:
         content_left = config.DB_BAR_WIDTH
         content_right = left_width
@@ -795,10 +825,11 @@ def main() -> None:
             output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8, button_state.colormap_mode)
             prof.mark("blend")
 
-            # ---- Draw frequency bar and dB colorbar ----
-            draw_frequency_bar(
+            # ---- Draw spectrum analyzer (dB scale + curve) and dB colorbar ----
+            draw_spectrum_analyzer(
                 output_frame, fft_data, config.f_axis, f_min, f_max,
-                config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX
+                config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX,
+                enabled=button_state.spectrum_analyzer_enabled,
             )
             draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
             prof.mark("bars")

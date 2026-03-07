@@ -1446,6 +1446,11 @@ def handle_menu_click(
         button_state.debug_enabled = not button_state.debug_enabled
         return video_recorder
 
+    if "spectrum_analyzer" in menu_buttons and menu_buttons["spectrum_analyzer"].contains(x, y):
+        button_state.spectrum_analyzer_enabled = not button_state.spectrum_analyzer_enabled
+        menu_buttons["spectrum_analyzer"].text = "SPECTRUM: dB" if button_state.spectrum_analyzer_enabled else "SPECTRUM: NORM"
+        return video_recorder
+
     if "email_settings" in menu_buttons and menu_buttons["email_settings"].contains(x, y):
         button_state.email_settings_modal_open = True
         button_state.menu_open = False
