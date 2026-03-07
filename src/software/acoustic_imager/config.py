@@ -143,6 +143,8 @@ N_BINS = SAMPLES_PER_CHANNEL // 2 + 1  # 257
 SIM_SOURCE_FREQS = [9000, 11000, 30000]
 SIM_SOURCE_ANGLES = [-35.0, 0.0, 40.0]
 SIM_SOURCE_AMPLS = [0.6, 1.0, 2.0]
+# Display distance (m) per sim source for crosshair tooltip; sim uses far-field so this is for UI only
+SIM_SOURCE_DISTANCES_M = [1.0, 1.5, 2.0]  # same length as SIM_SOURCE_ANGLES
 SIM_N_SOURCES = len(SIM_SOURCE_ANGLES)
 
 # dB mapping for heatmap intensity

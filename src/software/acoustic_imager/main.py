@@ -1040,18 +1040,28 @@ def main() -> None:
                     if len(button_state.crosshair_trend_history) >= 2:
                         th = button_state.crosshair_trend_history
                         accel_db = (th[-1] - th[0]) / max(1, len(th) - 1)  # dB per 3 s period
-                    # Frequency dominant at this location
+                    # Frequency dominant at this location; angle for protractor; SIM: distance from closest source
+                    distance_to_source_m = None
+                    angle_deg = None
                     if spec_matrix is not None and band_freqs.size > 0:
                         n_ang = spec_matrix.shape[1]
                         angle_idx = int(np.clip(nx * (n_ang - 1) / max(1, left_width), 0, n_ang - 1))
+                        angle_deg = float(config.ANGLES[angle_idx])
                         row = int(np.argmax(spec_matrix[:, angle_idx]))
                         f_peak_hz = float(band_freqs[row])
+                        if source_label == "SIM":
+                            sim_dists = getattr(config, "SIM_SOURCE_DISTANCES_M", None)
+                            if sim_dists and len(sim_dists) == len(config.SIM_SOURCE_ANGLES):
+                                closest = int(np.argmin(np.abs(np.array(config.SIM_SOURCE_ANGLES) - angle_deg)))
+                                distance_to_source_m = float(sim_dists[closest])
                     else:
                         f_peak_hz = (f_min + f_max) / 2.0
                     draw_crosshairs(
                         output_frame, nx, ny, left_width, config.HEIGHT,
                         heatmap_left, config.REL_DB_MIN, config.REL_DB_MAX, f_peak_hz,
                         trend_db=trend_db, accel_db=accel_db,
+                        distance_to_source_m=distance_to_source_m,
+                        angle_deg=angle_deg,
                     )
 
             # ---- Draw debug info ----
