@@ -81,8 +81,8 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     menu_buttons["cam"].is_active = button_state.camera_enabled
     menu_buttons["source"].is_active = True
     menu_buttons["debug"].is_active = button_state.debug_enabled
-    menu_buttons["spectrum_analyzer"].is_active = button_state.spectrum_analyzer_enabled
-    menu_buttons["spectrum_analyzer"].text = "SPECTRUM: dB" if button_state.spectrum_analyzer_enabled else "SPECTRUM: NORM"
+    menu_buttons["spectrum_analyzer"].is_active = True
+    menu_buttons["spectrum_analyzer"].text = f"SPECTRUM: {button_state.spectrum_analyzer_mode}"
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
     white_border = (255, 255, 255)

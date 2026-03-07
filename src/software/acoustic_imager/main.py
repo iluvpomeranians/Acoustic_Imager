@@ -829,7 +829,7 @@ def main() -> None:
             draw_spectrum_analyzer(
                 output_frame, fft_data, config.f_axis, f_min, f_max,
                 config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX,
-                enabled=button_state.spectrum_analyzer_enabled,
+                mode=button_state.spectrum_analyzer_mode,
             )
             draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
             prof.mark("bars")

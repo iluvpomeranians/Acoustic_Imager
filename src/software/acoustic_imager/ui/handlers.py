@@ -1447,8 +1447,12 @@ def handle_menu_click(
         return video_recorder
 
     if "spectrum_analyzer" in menu_buttons and menu_buttons["spectrum_analyzer"].contains(x, y):
-        button_state.spectrum_analyzer_enabled = not button_state.spectrum_analyzer_enabled
-        menu_buttons["spectrum_analyzer"].text = "SPECTRUM: dB" if button_state.spectrum_analyzer_enabled else "SPECTRUM: NORM"
+        # Cycle dB -> NORM -> LITE -> dB
+        next_mode = {"dB": "NORM", "NORM": "LITE", "LITE": "dB"}.get(
+            button_state.spectrum_analyzer_mode, "dB"
+        )
+        button_state.spectrum_analyzer_mode = next_mode
+        menu_buttons["spectrum_analyzer"].text = f"SPECTRUM: {button_state.spectrum_analyzer_mode}"
         return video_recorder
 
     if "email_settings" in menu_buttons and menu_buttons["email_settings"].contains(x, y):

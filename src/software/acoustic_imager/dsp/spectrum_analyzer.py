@@ -1,11 +1,12 @@
 """
 Spectrum analyzer overlay: frequency bar with smooth spectrum curve.
 
-Two modes (MENU: SPECTRUM: dB / SPECTRUM: NORM):
-- dB: amplitude in dB (relative to peak), with bottom ruler.
-- NORM: normalized amplitude (peak = 100%, power^0.4), no ruler.
+Three modes (MENU: SPECTRUM: dB / NORM / LITE):
+- dB: amplitude in dB (relative to peak), bottom ruler, spectrum curve, bandpass overlay.
+- NORM: normalized amplitude (power^0.4), spectrum curve, bandpass overlay.
+- LITE: normalized bars + bandpass overlay only (no spectrum curve; lighter draw for performance).
 
-Uses the same FFT data as the beamforming pipeline. Bandpass overlay always drawn.
+Uses the same FFT data as the beamforming pipeline.
 """
 
 from __future__ import annotations
@@ -94,14 +95,14 @@ def draw_spectrum_analyzer(
     f_max: float,
     freq_bar_width: int,
     f_display_max: float,
-    enabled: bool = True,
+    mode: str = "dB",
 ) -> None:
     """
     Draw the spectrum analyzer bar on the RIGHT side of the frame.
 
-    enabled=True  -> dB mode: dB-scaled bars + curve + bottom ruler.
-    enabled=False -> NORM mode: normalized (power^0.4) bars + curve, no ruler.
-    Bandpass overlay is always drawn.
+    mode="dB"   -> dB-scaled bars + curve + bottom ruler + bandpass overlay.
+    mode="NORM" -> normalized (power^0.4) bars + curve + bandpass overlay.
+    mode="LITE" -> normalized bars + bandpass overlay only (no spectrum curve; lighter draw for performance).
     """
     h, w, _ = frame.shape
     bar_w = int(max(1, freq_bar_width))
@@ -116,8 +117,9 @@ def draw_spectrum_analyzer(
 
     bar = _get_panel_bg(h, bar_w).copy()
 
-    # In dB mode reserve space for ruler at bottom
-    use_db = enabled
+    use_db = mode == "dB"
+    draw_curve = mode != "LITE"   # LITE skips the continuous spectrum curve (saves FPS)
+    draw_bandpass = True         # all modes show bandpass (sliding window)
     if use_db:
         graph_h = h - RULER_HEIGHT
     else:
@@ -156,53 +158,55 @@ def draw_spectrum_analyzer(
             if length > 0:
                 cv2.line(bar, (x0, y), (x1, y), color, 1)
 
-        pts = []
-        for f, f_val in zip(f_valid, frac):
-            y = int(np.clip(graph_h_safe - 1 - (float(f) / f_display_max) * (graph_h_safe - 1), 0, graph_h_safe - 1))
-            length = int(float(f_val) * graph_width)
-            x = graph_right - length
-            x = int(np.clip(x, graph_left, graph_right))
-            pts.append((x, y))
-        if len(pts) >= 2:
-            pts_arr = np.array(pts, dtype=np.int32)
-            cv2.polylines(
-                bar, [pts_arr], isClosed=False,
-                color=SPECTRUM_CURVE_BGR, thickness=SPECTRUM_CURVE_THICKNESS, lineType=cv2.LINE_AA
-            )
+        if draw_curve:
+            pts = []
+            for f, f_val in zip(f_valid, frac):
+                y = int(np.clip(graph_h_safe - 1 - (float(f) / f_display_max) * (graph_h_safe - 1), 0, graph_h_safe - 1))
+                length = int(float(f_val) * graph_width)
+                x = graph_right - length
+                x = int(np.clip(x, graph_left, graph_right))
+                pts.append((x, y))
+            if len(pts) >= 2:
+                pts_arr = np.array(pts, dtype=np.int32)
+                cv2.polylines(
+                    bar, [pts_arr], isClosed=False,
+                    color=SPECTRUM_CURVE_BGR, thickness=SPECTRUM_CURVE_THICKNESS, lineType=cv2.LINE_AA
+                )
 
         if use_db:
             _draw_db_ruler_bottom(bar, bar_w, graph_h)
 
-    # ---- Bandpass overlay (use full h so drag handling in main matches) ----
-    y_min = int(np.clip(freq_to_y(f_min, h, f_display_max), 0, h - 1))
-    y_max = int(np.clip(freq_to_y(f_max, h, f_display_max), 0, h - 1))
-    label_x = BAR_MARGIN_LEFT
-    fmin_khz = float(f_min) / 1000.0
-    fmax_khz = float(f_max) / 1000.0
-    y_min_txt = int(np.clip(y_min - 6, 12, h - 6))
-    y_max_txt = int(np.clip(y_max - 6, 12, h - 6))
+    # ---- Bandpass overlay (sliding window; all modes) ----
+    if draw_bandpass:
+        y_min = int(np.clip(freq_to_y(f_min, h, f_display_max), 0, h - 1))
+        y_max = int(np.clip(freq_to_y(f_max, h, f_display_max), 0, h - 1))
+        label_x = BAR_MARGIN_LEFT
+        fmin_khz = float(f_min) / 1000.0
+        fmax_khz = float(f_max) / 1000.0
+        y_min_txt = int(np.clip(y_min - 6, 12, h - 6))
+        y_max_txt = int(np.clip(y_max - 6, 12, h - 6))
 
-    y_top = min(y_min, y_max)
-    y_bottom = max(y_min, y_max)
-    if y_bottom > y_top:
-        overlay = bar.copy()
-        tint_blue = (240, 180, 70)
-        cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), tint_blue, -1)
-        cv2.addWeighted(overlay, 0.12, bar, 0.88, 0, bar)
+        y_top = min(y_min, y_max)
+        y_bottom = max(y_min, y_max)
+        if y_bottom > y_top:
+            overlay = bar.copy()
+            tint_blue = (240, 180, 70)
+            cv2.rectangle(overlay, (1, y_top), (bar_w - 2, y_bottom), tint_blue, -1)
+            cv2.addWeighted(overlay, 0.12, bar, 0.88, 0, bar)
 
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    for (txt, y_pos) in [(f"{fmin_khz:5.1f} kHz", y_min_txt), (f"{fmax_khz:5.1f} kHz", y_max_txt)]:
-        cv2.putText(bar, txt, (label_x, y_pos), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        for (txt, y_pos) in [(f"{fmin_khz:5.1f} kHz", y_min_txt), (f"{fmax_khz:5.1f} kHz", y_max_txt)]:
+            cv2.putText(bar, txt, (label_x, y_pos), font, 0.45, (255, 255, 255), 1, cv2.LINE_AA)
 
-    cv2.line(bar, (0, y_min), (bar_w - 1, y_min), FREQ_BAR_BLUE, 2)
-    cv2.line(bar, (0, y_max), (bar_w - 1, y_max), FREQ_BAR_BLUE, 2)
-    cv2.line(bar, (0, y_min), (0, y_max), FREQ_BAR_BLUE, 2)
-    cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), FREQ_BAR_BLUE, 2)
+        cv2.line(bar, (0, y_min), (bar_w - 1, y_min), FREQ_BAR_BLUE, 2)
+        cv2.line(bar, (0, y_max), (bar_w - 1, y_max), FREQ_BAR_BLUE, 2)
+        cv2.line(bar, (0, y_min), (0, y_max), FREQ_BAR_BLUE, 2)
+        cv2.line(bar, (bar_w - 1, y_min), (bar_w - 1, y_max), FREQ_BAR_BLUE, 2)
 
-    handle_x = bar_w // 2
-    cv2.circle(bar, (handle_x, y_min), 7, FREQ_BAR_BLUE, -1, cv2.LINE_AA)
-    cv2.circle(bar, (handle_x, y_max), 7, FREQ_BAR_BLUE, -1, cv2.LINE_AA)
-    cv2.circle(bar, (handle_x, y_min), 7, (255, 255, 255), 1, cv2.LINE_AA)
-    cv2.circle(bar, (handle_x, y_max), 7, (255, 255, 255), 1, cv2.LINE_AA)
+        handle_x = bar_w // 2
+        cv2.circle(bar, (handle_x, y_min), 7, FREQ_BAR_BLUE, -1, cv2.LINE_AA)
+        cv2.circle(bar, (handle_x, y_max), 7, FREQ_BAR_BLUE, -1, cv2.LINE_AA)
+        cv2.circle(bar, (handle_x, y_min), 7, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.circle(bar, (handle_x, y_max), 7, (255, 255, 255), 1, cv2.LINE_AA)
 
     frame[:, bar_left:bar_right, :] = bar

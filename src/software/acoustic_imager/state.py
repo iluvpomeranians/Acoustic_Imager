@@ -60,7 +60,7 @@ class ButtonState:
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
-    spectrum_analyzer_enabled: bool = True  # spectrum analyzer (dB scale + smooth curve) on freq bar; toggle in MENU
+    spectrum_analyzer_mode: str = "dB"  # "dB" | "NORM" | "LITE" (LITE = NORM without bandpass overlay, for performance)
 
     # Gallery state
     gallery_open: bool = False

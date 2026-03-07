@@ -451,7 +451,7 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     menu_buttons["debug"] = Button(menu_x, debug_y, menu_w, item_h, "DEBUG")
 
     spectrum_y = debug_y + (item_h + gap)
-    menu_buttons["spectrum_analyzer"] = Button(menu_x, spectrum_y, menu_w, item_h, "SPECTRUM: dB" if button_state.spectrum_analyzer_enabled else "SPECTRUM: NORM")
+    menu_buttons["spectrum_analyzer"] = Button(menu_x, spectrum_y, menu_w, item_h, f"SPECTRUM: {button_state.spectrum_analyzer_mode}")
 
     email_y = spectrum_y + (item_h + gap)
     menu_buttons["email_settings"] = Button(menu_x, email_y, menu_w, item_h, "EMAIL SETTINGS")
