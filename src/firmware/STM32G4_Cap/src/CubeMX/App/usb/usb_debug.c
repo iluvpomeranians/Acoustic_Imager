@@ -48,6 +48,7 @@ static void usb_cdc_write_chunked_len(const uint8_t *data, uint32_t len);
 static void compute_p2p_raw_adc4ch(const uint16_t *adc_buf,
                                   uint32_t num_samples,
                                   uint16_t p2p_out_raw[USB_DBG_NUM_CH]);
+static void usb_dbg_flush_string(char *buffer, size_t *length);
 
 /* =========================================================================
  * PUBLIC FUNCTIONS
@@ -179,6 +180,63 @@ send:
 #undef APPEND
 }
 
+void usb_dbg_stream_mic_window_csv(uint8_t mic_index,
+                                   const uint16_t *adc_buf,
+                                   uint8_t adc_channel,
+                                   uint32_t num_samples,
+                                   uint32_t sample_rate_hz)
+{
+    char out[128];
+    size_t used = 0u;
+
+    if (!adc_buf || adc_channel >= USB_DBG_NUM_CH) {
+        return;
+    }
+
+    int n = snprintf(out,
+                     sizeof(out),
+                     "PASS,mic=%u,rate=%lu,samples=%lu,raw=",
+                     (unsigned)mic_index,
+                     (unsigned long)sample_rate_hz,
+                     (unsigned long)num_samples);
+    if (n <= 0) {
+        return;
+    }
+
+    used = (size_t)n;
+    usb_dbg_flush_string(out, &used);
+
+    for (uint32_t i = 0; i < num_samples; i++) {
+        uint16_t sample = adc_buf[i * USB_DBG_NUM_CH + adc_channel];
+        n = snprintf(out + used,
+                     sizeof(out) - used,
+                     "%u%s",
+                     (unsigned)sample,
+                     (i + 1u < num_samples) ? "," : "\r\n");
+        if (n < 0) {
+            return;
+        }
+
+        if ((size_t)n >= (sizeof(out) - used)) {
+            usb_dbg_flush_string(out, &used);
+            n = snprintf(out,
+                         sizeof(out),
+                         "%u%s",
+                         (unsigned)sample,
+                         (i + 1u < num_samples) ? "," : "\r\n");
+            if (n < 0) {
+                return;
+            }
+            used = (size_t)n;
+            continue;
+        }
+
+        used += (size_t)n;
+    }
+
+    usb_dbg_flush_string(out, &used);
+}
+
 /* ============================================================================
  * STATIC FUNCTIONS
  * ============================================================================ */
@@ -218,4 +276,14 @@ static void compute_p2p_raw_adc4ch(const uint16_t *adc_buf,
     for (uint32_t ch = 0; ch < USB_DBG_NUM_CH; ch++) {
         p2p_out_raw[ch] = (uint16_t)(maxv[ch] - minv[ch]);
     }
+}
+
+static void usb_dbg_flush_string(char *buffer, size_t *length)
+{
+    if (*length == 0u) {
+        return;
+    }
+
+    usb_cdc_write_chunked_len((const uint8_t *)buffer, (uint32_t)(*length));
+    *length = 0u;
 }

@@ -27,9 +27,18 @@ static uint32_t spi_frame_counter = 0;
  * FORWARD DECLARATIONS
  * ========================================================================= */
 
-/* static void module_init(void); */
-/* static void module_process(void); */
 static uint16_t checksum16_sum_bytes(const uint8_t *data, size_t length);
+static void spi_stream_fill_header(SPI_FrameHeader_t *hdr,
+                                   spi_stream_t *s,
+                                   uint32_t batch_id,
+                                   uint16_t mic_index,
+                                   uint16_t mic_count,
+                                   uint16_t fft_size,
+                                   uint32_t sample_rate,
+                                   uint16_t bin_count,
+                                   uint16_t flags,
+                                   uint16_t battery_millivolts,
+                                   uint32_t payload_len);
 
 /* =========================================================================
  * PUBLIC FUNCTIONS
@@ -38,65 +47,31 @@ void spi_stream_init(spi_stream_t *s)
 {
     if (!s) return;
     s->frame_counter = 0;
+    s->batch_counter = 0;
 }
 
-size_t spi_stream_build_fft_packet(
-  spi_stream_t *s,
-  uint8_t *dst,
-  size_t dst_cap,
-  uint8_t adc_id,
-  const float *fft_bins,
-  uint16_t mic_count,
-  uint16_t fft_size,
-  uint32_t sample_rate,
-  uint16_t bin_count) {
-  if (!s || !dst || !fft_bins) return 0;
+uint32_t spi_stream_next_batch(spi_stream_t *s)
+{
+    if (!s) {
+        return 0u;
+    }
 
-  const size_t header_len  = sizeof(SPI_FrameHeader_t);
-  const size_t payload_len = 2 * (size_t)bin_count * sizeof(float);
-  const size_t checksum_len = sizeof(uint16_t);
-
-  const size_t total_len = header_len + payload_len + checksum_len;
-  if (dst_cap < total_len) return 0;
-
-  SPI_FrameHeader_t hdr;
-
-  hdr.magic         = SPI_MAGIC;
-  hdr.version       = (uint16_t)SPI_VERSION;
-  hdr.header_len    = (uint16_t)header_len;
-  hdr.frame_counter = s->frame_counter++;
-
-  hdr.mic_count     = mic_count;
-  hdr.fft_size      = fft_size;
-  hdr.sample_rate   = sample_rate;
-  hdr.bin_count     = bin_count;
-
-  // Use reserved to store adc_id (your current behavior)
-  hdr.reserved      = (uint16_t)adc_id;
-
-  hdr.payload_len   = (uint32_t)payload_len;
-
-  memcpy(dst, &hdr, sizeof(hdr));
-  
-  uint8_t *payload_ptr = dst + header_len;
-  memcpy(payload_ptr, fft_bins, payload_len);
-
-  // checksum over [header + payload], stored after payload
-  const uint16_t cs = checksum16_sum_bytes(dst, header_len + payload_len);
-  memcpy(payload_ptr + payload_len, &cs, sizeof(cs));
-
-  return total_len;
+    return s->batch_counter++;
 }
 
-size_t spi_stream_build_frame_packet(
+size_t spi_stream_build_mic_packet(
     spi_stream_t *s,
     uint8_t *dst,
     size_t dst_cap,
+    uint32_t batch_id,
+    uint16_t mic_index,
     const float *fft_data,
     uint16_t mic_count,
     uint16_t fft_size,
     uint32_t sample_rate,
-    uint16_t bin_count)
+    uint16_t bin_count,
+    uint16_t flags,
+    uint16_t battery_millivolts)
 {
     if (!s || !dst || !fft_data)
         return 0;
@@ -120,19 +95,17 @@ size_t spi_stream_build_frame_packet(
 
     /* ===== HEADER ===== */
 
-    hdr.magic         = SPI_MAGIC;
-    hdr.version       = SPI_VERSION;
-    hdr.header_len    = header_len;
-    hdr.frame_counter = s->frame_counter++;
-
-    hdr.mic_count     = mic_count;
-    hdr.fft_size      = fft_size;
-    hdr.sample_rate   = sample_rate;
-
-    hdr.bin_count     = bin_count;
-    hdr.reserved      = 0;
-
-    hdr.payload_len   = payload_len;
+    spi_stream_fill_header(&hdr,
+                           s,
+                           batch_id,
+                           mic_index,
+                           mic_count,
+                           fft_size,
+                           sample_rate,
+                           bin_count,
+                           flags,
+                           battery_millivolts,
+                           (uint32_t)payload_len);
 
     memcpy(dst, &hdr, header_len);
 
@@ -181,6 +154,35 @@ static uint16_t checksum16_sum_bytes(const uint8_t *data, size_t length)
     }
     return sum;
 }
+
+static void spi_stream_fill_header(SPI_FrameHeader_t *hdr,
+                                   spi_stream_t *s,
+                                   uint32_t batch_id,
+                                   uint16_t mic_index,
+                                   uint16_t mic_count,
+                                   uint16_t fft_size,
+                                   uint32_t sample_rate,
+                                   uint16_t bin_count,
+                                   uint16_t flags,
+                                   uint16_t battery_millivolts,
+                                   uint32_t payload_len)
+{
+    hdr->magic = SPI_MAGIC;
+    hdr->version = (uint16_t)SPI_VERSION;
+    hdr->header_len = (uint16_t)sizeof(*hdr);
+    hdr->frame_counter = s->frame_counter++;
+    hdr->batch_id = batch_id;
+    hdr->mic_count = mic_count;
+    hdr->mic_index = mic_index;
+    hdr->fft_size = fft_size;
+    hdr->sample_rate = sample_rate;
+    hdr->bin_count = bin_count;
+    hdr->flags = flags;
+    hdr->payload_len = payload_len;
+    hdr->battery_mv = battery_millivolts;
+    hdr->reserved0 = 0u;
+    hdr->reserved1 = 0u;
+}
 /**
  * @brief Static helper function description
  * @return void
@@ -212,21 +214,20 @@ void package_adc_for_spi(uint8_t adc_id,
   hdr->magic         = SPI_MAGIC;
   hdr->version       = (uint16_t)SPI_VERSION;
   hdr->header_len    = (uint16_t)sizeof(SPI_FrameHeader_t);
-  hdr->frame_counter = spi_frame_counter++;
+    hdr->frame_counter = 0u;
+    hdr->batch_id      = 0u;
 
-  hdr->mic_count     = mic_count;     // e.g. 16 (or 4 if per-ADC packet)
+    hdr->mic_count     = mic_count;
+    hdr->mic_index     = adc_id;
   hdr->fft_size      = fft_size;      // e.g. 1024
   hdr->sample_rate   = sample_rate;   // e.g. 48000
   hdr->bin_count     = bin_count;     // e.g. 513 for 1024-point RFFT (or 512 if you choose)
-  hdr->reserved      = (uint16_t)((uint16_t)adc_id); // Option A: stash adc_id here (low 8 bits)
-  // Alternatively: use reserved as flags and don't store adc_id here.
-
-  // pkt->header = SPI_PACKET_HEADER;
-  // pkt->adc_id = adc_id;
-  // pkt->frame_counter = spi_frame_counter++;
-  // TODO: is memcpy faster than a loop here?
+    hdr->flags         = SPI_FRAME_FLAG_PAYLOAD_COMPLEX;
 
   hdr->payload_len   = (uint32_t)FFT_PAYLOAD_BYTES;
+    hdr->battery_mv    = 0u;
+    hdr->reserved0     = 0u;
+    hdr->reserved1     = 0u;
 
   // 2) Copy payload immediately after header
   uint8_t *payload_ptr = packet_buffer + sizeof(SPI_FrameHeader_t);

@@ -22,6 +22,11 @@ extern "C" {
 /* =========================================================================
  * FUNCTION PROTOTYPES
  * ========================================================================= */
+void process_adc_channel_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
+                                  uint16_t *adc_raw,
+                                  uint8_t channel_index,
+                                  float *fft_output);
+
 void process_adc_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
                           uint16_t *adc_raw, 
                           uint32_t adc_id, 

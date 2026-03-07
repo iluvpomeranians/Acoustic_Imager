@@ -19,6 +19,7 @@ extern "C" {
  * ========================================================================= */
 typedef struct {
   uint32_t frame_counter;
+  uint32_t batch_counter;
 } spi_stream_t;
 
 /* =========================================================================
@@ -29,20 +30,21 @@ typedef struct {
  */
 void spi_stream_init(spi_stream_t *s);
 
-/**
- * @brief Build one FFT packet into dst buffer.
- * @return number of bytes written to dst, or 0 on error (dst too small).
- */
-size_t spi_stream_build_fft_packet(
+uint32_t spi_stream_next_batch(spi_stream_t *s);
+
+size_t spi_stream_build_mic_packet(
     spi_stream_t *s,
     uint8_t *dst,
     size_t dst_cap,
-    uint8_t adc_id,
+    uint32_t batch_id,
+    uint16_t mic_index,
     const float *fft_bins,
     uint16_t mic_count,
     uint16_t fft_size,
     uint32_t sample_rate,
-    uint16_t bin_count);
+    uint16_t bin_count,
+    uint16_t flags,
+    uint16_t battery_millivolts);
 
 /**
  * @brief Blocking transmit over SPI (hspi4).

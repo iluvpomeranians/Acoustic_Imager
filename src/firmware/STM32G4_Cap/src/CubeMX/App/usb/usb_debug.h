@@ -50,6 +50,12 @@ void usb_dbg_push_adc_window_4adc(const uint16_t *adc1,
                                   const uint16_t *adc4,
                                   uint32_t num_samples);
 
+void usb_dbg_stream_mic_window_csv(uint8_t mic_index,
+                                   const uint16_t *adc_buf,
+                                   uint8_t adc_channel,
+                                   uint32_t num_samples,
+                                   uint32_t sample_rate_hz);
+
 #ifdef __cplusplus
 }
 #endif

@@ -114,6 +114,7 @@ int main(void)
   MX_TIM6_Init();
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
+  MX_ADC5_Init();
   /* USER CODE BEGIN 2 */
   app_init();
   app_start();

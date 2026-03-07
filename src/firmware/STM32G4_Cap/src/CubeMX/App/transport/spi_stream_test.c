@@ -75,11 +75,12 @@ static uint16_t checksum16_sum_bytes_ref(const uint8_t *data, size_t length)
 
 void spi_stream_unit_test_build_packet(void)
 {
-  usb_printf("\r\n=== spi_stream_build_fft_packet UNIT TEST ===\r\n");
+    usb_printf("\r\n=== spi_stream_build_mic_packet UNIT TEST ===\r\n");
 
   // Test parameters
-  const uint8_t  adc_id      = 3;
-  const uint16_t mic_count   = 4;
+    const uint32_t batch_id    = 77;
+    const uint16_t mic_index   = 3;
+    const uint16_t mic_count   = 16;
   const uint16_t fft_size    = 1024;
   const uint32_t sample_rate = 100000;
   const uint16_t bin_count   = 8; // small for easy printing
@@ -103,16 +104,19 @@ void spi_stream_unit_test_build_packet(void)
 
   memset(pkt.bytes, 0xEE, sizeof(pkt.bytes)); // poison to detect what gets written
 
-  const size_t total = spi_stream_build_fft_packet(
+  const size_t total = spi_stream_build_mic_packet(
       &stream,
       pkt.bytes,
       sizeof(pkt.bytes),
-      adc_id,
+      batch_id,
+      mic_index,
       fft_bins,
       mic_count,
       fft_size,
       sample_rate,
-      bin_count);
+      bin_count,
+      SPI_FRAME_FLAG_PAYLOAD_COMPLEX,
+      0u);
 
   usb_printf("build returned total_len=%u\r\n", (unsigned)total);
 
@@ -134,16 +138,22 @@ void spi_stream_unit_test_build_packet(void)
               (unsigned)hdr.header_len, (unsigned)sizeof(SPI_FrameHeader_t));
   usb_printf("  frame_counter= %lu (expect 0)\r\n",
               (unsigned long)hdr.frame_counter);
+    usb_printf("  batch_id     = %lu (expect %lu)\r\n",
+                            (unsigned long)hdr.batch_id, (unsigned long)batch_id);
   usb_printf("  mic_count    = %u (expect %u)\r\n",
               (unsigned)hdr.mic_count, (unsigned)mic_count);
+    usb_printf("  mic_index    = %u (expect %u)\r\n",
+                            (unsigned)hdr.mic_index, (unsigned)mic_index);
   usb_printf("  fft_size     = %u (expect %u)\r\n",
               (unsigned)hdr.fft_size, (unsigned)fft_size);
   usb_printf("  sample_rate  = %lu (expect %lu)\r\n",
               (unsigned long)hdr.sample_rate, (unsigned long)sample_rate);
   usb_printf("  bin_count    = %u (expect %u)\r\n",
               (unsigned)hdr.bin_count, (unsigned)bin_count);
-  usb_printf("  reserved(adc)= %u (expect %u)\r\n",
-              (unsigned)hdr.reserved, (unsigned)adc_id);
+    usb_printf("  flags        = 0x%04X (expect 0x%04X)\r\n",
+                            (unsigned)hdr.flags, (unsigned)SPI_FRAME_FLAG_PAYLOAD_COMPLEX);
+    usb_printf("  battery_mv   = %u (expect 0)\r\n",
+                            (unsigned)hdr.battery_mv);
   usb_printf("  payload_len  = %lu (expect %lu)\r\n",
               (unsigned long)hdr.payload_len,
               (unsigned long)(2u * (unsigned long)bin_count * (unsigned long)sizeof(float)));
@@ -224,13 +234,13 @@ void spi_stream_unit_test_nulls(void)
   usb_printf("\r\n=== NULL TESTS ===\r\n");
 
   usb_printf("null stream => %u\r\n",
-      (unsigned)spi_stream_build_fft_packet(NULL, dst, sizeof(dst), 0, bins, 1, 1024, 100000, 8));
+      (unsigned)spi_stream_build_mic_packet(NULL, dst, sizeof(dst), 0u, 0u, bins, 1, 1024, 100000, 8, 0u, 0u));
 
   usb_printf("null dst => %u\r\n",
-      (unsigned)spi_stream_build_fft_packet(&s, NULL, sizeof(dst), 0, bins, 1, 1024, 100000, 8));
+      (unsigned)spi_stream_build_mic_packet(&s, NULL, sizeof(dst), 0u, 0u, bins, 1, 1024, 100000, 8, 0u, 0u));
 
   usb_printf("null bins => %u\r\n",
-      (unsigned)spi_stream_build_fft_packet(&s, dst, sizeof(dst), 0, NULL, 1, 1024, 100000, 8));
+      (unsigned)spi_stream_build_mic_packet(&s, dst, sizeof(dst), 0u, 0u, NULL, 1, 1024, 100000, 8, 0u, 0u));
 }
 
 void spi_stream_unit_test_small_cap(void)
@@ -242,7 +252,7 @@ void spi_stream_unit_test_small_cap(void)
   float bins[16];      // 2*8 floats
 
   usb_printf("\r\n=== CAPACITY TEST ===\r\n");
-  size_t n = spi_stream_build_fft_packet(&s, dst, sizeof(dst), 0, bins, 1, 1024, 100000, 8);
+    size_t n = spi_stream_build_mic_packet(&s, dst, sizeof(dst), 0u, 0u, bins, 1, 1024, 100000, 8, 0u, 0u);
   usb_printf("dst_cap=%u => returned %u (expect 0)\r\n",
               (unsigned)sizeof(dst), (unsigned)n);
 }
@@ -257,11 +267,11 @@ void spi_stream_unit_test_frame_counter(void)
 
   usb_printf("\r\n=== FRAME COUNTER TEST ===\r\n");
   for (int i = 0; i < 3; i++) {
-      size_t n = spi_stream_build_fft_packet(&s, pkt.b, sizeof(pkt.b), 0, bins, 1, 1024, 100000, 8);
+            size_t n = spi_stream_build_mic_packet(&s, pkt.b, sizeof(pkt.b), 55u, 0u, bins, 16, 1024, 100000, 8, 0u, 0u);
       SPI_FrameHeader_t hdr;
       memcpy(&hdr, pkt.b, sizeof(hdr));
-      usb_printf("call %d: len=%u, frame_counter=%lu\r\n",
-                  i, (unsigned)n, (unsigned long)hdr.frame_counter);
+            usb_printf("call %d: len=%u, frame_counter=%lu, batch_id=%lu\r\n",
+                                    i, (unsigned)n, (unsigned long)hdr.frame_counter, (unsigned long)hdr.batch_id);
   }
 }
 
@@ -272,8 +282,9 @@ void spi_loopback_unit_test(void)
     // ---------------------------------------------------------------------
     // 1) Build a small packet into tx[]
     // ---------------------------------------------------------------------
-    const uint8_t  adc_id      = 1;
-    const uint16_t mic_count   = 4;
+    const uint32_t batch_id    = 2;
+    const uint16_t mic_index   = 1;
+    const uint16_t mic_count   = 16;
     const uint16_t fft_size    = 1024;
     const uint32_t sample_rate = 48000;
     const uint16_t bin_count   = 8; // keep small to start
@@ -292,19 +303,22 @@ void spi_loopback_unit_test(void)
     memset(tx_u.b, 0x00, sizeof(tx_u.b));
     memset(rx_u.b, 0xCC, sizeof(rx_u.b));
 
-    const size_t tx_len = spi_stream_build_fft_packet(
+    const size_t tx_len = spi_stream_build_mic_packet(
         &stream,
         tx_u.b,
         sizeof(tx_u.b),
-        adc_id,
+        batch_id,
+        mic_index,
         fft_bins,
         mic_count,
         fft_size,
         sample_rate,
-        bin_count);
+        bin_count,
+        SPI_FRAME_FLAG_PAYLOAD_COMPLEX,
+        0u);
 
     if (tx_len == 0) {
-        usb_printf("FAIL: spi_stream_build_fft_packet returned 0\r\n");
+        usb_printf("FAIL: spi_stream_build_mic_packet returned 0\r\n");
         return;
     }
 
