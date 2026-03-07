@@ -62,7 +62,7 @@ from acoustic_imager.dsp.bars import (
     freq_to_y,
     y_to_freq,
 )
-from acoustic_imager.dsp.spectrum_analyzer import draw_spectrum_analyzer
+from acoustic_imager.dsp.spectrum_analyzer import draw_spectrum_analyzer, spectrum_closest_curve_point
 
 from acoustic_imager.system_info import get_system_network_info
 from acoustic_imager.ui.top_hud import draw_hud, handle_hud_click
@@ -303,6 +303,74 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 state.DRAG_START_F_MAX = state.F_MAX_HZ
                 state.ui_click_was_on_ui = True
                 return
+            # Spectrum cursor: double-tap toggles cursor; single tap on line places/moves dot; tap in graph moves line
+            bar_w = config.FREQ_BAR_WIDTH
+            graph_left = 8
+            graph_right = bar_w - 5
+            cursor_x_bar = mx - bar_left
+            if graph_left <= cursor_x_bar <= graph_right:
+                now = time.time()
+                dt_ms = (now - state.SPECTRUM_CURSOR_LAST_TAP_TIME) * 1000
+                tap_dist = ((mx - state.SPECTRUM_CURSOR_LAST_TAP_X) ** 2 + (my - state.SPECTRUM_CURSOR_LAST_TAP_Y) ** 2) ** 0.5
+                is_double_tap = dt_ms < config.UI_DOUBLE_TAP_MS and tap_dist < config.UI_DOUBLE_TAP_RADIUS_PX
+                if is_double_tap:
+                    if state.SPECTRUM_CURSOR_X is not None:
+                        state.SPECTRUM_CURSOR_X = None
+                        state.SPECTRUM_CURSOR_DOT_ACTIVE = False
+                        state.SPECTRUM_CURSOR_DOT_FREQ = None
+                        state.SPECTRUM_CURSOR_PENDING_TAP_X = None
+                        state.SPECTRUM_CURSOR_PENDING_TAP_Y = None
+                        state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE = False
+                        state.SPECTRUM_CURSOR_DOT_BAR_X = None
+                        state.SPECTRUM_CURSOR_DOT_BAR_Y = None
+                    else:
+                        state.SPECTRUM_CURSOR_X = float(np.clip(cursor_x_bar, graph_left, graph_right))
+                        state.SPECTRUM_CURSOR_DOT_ACTIVE = False
+                    state.SPECTRUM_CURSOR_LAST_TAP_TIME = 0.0
+                    state.ui_click_was_on_ui = True
+                    return
+                # Hit-test dot first: press on dot starts drag (dot grows, draggable along curve)
+                dot_hit_radius = 24
+                on_dot = (
+                    state.SPECTRUM_CURSOR_DOT_ACTIVE
+                    and state.SPECTRUM_CURSOR_DOT_BAR_X is not None
+                    and state.SPECTRUM_CURSOR_DOT_BAR_Y is not None
+                )
+                if on_dot:
+                    dot_bx = state.SPECTRUM_CURSOR_DOT_BAR_X
+                    dot_by = state.SPECTRUM_CURSOR_DOT_BAR_Y
+                    if dot_bx is not None and dot_by is not None:
+                        dot_scr_x = bar_left + dot_bx
+                        dist_sq = (mx - dot_scr_x) ** 2 + (my - dot_by) ** 2
+                        if dist_sq <= dot_hit_radius ** 2:
+                            state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE = True
+                            state.SPECTRUM_CURSOR_PENDING_TAP_X = float(np.clip(cursor_x_bar, graph_left, graph_right))
+                            state.SPECTRUM_CURSOR_PENDING_TAP_Y = int(np.clip(my, 0, h - 1))
+                            state.ui_click_was_on_ui = True
+                            return
+                cursor_line_margin = 16
+                on_red_line = (
+                    state.SPECTRUM_CURSOR_X is not None
+                    and abs(cursor_x_bar - state.SPECTRUM_CURSOR_X) <= cursor_line_margin
+                )
+                if on_red_line:
+                    state.SPECTRUM_CURSOR_DOT_ACTIVE = True
+                    state.SPECTRUM_CURSOR_PENDING_TAP_Y = int(np.clip(my, 0, h - 1))
+                    state.SPECTRUM_CURSOR_LAST_TAP_TIME = now
+                    state.SPECTRUM_CURSOR_LAST_TAP_X = mx
+                    state.SPECTRUM_CURSOR_LAST_TAP_Y = my
+                    state.ui_click_was_on_ui = True
+                    return
+                # Cursor visible: single tap elsewhere in graph moves line and starts drag
+                if state.SPECTRUM_CURSOR_X is not None:
+                    state.SPECTRUM_CURSOR_X = float(np.clip(cursor_x_bar, graph_left, graph_right))
+                    state.DRAG_TARGET = "cursor"
+                    state.DRAG_ACTIVE = True
+                state.SPECTRUM_CURSOR_LAST_TAP_TIME = now
+                state.SPECTRUM_CURSOR_LAST_TAP_X = mx
+                state.SPECTRUM_CURSOR_LAST_TAP_Y = my
+                state.ui_click_was_on_ui = True
+                return
         # 6) Other UI buttons (camera, source, debug)
         for b in buttons.values():
             if b.contains(mx, my):
@@ -498,9 +566,19 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
 
-        # Handle frequency bar dragging
         bar_left = left_width
-        if state.DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
+
+        # Dot drag: follow finger along curve (checked first; we don't set DRAG_ACTIVE for dot drag)
+        if state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
+            bar_w = config.FREQ_BAR_WIDTH
+            graph_left = 8
+            graph_right = bar_w - 5
+            cursor_x_bar = float(np.clip(mx - bar_left, graph_left, graph_right))
+            state.SPECTRUM_CURSOR_PENDING_TAP_X = cursor_x_bar
+            state.SPECTRUM_CURSOR_PENDING_TAP_Y = int(np.clip(my, 0, h - 1))
+
+        # Handle frequency bar dragging
+        elif state.DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
             if state.DRAG_TARGET == "box":
                 # Drag the entire box - maintain the frequency range
                 freq_range = state.DRAG_START_F_MAX - state.DRAG_START_F_MIN
@@ -522,6 +600,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
                 state.F_MIN_HZ = new_f_min
                 state.F_MAX_HZ = new_f_max
+            elif state.DRAG_TARGET == "cursor":
+                bar_w = config.FREQ_BAR_WIDTH
+                graph_left = 8
+                graph_right = bar_w - 5
+                cursor_x_bar = float(np.clip(mx - bar_left, graph_left, graph_right))
+                state.SPECTRUM_CURSOR_X = cursor_x_bar
             else:
                 # Drag individual handle
                 f = y_to_freq(my, h, config.F_DISPLAY_MAX)
@@ -532,6 +616,9 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
 
     # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
+
+        # End dot drag (dot stays at last snapped position)
+        state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE = False
 
         # End frequency bar drag
         state.DRAG_ACTIVE = False
@@ -854,12 +941,47 @@ def main() -> None:
             output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8, button_state.colormap_mode)
             prof.mark("blend")
 
+            # ---- Process pending spectrum cursor (tap or dot drag): snap to closest point on blue curve ----
+            if state.SPECTRUM_CURSOR_PENDING_TAP_Y is not None and fft_data is not None:
+                use_db = button_state.spectrum_analyzer_mode == "dB"
+                cursor_x_for_snap = (
+                    state.SPECTRUM_CURSOR_PENDING_TAP_X
+                    if state.SPECTRUM_CURSOR_PENDING_TAP_X is not None
+                    else (state.SPECTRUM_CURSOR_X or (config.FREQ_BAR_WIDTH // 2))
+                )
+                curve_x, dot_freq = spectrum_closest_curve_point(
+                    cursor_x_for_snap,
+                    state.SPECTRUM_CURSOR_PENDING_TAP_Y,
+                    config.HEIGHT,
+                    config.F_DISPLAY_MAX,
+                    fft_data,
+                    config.f_axis,
+                    config.FREQ_BAR_WIDTH,
+                    use_db=use_db,
+                )
+                state.SPECTRUM_CURSOR_X = curve_x
+                state.SPECTRUM_CURSOR_DOT_FREQ = dot_freq
+                state.SPECTRUM_CURSOR_PENDING_TAP_X = None
+                state.SPECTRUM_CURSOR_PENDING_TAP_Y = None
+
             # ---- Draw spectrum analyzer (dB scale + curve) and dB colorbar ----
+            spectrum_cursor_dot_bar_pos = []
             draw_spectrum_analyzer(
                 output_frame, fft_data, config.f_axis, f_min, f_max,
                 config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX,
                 mode=button_state.spectrum_analyzer_mode,
+                spectrum_cursor_x=state.SPECTRUM_CURSOR_X,
+                spectrum_cursor_dot_active=state.SPECTRUM_CURSOR_DOT_ACTIVE,
+                spectrum_cursor_dot_freq=state.SPECTRUM_CURSOR_DOT_FREQ,
+                spectrum_cursor_dot_dragging=state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE,
+                spectrum_cursor_dot_bar_pos=spectrum_cursor_dot_bar_pos,
             )
+            if len(spectrum_cursor_dot_bar_pos) == 2:
+                state.SPECTRUM_CURSOR_DOT_BAR_X = spectrum_cursor_dot_bar_pos[0]
+                state.SPECTRUM_CURSOR_DOT_BAR_Y = spectrum_cursor_dot_bar_pos[1]
+            else:
+                state.SPECTRUM_CURSOR_DOT_BAR_X = None
+                state.SPECTRUM_CURSOR_DOT_BAR_Y = None
             draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
             prof.mark("bars")
 
