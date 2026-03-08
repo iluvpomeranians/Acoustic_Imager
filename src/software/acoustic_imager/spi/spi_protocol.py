@@ -12,6 +12,121 @@ from acoustic_imager.custom_types import LatestFrame, SourceStats
 
 
 # ---------------------------
+# Per-mic packet (firmware format): unpack packed RFFT -> complex bins
+# ---------------------------
+def unpack_packed_rfft_to_complex(packed: np.ndarray) -> np.ndarray:
+    """
+    Convert 512 packed real FFT floats (CMSIS arm_rfft_fast_f32 layout) to 257 complex bins.
+    Layout: packed[0]=DC, packed[1]=Nyquist, packed[2]=Re1, packed[3]=Im1, ...
+    Returns (257,) complex64.
+    """
+    out = np.zeros(257, dtype=np.complex64)
+    out[0] = packed[0]  # DC (real)
+    out[256] = packed[1]  # Nyquist (real)
+    for k in range(1, 256):
+        out[k] = packed[2 + 2 * (k - 1)] + 1j * packed[2 + 2 * (k - 1) + 1]
+    return out
+
+
+def pack_complex_to_packed_rfft(complex_bins: np.ndarray) -> np.ndarray:
+    """
+    Convert 257 complex bins to 512 packed real FFT floats (inverse of unpack_packed_rfft_to_complex).
+    Returns (512,) float32.
+    """
+    packed = np.zeros(512, dtype=np.float32)
+    packed[0] = float(np.real(complex_bins[0]))
+    packed[1] = float(np.real(complex_bins[256]))
+    for k in range(1, 256):
+        packed[2 + 2 * (k - 1)] = float(np.real(complex_bins[k]))
+        packed[2 + 2 * (k - 1) + 1] = float(np.imag(complex_bins[k]))
+    return packed
+
+
+def build_mic_packet(
+    batch_id: int,
+    mic_index: int,
+    fft_1mic: np.ndarray,
+    frame_counter: int = 0,
+    sample_rate: int = 100000,
+    flags: int = 0,
+    battery_mv: int = 0,
+) -> bytes:
+    """
+    Build one per-mic SPI packet (firmware format): header + packed payload + 2-byte checksum.
+    fft_1mic: (257,) complex64. Returns SPI_MIC_PACKET_BYTES bytes.
+    """
+    from acoustic_imager import config  # type: ignore
+
+    packed = pack_complex_to_packed_rfft(fft_1mic)
+    payload = packed.tobytes()
+    assert len(payload) == config.SPI_MIC_PAYLOAD_BYTES
+
+    hdr = struct.pack(
+        config.SPI_MIC_HEADER_FMT,
+        config.SPI_MAGIC_FW,
+        config.VERSION,
+        config.SPI_MIC_HEADER_BYTES,
+        frame_counter,
+        batch_id & 0xFFFF,
+        mic_index & 0xFF,
+        config.SAMPLES_PER_CHANNEL,
+        sample_rate,
+        flags & 0xFFFF,
+        config.SPI_MIC_PAYLOAD_BYTES,
+        battery_mv & 0xFFFF,
+        0,
+        0,
+    )
+    body = hdr + payload
+    cs = sum(body) & 0xFFFF
+    return body + struct.pack("<H", cs)
+
+
+def parse_mic_packet(buf: bytes) -> Tuple[bool, int, int, Optional[np.ndarray]]:
+    """
+    Parse one per-mic SPI packet (firmware format: SPI_FrameHeader_t + payload + 2-byte checksum).
+    Returns (ok, batch_id, mic_index, fft_1mic_complex_257) or (False, 0, 0, None) on error.
+    """
+    try:
+        from acoustic_imager import config  # type: ignore
+    except ImportError:
+        return False, 0, 0, None
+
+    hdr_len = config.SPI_MIC_HEADER_BYTES
+    payload_len = config.SPI_MIC_PAYLOAD_BYTES
+    cs_len = config.SPI_MIC_CHECKSUM_BYTES
+    expected_len = hdr_len + payload_len + cs_len
+    if len(buf) < expected_len:
+        return False, 0, 0, None
+
+    fields = struct.unpack_from(config.SPI_MIC_HEADER_FMT, buf, 0)
+    magic = fields[0]
+    version = fields[1]
+    batch_id = int(fields[4])
+    mic_index = int(fields[5])
+    payload_len_hdr = int(fields[9])
+
+    if magic != config.SPI_MAGIC_FW or version != config.VERSION:
+        return False, 0, 0, None
+    if payload_len_hdr != payload_len:
+        return False, 0, 0, None
+
+    # Optional checksum: sum of header+payload bytes, 16-bit
+    cs_offset = hdr_len + payload_len
+    cs_rx = struct.unpack_from("<H", buf, cs_offset)[0]
+    cs_calc = sum(buf[:cs_offset]) & 0xFFFF
+    if cs_calc != cs_rx:
+        return False, 0, 0, None
+
+    payload = buf[hdr_len:cs_offset]
+    packed = np.frombuffer(payload, dtype=np.float32)
+    if packed.size != 512:
+        return False, 0, 0, None
+    fft_1mic = unpack_packed_rfft_to_complex(packed)
+    return True, batch_id, mic_index, fft_1mic
+
+
+# ---------------------------
 # Helpers: flexible config read
 # ---------------------------
 def _get_attr(obj: Any, name: str, default: Any) -> Any:

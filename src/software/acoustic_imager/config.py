@@ -182,6 +182,16 @@ TRAILER_LEN = struct.calcsize(TRAILER_FMT)
 PAYLOAD_LEN = N_MICS * N_BINS * 2 * 4  # 8 bytes per bin per mic
 FRAME_BYTES = HEADER_LEN + PAYLOAD_LEN + TRAILER_LEN
 
+# --- Per-mic packet format (firmware SPI_FrameHeader_t + payload + checksum) ---
+SPI_MAGIC_FW = 0xAABBCCDD
+# Packed struct matching SPI_FrameHeader_t: magic(I) version(H) header_len(H) frame_counter(I)
+# batch_id(H) mic_index(B) fft_size(H) sample_rate(I) flags(H) payload_len(H) battery_mv(H) reserved0(H) reserved1(H)
+SPI_MIC_HEADER_FMT = "<IHHIHBHIHHHHH"
+SPI_MIC_HEADER_BYTES = struct.calcsize(SPI_MIC_HEADER_FMT)  # 31
+SPI_MIC_PAYLOAD_BYTES = 2048   # 512 * 4 (packed RFFT floats per mic)
+SPI_MIC_CHECKSUM_BYTES = 2
+SPI_MIC_PACKET_BYTES = SPI_MIC_HEADER_BYTES + SPI_MIC_PAYLOAD_BYTES + SPI_MIC_CHECKSUM_BYTES  # 2081
+
 # SPI config
 SOURCE_DEFAULT = "SIM"   # or "LOOP" / "HW" / "REF"
 SOURCE_MODES = ("SIM", "LOOP", "HW", "REF")  # REF = 0 dB reference baseline (flat spectrum)

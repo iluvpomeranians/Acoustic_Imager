@@ -1086,7 +1086,9 @@ def main() -> None:
 
                 if source_label in ("HW", "LOOP"):
                     mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
-                    bytes_per_s = config.FRAME_BYTES * fps_ema
+                    # One batch = 16 mic packets
+                    bytes_per_batch = 16 * getattr(config, "SPI_MIC_PACKET_BYTES", 2081)
+                    bytes_per_s = bytes_per_batch * fps_ema
                     mbps_bytes = bytes_per_s / 1e6
                     mbps_bits = (bytes_per_s * 8) / 1e6
 
@@ -1165,7 +1167,11 @@ def main() -> None:
                 source_label=source_label,
                 source_stats=source_stats,
                 fps_mode=button_state.fps_mode,
-                frame_bytes=config.FRAME_BYTES,
+                frame_bytes=(
+                    16 * getattr(config, "SPI_MIC_PACKET_BYTES", 2081)
+                    if source_label in ("HW", "LOOP")
+                    else config.FRAME_BYTES
+                ),
                 offset_y=state.ui_top_hud_offset,
                 battery_percent=None,  # placeholder until live data
                 time_remaining_sec=None,  # from battery hardware when available
