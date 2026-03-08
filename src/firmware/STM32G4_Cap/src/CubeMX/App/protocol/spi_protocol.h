@@ -21,6 +21,8 @@ extern "C" {
 
 #define SPI_BUFFER_SIZE 4
 
+#define SPI_FRAME_HEADER_SIZE_BYTES (sizeof(SPI_FrameHeader_t))
+
 #define SPI_FRAME_FLAG_SYNCED_ALL_MICS   (1u << 0)
 #define SPI_FRAME_FLAG_PAYLOAD_COMPLEX   (1u << 1)
 #define SPI_FRAME_FLAG_PAYLOAD_TIME      (1u << 2)
@@ -35,12 +37,13 @@ typedef struct __attribute__((packed)) {
     uint32_t magic;        // Frame magic (e.g., 0xAABBCCDD)
     uint16_t version;      // Protocol version
     uint16_t header_len;   // sizeof(SPI_FrameHeader_t)
-    uint32_t batch_id;     // Shared by all microphones from one synchronized sweep
-    uint16_t mic_index;    // Microphone index for this payload
+    uint32_t frame_counter; // Incremented for each mic packet sent (wraps on uint32_t)
+    uint16_t batch_id;     // Shared by all microphones from one synchronized sweep
+    uint8_t  mic_index;    // Microphone index for this payload
     uint16_t fft_size;     // FFT size (e.g., 1024)
     uint32_t sample_rate;  // Sampling rate (Hz)
     uint16_t flags;        // Payload and sync flags
-    uint32_t payload_len;  // Bytes following header (FFT payload size)
+    uint16_t payload_len;  // Bytes following header (FFT payload size)
     uint16_t battery_mv;   // Battery sense value in millivolts after divider compensation
     uint16_t reserved0;    // Future use
     uint16_t reserved1;    // Future use

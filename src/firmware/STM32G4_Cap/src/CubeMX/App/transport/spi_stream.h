@@ -18,8 +18,6 @@ extern "C" {
 #define SPI_CHECKSUM_SIZE_BYTES   (sizeof(uint16_t))
 #define SPI_FLOAT_SIZE_BYTES      (sizeof(float))
 
-#define SPI_FRAME_HEADER_SIZE_BYTES (sizeof(SPI_FrameHeader_t))
-
 // arm_rfft_fast_f32() with N=FRAME_SIZE produces FRAME_SIZE total floats 
 //(DC and Nyquist bin complex components are omitted)
 #define SPI_FRAME_PAYLOAD_BYTES (FRAME_SIZE * SPI_FLOAT_SIZE_BYTES)
@@ -30,6 +28,7 @@ extern "C" {
 /* =========================================================================
  * TYPE DEFINITIONS
  * ========================================================================= */
+
 typedef struct {
   uint32_t frame_counter;
   uint32_t batch_counter;

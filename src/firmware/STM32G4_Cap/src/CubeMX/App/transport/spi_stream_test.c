@@ -80,8 +80,7 @@ void spi_stream_unit_test_build_packet(void)
   // Test parameters
     const uint32_t batch_id    = 77;
     const uint16_t mic_index   = 3;
-    const uint16_t mic_count   = 16;
-  const uint16_t fft_size    = 1024;
+  const uint16_t fft_size    = 16;
   const uint32_t sample_rate = 100000;
   const uint16_t bin_count   = 8; // small for easy printing
 
@@ -259,11 +258,12 @@ void spi_stream_unit_test_frame_counter(void)
 
   usb_printf("\r\n=== FRAME COUNTER TEST ===\r\n");
   for (int i = 0; i < 3; i++) {
-            size_t n = spi_stream_build_mic_packet(&s, pkt.b, sizeof(pkt.b), 55u, 0u, bins, 1024, 100000, 0u, 0u);
+            size_t n = spi_stream_build_mic_packet(&s, pkt.b, sizeof(pkt.b), 55u, 0u, bins, 16, 100000, 0u, 0u);
       SPI_FrameHeader_t hdr;
       memcpy(&hdr, pkt.b, sizeof(hdr));
-            usb_printf("call %d: len=%u, batch_id=%lu\r\n",
-                       i, (unsigned)n, (unsigned long)hdr.batch_id);
+            usb_printf("call %d: len=%u, frame_counter=%u, batch_id=%u\r\n",
+                       i, (unsigned)n, hdr.frame_counter, (unsigned)hdr.batch_id);
+                       
   }
 }
 
@@ -277,7 +277,7 @@ void spi_loopback_unit_test(void)
     const uint32_t batch_id    = 2;
     const uint16_t mic_index   = 1;
     const uint16_t mic_count   = 16;
-    const uint16_t fft_size    = 1024;
+    const uint16_t fft_size    = 16;
     const uint32_t sample_rate = 48000;
     const uint16_t bin_count   = 8; // keep small to start
 

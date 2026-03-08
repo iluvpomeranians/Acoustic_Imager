@@ -171,6 +171,7 @@ static void spi_stream_fill_header(SPI_FrameHeader_t *hdr,
     hdr->magic = SPI_MAGIC;
     hdr->version = (uint16_t)SPI_VERSION;
     hdr->header_len = (uint16_t)sizeof(*hdr);
+    hdr->frame_counter = s->frame_counter++;
     hdr->batch_id = batch_id;
     hdr->mic_index = mic_index;
     hdr->fft_size = fft_size;
