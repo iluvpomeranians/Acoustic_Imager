@@ -33,6 +33,9 @@ static float fft_temp_buf[2048];
 
 /* static void module_init(void); */
 /* static void module_process(void); */
+static void pack_rfft_complex_bins(const float *packed_fft,
+                                   float *complex_output,
+                                   uint32_t fft_size);
 
 /* =========================================================================
  * PUBLIC FUNCTIONS
@@ -65,9 +68,10 @@ void remove_dc_bias(float *data, uint32_t length, float dc_offset)
 
 void apply_fft(arm_rfft_fast_instance_f32 *fft_instance, 
                float *input, 
-               float *magnitude_output, 
+               float *complex_output, 
                uint32_t fft_size) {
-  arm_rfft_fast_f32(fft_instance, input, fft_temp_buf, 0);    
+  arm_rfft_fast_f32(fft_instance, input, fft_temp_buf, 0);
+  pack_rfft_complex_bins(fft_temp_buf, complex_output, fft_size);
 }
 
 // TODO: We likely don't need to calculate magnitude, I think the 
@@ -105,20 +109,30 @@ void normalize_magnitude(float *mag, uint32_t length)
   }
 }
 
+void process_adc_channel_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
+                                  uint16_t *adc_raw,
+                                  uint8_t channel_index,
+                                  float *fft_output)
+{
+  process_adc_to_float(adc_raw, fft_input_buf, channel_index, FRAME_SIZE);
+  float dc_offset = calculate_dc_offset(fft_input_buf, FRAME_SIZE);
+  remove_dc_bias(fft_input_buf, FRAME_SIZE, dc_offset);
+  apply_fft(fft_instance, fft_input_buf, fft_output, FRAME_SIZE);
+}
+
 void process_adc_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
                           uint16_t *adc_raw, 
                           uint32_t adc_id, 
-                          float *fft_output)
+                          float *fft_output_base)
 {
   // When a half-buffer is ready, 4 channels of interleaved data are available.
   // Rather than de-interleaving all 4 channels into separate buffers, we can 
   // process each channel is a scratch buffer.
+  (void)adc_id;
   for (uint8_t ch = 0; ch < N_CH_PER_ADC; ch++) {
   
-    process_adc_to_float(adc_raw, fft_input_buf, ch, FRAME_SIZE);
-    float dc_offset = calculate_dc_offset(fft_input_buf, FRAME_SIZE);
-    remove_dc_bias(fft_input_buf, FRAME_SIZE, dc_offset);
-    apply_fft(fft_instance, fft_input_buf, fft_output, FRAME_SIZE);
+    float *fft_output = fft_output_base + ch * (2 * N_BINS);
+    process_adc_channel_pipeline(fft_instance, adc_raw, ch, fft_output);
 
     // normalize_magnitude(fft_output, 512);
   }
@@ -138,3 +152,20 @@ void process_adc_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
  * @brief Static helper function description
  * @return void
  */
+static void pack_rfft_complex_bins(const float *packed_fft,
+                                   float *complex_output,
+                                   uint32_t fft_size)
+{
+  const uint32_t half = fft_size >> 1;
+
+  complex_output[0] = packed_fft[0];
+  complex_output[1] = 0.0f;
+
+  for (uint32_t bin = 1; bin < half; bin++) {
+    complex_output[2u * bin] = packed_fft[2u * bin];
+    complex_output[2u * bin + 1u] = packed_fft[2u * bin + 1u];
+  }
+
+  complex_output[2u * half] = packed_fft[1];
+  complex_output[2u * half + 1u] = 0.0f;
+}

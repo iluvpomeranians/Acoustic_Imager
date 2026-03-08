@@ -29,10 +29,16 @@
 #include "usb/usb_debug.h"
 #include "dsp/dsp_pipeline.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 /* =========================================================================
  * DEFINES & CONSTANTS
  * ========================================================================= */
 #define ADC_DMA_BUF_SIZE (2 * N_CH_PER_ADC * FRAME_SIZE) // 4096 samples per half-buffer
+#define ADC_READY_HALF_MASK ((1u << N_ADCS) - 1u)
+#define ADC_READY_FULL_MASK (ADC_READY_HALF_MASK << N_ADCS)
+#define PASSTHROUGH_DISABLED_MIC 0xFFu
 
 /* =========================================================================
  * STATIC VARIABLES
@@ -44,18 +50,24 @@ static uint16_t adc2_buf[ADC_DMA_BUF_SIZE];
 static uint16_t adc3_buf[ADC_DMA_BUF_SIZE];
 static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
-// FFT Output: Frequency domain results (1024-point FFT → 512 bins per ADC)
-static float fft_out_adc1[2 * N_BINS];
-static float fft_out_adc2[2 * N_BINS];
-static float fft_out_adc3[2 * N_BINS];
-static float fft_out_adc4[2 * N_BINS];
+static float mic_fft_buffer[FRAME_SIZE];
 
 static arm_rfft_fast_instance_f32 fft_instance;
 
-static uint8_t spi_tx_buffer[SPI_PACKET_SIZE];
 static spi_stream_t spi_stream_ctx;
 
+static uint8_t spi_packet[SPI_PACKET_SIZE];
+
 static uint32_t _print_counter = 0;
+static uint32_t adc_pending_mask = 0;
+
+static struct {
+  uint8_t enabled;
+  uint8_t mic_index;
+} passthrough_state = {0u, PASSTHROUGH_DISABLED_MIC};
+
+static char usb_cmd_buffer[APP_USB_CMD_MAX_LEN];
+static uint32_t usb_cmd_length = 0u;
 
 // Ping-pong processing flags
 // Bit assignment: [4-7]=Full flags (ADC1-4), [0-3]=Half flags (ADC1-4)
@@ -76,13 +88,16 @@ volatile uint32_t irq_count_adc[4] = {0};    // per-ADC IRQ counters
 
 /* static void module_init(void); */
 /* static void module_process(void); */
+static uint32_t app_get_tim6_trigger_hz(void);
+static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags);
+static const uint16_t *app_get_adc_buffer(uint8_t adc_index);
+static uint16_t app_read_battery_millivolts(void);
+static void app_send_passthrough_window(uint32_t half_offset, uint32_t sample_rate_hz);
+static void app_handle_usb_command(const char *command);
 
 /* =========================================================================
  * PUBLIC FUNCTIONS
  * ========================================================================= */
-
-uint32_t value = 0;
-float voltage;
 
 // TODO: Deprecated
 typedef struct {
@@ -103,6 +118,8 @@ void app_init(void) {
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
   spi_stream_init(&spi_stream_ctx);
 }
+
+
 
 void app_start(void) {
 
@@ -139,96 +156,19 @@ void app_start(void) {
 void app_loop(void) {
   // Main application loop - check for ADC data ready and process
   
-  // Clear the global mask immediately to avoid missing new events
   __disable_irq();
-  uint32_t local_mask = adc_ready_mask;
+  adc_pending_mask |= adc_ready_mask;
   adc_ready_mask = 0;
   __enable_irq();
-  // Process the ready half-buffer for this ADC
+  if (!fft_in_progress && (adc_pending_mask & ADC_READY_HALF_MASK) == ADC_READY_HALF_MASK) {
+    adc_pending_mask &= ~ADC_READY_HALF_MASK;
+    app_process_synced_window(0u, SPI_FRAME_FLAG_SYNCED_ALL_MICS);
+  }
 
-
-  // TODO: Instead of processing to an output buffer, we could
-  // set the SPI payload buffer as the output of the ADC processing
-  // TODO: The implementation is process_adc_pipeline() is currently
-  // inccorect; we either need a 4-channel output buffer or we need to
-  // send each channel's FFT output sequentially over SPI in this
-  // function.
-  // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
-  // currently dummy values
-
-  // FFT Processing Pipeline
-  // When any ADC half-buffer completes, process that acoustic window
-  if (local_mask && !fft_in_progress) {
-    fft_in_progress = 1;
-
-    uint8_t have_offset = 0;
-    uint32_t half_offset_for_print = 0;
-    // Check each ADC for ready half-buffers
-    for (uint8_t adc = 0; adc < 4; adc++) {
-      uint8_t half_flag = (local_mask >> adc) & 1;       // Half-complete
-      uint8_t full_flag = (local_mask >> (adc + 4)) & 1; // Full-complete
-      
-      if (half_flag || full_flag) {
-        uint16_t *buf_ptr = NULL;
-        float *fft_out_ptr = NULL;
-        uint32_t half_offset = 0;
-        
-        if (half_flag) {
-          half_offset = 0;
-          ready_half[adc] = 0;
-        } else {
-          half_offset = ADC_DMA_BUF_SIZE / 2; 
-          ready_half[adc] = 1;
-        }
-      
-        if (!have_offset) {
-            have_offset = 1;
-            half_offset_for_print = half_offset;
-        }
-
-        if (adc == 0) { buf_ptr = adc1_buf; fft_out_ptr = fft_out_adc1; }
-        else if (adc == 1) { buf_ptr = adc2_buf; fft_out_ptr = fft_out_adc2; }
-        else if (adc == 2) { buf_ptr = adc3_buf; fft_out_ptr = fft_out_adc3; }
-        else { buf_ptr = adc4_buf; fft_out_ptr = fft_out_adc4; }
-        
-        if (buf_ptr && fft_out_ptr) {
-          // Process the ready half-buffer for this ADC
-          uint16_t *active_half = buf_ptr + half_offset;
-
-          // TODO: The implementation is process_adc_pipeline() is currently
-          // incorrect; we either need a 4-channel output buffer or we need to
-          // send each channel's FFT output sequentially over SPI in this
-          // function.
-          process_adc_pipeline(&fft_instance, active_half, adc, fft_out_ptr);
-
-          // TODO: parameters N_CH_PER_ADC, FRAME_SIZE, 48000, N_BINS are
-          // currently dummy values
-          spi_stream_build_fft_packet(&spi_stream_ctx, 
-                                      spi_tx_buffer, 
-                                      SPI_PACKET_SIZE,
-                                      adc,
-                                      fft_out_ptr,
-                                      N_MICS,
-                                      FRAME_SIZE,
-                                      SAMPLE_RATE,
-                                      N_BINS);
-          // package_adc_for_spi(adc, fft_out_ptr, spi_tx_buffer, N_CH_PER_ADC,
-          //                     FRAME_SIZE, 48000, N_BINS);
-
-          spi_stream_tx_blocking(spi_tx_buffer, SPI_PACKET_SIZE);
-          // transmit_spi_packet(spi_tx_buffer, SPI_PACKET_SIZE);
-        }
-
-        if (have_offset) {
-        usb_dbg_push_adc_window_4adc(&adc1_buf[half_offset_for_print],
-                                     &adc2_buf[half_offset_for_print],
-                                     &adc3_buf[half_offset_for_print],
-                                     &adc4_buf[half_offset_for_print],
-                                     FRAME_SIZE);
-        }
-      }
-    }
-    fft_in_progress = 0;
+  if (!fft_in_progress && (adc_pending_mask & ADC_READY_FULL_MASK) == ADC_READY_FULL_MASK) {
+    adc_pending_mask &= ~ADC_READY_FULL_MASK;
+    app_process_synced_window(ADC_DMA_BUF_SIZE / 2u,
+                              (uint16_t)(SPI_FRAME_FLAG_SYNCED_ALL_MICS | SPI_FRAME_FLAG_SECOND_HALF));
   }
   
   if (++_print_counter >= 10000) {
@@ -269,4 +209,195 @@ void test_dsp_pipeline_loop(void) {
  * @brief Static helper function description
  * @return void
  */
+static uint32_t app_get_tim6_trigger_hz(void)
+{
+  uint32_t timer_clock_hz = HAL_RCC_GetPCLK1Freq();
+
+  if ((RCC->CFGR & RCC_CFGR_PPRE1) != RCC_HCLK_DIV1) {
+    timer_clock_hz *= 2u;
+  }
+
+  return timer_clock_hz / ((htim6.Init.Prescaler + 1u) * (htim6.Init.Period + 1u));
+}
+
+static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags)
+{
+  uint32_t sample_rate_hz;
+  uint32_t batch_id;
+  uint16_t battery_millivolts;
+
+  fft_in_progress = 1u;
+
+
+  // TODO: Might want to do this once only?
+  sample_rate_hz = app_get_tim6_trigger_hz();
+  batch_id = spi_stream_next_batch(&spi_stream_ctx);
+  battery_millivolts = app_read_battery_millivolts();
+
+  for (uint8_t adc = 0; adc < N_ADCS; adc++) {
+    uint16_t *active_half = (uint16_t *)(app_get_adc_buffer(adc) + half_offset);
+
+    for (uint8_t channel = 0; channel < N_CH_PER_ADC; channel++) {
+      uint16_t mic_index = (uint16_t)(adc * N_CH_PER_ADC + channel);
+      size_t packet_len;
+
+      process_adc_channel_pipeline(&fft_instance,
+                                   active_half,
+                                   channel,
+                                   mic_fft_buffer);
+
+      packet_len = spi_stream_build_mic_packet(
+          &spi_stream_ctx,
+          spi_packet,
+          sizeof(spi_packet),
+          batch_id,
+          mic_index,
+          mic_fft_buffer,
+          FRAME_SIZE,
+          sample_rate_hz,
+          (uint16_t)(frame_flags | SPI_FRAME_FLAG_PAYLOAD_COMPLEX | SPI_FRAME_FLAG_BATTERY_VALID),
+          battery_millivolts);
+
+      if (packet_len > 0u) {
+        spi_stream_tx_blocking(spi_packet, packet_len);
+      }
+    }
+  }
+
+  usb_dbg_push_adc_window_4adc(&adc1_buf[half_offset],
+                               &adc2_buf[half_offset],
+                               &adc3_buf[half_offset],
+                               &adc4_buf[half_offset],
+                               FRAME_SIZE);
+
+  if (passthrough_state.enabled) {
+    app_send_passthrough_window(half_offset, sample_rate_hz);
+  }
+
+  fft_in_progress = 0u;
+}
+
+static const uint16_t *app_get_adc_buffer(uint8_t adc_index)
+{
+  switch (adc_index) {
+    case 0u: return adc1_buf;
+    case 1u: return adc2_buf;
+    case 2u: return adc3_buf;
+    default: return adc4_buf;
+  }
+}
+
+static uint16_t app_read_battery_millivolts(void)
+{
+  uint16_t raw_counts = 0u;
+  uint32_t sense_mv;
+
+  if (ADC_ReadBatteryRaw(&raw_counts) != HAL_OK) {
+    return 0u;
+  }
+
+  sense_mv = ((uint32_t)raw_counts * BATT_ADC_VREF_MV) / 4095u;
+  sense_mv = (sense_mv * BATT_DIVIDER_NUMERATOR) / BATT_DIVIDER_DENOMINATOR;
+  return (uint16_t)sense_mv;
+}
+
+static void app_send_passthrough_window(uint32_t half_offset, uint32_t sample_rate_hz)
+{
+  uint8_t mic_index = passthrough_state.mic_index;
+  uint8_t adc_index;
+  uint8_t adc_channel;
+  const uint16_t *adc_window;
+
+  if (mic_index >= N_MICS) {
+    return;
+  }
+
+  adc_index = mic_index / N_CH_PER_ADC;
+  adc_channel = mic_index % N_CH_PER_ADC;
+  adc_window = app_get_adc_buffer(adc_index) + half_offset;
+
+  usb_dbg_stream_mic_window_csv(mic_index,
+                                adc_window,
+                                adc_channel,
+                                FRAME_SIZE,
+                                sample_rate_hz);
+}
+
+void app_usb_cdc_rx(const uint8_t *buf, uint32_t len)
+{
+  if (!buf) {
+    return;
+  }
+
+  for (uint32_t i = 0; i < len; i++) {
+    char ch = (char)buf[i];
+
+    if (ch == '\r') {
+      continue;
+    }
+
+    if (ch == '\n') {
+      usb_cmd_buffer[usb_cmd_length] = '\0';
+      app_handle_usb_command(usb_cmd_buffer);
+      usb_cmd_length = 0u;
+      continue;
+    }
+
+    if (usb_cmd_length + 1u < sizeof(usb_cmd_buffer)) {
+      usb_cmd_buffer[usb_cmd_length++] = ch;
+    } else {
+      usb_cmd_length = 0u;
+    }
+  }
+}
+
+static void app_handle_usb_command(const char *command)
+{
+  unsigned long mic_index;
+
+  if (!command || command[0] == '\0') {
+    return;
+  }
+
+  if (strcmp(command, "help") == 0) {
+    usb_printf("Commands: help, status, battery, pass off, pass <0-15>\r\n");
+    return;
+  }
+
+  if (strcmp(command, "status") == 0) {
+    usb_printf("status: pending=0x%02lX passthrough=%s mic=%u battery=%umV rate=%luHz\r\n",
+               (unsigned long)adc_pending_mask,
+               passthrough_state.enabled ? "on" : "off",
+               (unsigned)passthrough_state.mic_index,
+               (unsigned)app_read_battery_millivolts(),
+               (unsigned long)app_get_tim6_trigger_hz());
+    return;
+  }
+
+  if (strcmp(command, "battery") == 0) {
+    usb_printf("battery=%umV\r\n", (unsigned)app_read_battery_millivolts());
+    return;
+  }
+
+  if (strcmp(command, "pass off") == 0) {
+    passthrough_state.enabled = 0u;
+    passthrough_state.mic_index = PASSTHROUGH_DISABLED_MIC;
+    usb_printf("passthrough disabled\r\n");
+    return;
+  }
+
+  if (strncmp(command, "pass ", 5) == 0) {
+    mic_index = strtoul(command + 5, NULL, 10);
+    if (mic_index < N_MICS) {
+      passthrough_state.enabled = 1u;
+      passthrough_state.mic_index = (uint8_t)mic_index;
+      usb_printf("passthrough mic=%u enabled\r\n", (unsigned)passthrough_state.mic_index);
+    } else {
+      usb_printf("invalid mic index, expected 0-%u\r\n", (unsigned)(N_MICS - 1u));
+    }
+    return;
+  }
+
+  usb_printf("unknown command: %s\r\n", command);
+}
   
