@@ -430,10 +430,11 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
 
     y0 = dropdown_y
     seg_gap = 6
-    seg_w = (menu_w - 2 * seg_gap) // 3
+    # 60FPS button commented out: only 30FPS and MAX on this line
+    seg_w = (menu_w - 1 * seg_gap) // 2  # 2 segments: 30FPS | MAX
     menu_buttons["fps30"]  = Button(menu_x + 0 * (seg_w + seg_gap), y0, seg_w, item_h, "30FPS")
-    menu_buttons["fps60"]  = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "60FPS")
-    menu_buttons["fpsmax"] = Button(menu_x + 2 * (seg_w + seg_gap), y0, seg_w, item_h, "MAX")
+    # menu_buttons["fps60"]  = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "60FPS")
+    menu_buttons["fpsmax"] = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "MAX")
 
     gain_y = y0 + (item_h + gap)
     menu_buttons["gain"] = Button(menu_x, gain_y, menu_w, item_h, f"GAIN: {button_state.gain_mode}")
@@ -480,7 +481,7 @@ def update_button_states(mx: int, my: int) -> None:
 
     # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer"):
+        for k in ("fps30", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer"):  # fps60 commented out
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 

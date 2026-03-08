@@ -24,7 +24,7 @@ def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bg
 
 
 # Keys for menu dropdown (positions are shifted by offset_x when drawing)
-_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer")
+_MENU_DROPDOWN_KEYS = ("fps30", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer")  # fps60 commented out
 
 
 def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -> None:
@@ -73,7 +73,7 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     oy = int(offset_y)
 
     menu_buttons["fps30"].is_active = (button_state.fps_mode == "30")
-    menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")
+    # menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")  # 60FPS button commented out
     menu_buttons["fpsmax"].is_active = (button_state.fps_mode == "MAX")
 
     menu_buttons["gain"].is_active = True

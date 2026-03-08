@@ -3,29 +3,7 @@
   "folders": [
     {
       "id": "folder_1",
-      "name": "cokl",
-      "files": [
-        "recording_20260305_123212.mp4"
-      ]
-    },
-    {
-      "id": "folder_2",
-      "name": "Folder 2",
-      "files": [
-        "llkk_1a.mp4",
-        "screenshot_20260304_234623.png"
-      ]
-    },
-    {
-      "id": "folder_3",
-      "name": "Folder 3",
-      "files": [
-        "recording_20260304_234624.mp4"
-      ]
-    },
-    {
-      "id": "folder_4",
-      "name": "Folder 4",
+      "name": "Folder 1",
       "files": []
     }
   ]

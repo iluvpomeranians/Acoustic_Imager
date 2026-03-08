@@ -1403,9 +1403,9 @@ def handle_menu_click(
     if "fps30" in menu_buttons and menu_buttons["fps30"].contains(x, y):
         button_state.fps_mode = "30"
         return video_recorder
-    if "fps60" in menu_buttons and menu_buttons["fps60"].contains(x, y):
-        button_state.fps_mode = "60"
-        return video_recorder
+    # if "fps60" in menu_buttons and menu_buttons["fps60"].contains(x, y):
+    #     button_state.fps_mode = "60"
+    #     return video_recorder  # 60FPS button commented out
     if "fpsmax" in menu_buttons and menu_buttons["fpsmax"].contains(x, y):
         button_state.fps_mode = "MAX"
         return video_recorder
