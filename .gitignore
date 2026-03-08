@@ -226,6 +226,7 @@ __marimo__/
 
 # Email config (contains password)
 **/email_config.json
+data/heatmap_captures/*.json
 
 # Heatmap output files
 testing/heatmap/heatmap_captures/
