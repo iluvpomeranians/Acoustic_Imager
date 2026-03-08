@@ -8,11 +8,24 @@ extern "C" {
 /* =========================================================================
  * INCLUDES
  * ========================================================================= */
+
 #include <stddef.h>
 #include <stdint.h>
 /* =========================================================================
  * DEFINES
  * ========================================================================= */
+
+#define SPI_CHECKSUM_SIZE_BYTES   (sizeof(uint16_t))
+#define SPI_FLOAT_SIZE_BYTES      (sizeof(float))
+
+#define SPI_FRAME_HEADER_SIZE_BYTES (sizeof(SPI_FrameHeader_t))
+
+// arm_rfft_fast_f32() with N=FRAME_SIZE produces FRAME_SIZE total floats 
+//(DC and Nyquist bin complex components are omitted)
+#define SPI_FRAME_PAYLOAD_BYTES (FRAME_SIZE * SPI_FLOAT_SIZE_BYTES)
+
+#define SPI_PACKET_SIZE (SPI_FRAME_HEADER_SIZE_BYTES + \
+                         SPI_FRAME_PAYLOAD_BYTES + SPI_CHECKSUM_SIZE_BYTES)
 
 /* =========================================================================
  * TYPE DEFINITIONS
@@ -25,6 +38,7 @@ typedef struct {
 /* =========================================================================
  * FUNCTION PROTOTYPES
  * ========================================================================= */
+
 /**
  * @brief Initialize SPI stream context.
  */
@@ -39,10 +53,8 @@ size_t spi_stream_build_mic_packet(
     uint32_t batch_id,
     uint16_t mic_index,
     const float *fft_bins,
-    uint16_t mic_count,
     uint16_t fft_size,
     uint32_t sample_rate,
-    uint16_t bin_count,
     uint16_t flags,
     uint16_t battery_millivolts);
 

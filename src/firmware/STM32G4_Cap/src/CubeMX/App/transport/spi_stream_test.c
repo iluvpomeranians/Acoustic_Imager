@@ -111,10 +111,8 @@ void spi_stream_unit_test_build_packet(void)
       batch_id,
       mic_index,
       fft_bins,
-      mic_count,
       fft_size,
       sample_rate,
-      bin_count,
       SPI_FRAME_FLAG_PAYLOAD_COMPLEX,
       0u);
 
@@ -131,32 +129,26 @@ void spi_stream_unit_test_build_packet(void)
 
   usb_printf("Header:\r\n");
   usb_printf("  magic       = 0x%08lX (expect 0x%08lX)\r\n",
-              (unsigned long)hdr.magic, (unsigned long)SPI_MAGIC);
+             (unsigned long)hdr.magic, (unsigned long)SPI_MAGIC);
   usb_printf("  version      = %u (expect %u)\r\n",
-              (unsigned)hdr.version, (unsigned)SPI_VERSION);
+             (unsigned)hdr.version, (unsigned)SPI_VERSION);
   usb_printf("  header_len   = %u (expect %u)\r\n",
-              (unsigned)hdr.header_len, (unsigned)sizeof(SPI_FrameHeader_t));
-  usb_printf("  frame_counter= %lu (expect 0)\r\n",
-              (unsigned long)hdr.frame_counter);
-    usb_printf("  batch_id     = %lu (expect %lu)\r\n",
-                            (unsigned long)hdr.batch_id, (unsigned long)batch_id);
-  usb_printf("  mic_count    = %u (expect %u)\r\n",
-              (unsigned)hdr.mic_count, (unsigned)mic_count);
-    usb_printf("  mic_index    = %u (expect %u)\r\n",
-                            (unsigned)hdr.mic_index, (unsigned)mic_index);
+             (unsigned)hdr.header_len, (unsigned)sizeof(SPI_FrameHeader_t));
+  usb_printf("  batch_id     = %lu (expect %lu)\r\n",
+             (unsigned long)hdr.batch_id, (unsigned long)batch_id);
+  usb_printf("  mic_index    = %u (expect %u)\r\n",
+              (unsigned)hdr.mic_index, (unsigned)mic_index);
   usb_printf("  fft_size     = %u (expect %u)\r\n",
-              (unsigned)hdr.fft_size, (unsigned)fft_size);
+             (unsigned)hdr.fft_size, (unsigned)fft_size);
   usb_printf("  sample_rate  = %lu (expect %lu)\r\n",
-              (unsigned long)hdr.sample_rate, (unsigned long)sample_rate);
-  usb_printf("  bin_count    = %u (expect %u)\r\n",
-              (unsigned)hdr.bin_count, (unsigned)bin_count);
-    usb_printf("  flags        = 0x%04X (expect 0x%04X)\r\n",
-                            (unsigned)hdr.flags, (unsigned)SPI_FRAME_FLAG_PAYLOAD_COMPLEX);
-    usb_printf("  battery_mv   = %u (expect 0)\r\n",
-                            (unsigned)hdr.battery_mv);
+             (unsigned long)hdr.sample_rate, (unsigned long)sample_rate);
+  usb_printf("  flags        = 0x%04X (expect 0x%04X)\r\n",
+             (unsigned)hdr.flags, (unsigned)SPI_FRAME_FLAG_PAYLOAD_COMPLEX);
+  usb_printf("  battery_mv   = %u (expect 0)\r\n",
+             (unsigned)hdr.battery_mv);
   usb_printf("  payload_len  = %lu (expect %lu)\r\n",
-              (unsigned long)hdr.payload_len,
-              (unsigned long)(2u * (unsigned long)bin_count * (unsigned long)sizeof(float)));
+             (unsigned long)hdr.payload_len,
+             (unsigned long)(2u * (unsigned long)bin_count * (unsigned long)sizeof(float)));
 
   // 2) Verify payload floats match what we put in
   const size_t header_len  = sizeof(SPI_FrameHeader_t);
@@ -234,13 +226,13 @@ void spi_stream_unit_test_nulls(void)
   usb_printf("\r\n=== NULL TESTS ===\r\n");
 
   usb_printf("null stream => %u\r\n",
-      (unsigned)spi_stream_build_mic_packet(NULL, dst, sizeof(dst), 0u, 0u, bins, 1, 1024, 100000, 8, 0u, 0u));
+      (unsigned)spi_stream_build_mic_packet(NULL, dst, sizeof(dst), 0u, 0u, bins, 1024, 100000, 0u, 0u));
 
   usb_printf("null dst => %u\r\n",
-      (unsigned)spi_stream_build_mic_packet(&s, NULL, sizeof(dst), 0u, 0u, bins, 1, 1024, 100000, 8, 0u, 0u));
+      (unsigned)spi_stream_build_mic_packet(&s, NULL, sizeof(dst), 0u, 0u, bins, 1024, 100000, 0u, 0u));
 
   usb_printf("null bins => %u\r\n",
-      (unsigned)spi_stream_build_mic_packet(&s, dst, sizeof(dst), 0u, 0u, NULL, 1, 1024, 100000, 8, 0u, 0u));
+      (unsigned)spi_stream_build_mic_packet(&s, dst, sizeof(dst), 0u, 0u, NULL, 1024, 100000, 0u, 0u));
 }
 
 void spi_stream_unit_test_small_cap(void)
@@ -252,7 +244,7 @@ void spi_stream_unit_test_small_cap(void)
   float bins[16];      // 2*8 floats
 
   usb_printf("\r\n=== CAPACITY TEST ===\r\n");
-    size_t n = spi_stream_build_mic_packet(&s, dst, sizeof(dst), 0u, 0u, bins, 1, 1024, 100000, 8, 0u, 0u);
+    size_t n = spi_stream_build_mic_packet(&s, dst, sizeof(dst), 0u, 0u, bins, 1024, 100000, 0u, 0u);
   usb_printf("dst_cap=%u => returned %u (expect 0)\r\n",
               (unsigned)sizeof(dst), (unsigned)n);
 }
@@ -267,11 +259,11 @@ void spi_stream_unit_test_frame_counter(void)
 
   usb_printf("\r\n=== FRAME COUNTER TEST ===\r\n");
   for (int i = 0; i < 3; i++) {
-            size_t n = spi_stream_build_mic_packet(&s, pkt.b, sizeof(pkt.b), 55u, 0u, bins, 16, 1024, 100000, 8, 0u, 0u);
+            size_t n = spi_stream_build_mic_packet(&s, pkt.b, sizeof(pkt.b), 55u, 0u, bins, 1024, 100000, 0u, 0u);
       SPI_FrameHeader_t hdr;
       memcpy(&hdr, pkt.b, sizeof(hdr));
-            usb_printf("call %d: len=%u, frame_counter=%lu, batch_id=%lu\r\n",
-                                    i, (unsigned)n, (unsigned long)hdr.frame_counter, (unsigned long)hdr.batch_id);
+            usb_printf("call %d: len=%u, batch_id=%lu\r\n",
+                       i, (unsigned)n, (unsigned long)hdr.batch_id);
   }
 }
 
@@ -310,10 +302,8 @@ void spi_loopback_unit_test(void)
         batch_id,
         mic_index,
         fft_bins,
-        mic_count,
         fft_size,
         sample_rate,
-        bin_count,
         SPI_FRAME_FLAG_PAYLOAD_COMPLEX,
         0u);
 
@@ -369,9 +359,9 @@ void spi_loopback_unit_test(void)
     // ---------------------------------------------------------------------
     SPI_FrameHeader_t hdr;
     memcpy(&hdr, rx_u.b, sizeof(hdr));
-    usb_printf("RX header magic=0x%08lX, frame_counter=%lu, payload_len=%lu\r\n",
+    usb_printf("RX header magic=0x%08lX, batch_id=%lu, payload_len=%lu\r\n",
                (unsigned long)hdr.magic,
-               (unsigned long)hdr.frame_counter,
+               (unsigned long)hdr.batch_id,
                (unsigned long)hdr.payload_len);
 
     usb_printf("=== END LOOPBACK TEST ===\r\n");

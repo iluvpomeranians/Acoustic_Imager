@@ -1,15 +1,18 @@
 
 # Firmware TODO
 
+- [ ] *UNIT TESTING*
+- [ ] Implement mic IDs
+- [ ] Verify adc_scaler in dsp_pipeline.c that it is still 3.3/4096
 
-- [ ] Do some averaging on the data (some stats like peak-to-peak, to see what we get)
+
 - [ ] Play with Gain Compensation setting in ADCs in CubeMX to see what it does. Research what we actually require for the beamforming to work
 
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
 - [ ] Address that ADCs are configured properly for channel scanning in CubeMX
-- [ ] Bench debug that all the ADCs are firing at the correct rate
-- [ ] Discuss labeling FFT frames (with counters?)
-- [ ] Set up DSP library so it doesn't get removed after CubeMX code generation
+
+
+- [ ] (QoL) Set up DSP library so it doesn't get removed after CubeMX code generation
 - [x] Find the CubeMX settings to make sure VRef Buf is enabled when code generated -> Run change by Rob to make sure it is conceptually correct
 - [x] Evaluate using CMSIS for FFTs and fixed point representation
         -> Added CMSIS DSP to build. Probably not worth to switch to fixed point.
@@ -20,10 +23,9 @@
 - [x] Check with a higher timer freq that the ADCs are alive with continuous conversion mode disabled
 - [x] Check one ADC with 3 diff resistor combinations (increasing resistance) and check -> CHECKED, MUST FIX GAIN, EITHER 0 OR 3.3V
 - [x] Test counter in the main loop for the interrupts
-
-## Today:
-3. Validation modes (In-progress)
-4. Documentation (state diagram, timing diagram)
+- [x] Bench debug that all the ADCs are firing at the correct rate
+- [x] Do some averaging on the data (some stats like peak-to-peak, to see what we get)
+- [x] Discuss labeling FFT frames (with counters?)
 
 ## Processing steps:
     1. DC removal (subtract constant)

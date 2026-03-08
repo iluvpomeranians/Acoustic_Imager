@@ -50,7 +50,7 @@ static uint16_t adc2_buf[ADC_DMA_BUF_SIZE];
 static uint16_t adc3_buf[ADC_DMA_BUF_SIZE];
 static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
-static float mic_fft_buffer[FFT_FLOATS_PER_MIC];
+static float mic_fft_buffer[FRAME_SIZE];
 
 static arm_rfft_fast_instance_f32 fft_instance;
 
@@ -228,6 +228,8 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
 
   fft_in_progress = 1u;
 
+
+  // TODO: Might want to do this once only?
   sample_rate_hz = app_get_tim6_trigger_hz();
   batch_id = spi_stream_next_batch(&spi_stream_ctx);
   battery_millivolts = app_read_battery_millivolts();
@@ -251,10 +253,8 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
           batch_id,
           mic_index,
           mic_fft_buffer,
-          N_MICS,
           FRAME_SIZE,
           sample_rate_hz,
-          N_BINS,
           (uint16_t)(frame_flags | SPI_FRAME_FLAG_PAYLOAD_COMPLEX | SPI_FRAME_FLAG_BATTERY_VALID),
           battery_millivolts);
 

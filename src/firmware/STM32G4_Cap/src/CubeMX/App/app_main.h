@@ -17,7 +17,6 @@ extern "C" {
 #define APP_VERSION "1.0.0"
 
 #define SAMPLE_RATE 1000
-#define N_SAMPLES 2048
 #define FRAME_SIZE 512
 #define N_ADCS 4
 #define N_CH_PER_ADC 4
@@ -27,8 +26,6 @@ extern "C" {
 
 // TODO: Consider discarding Nyquist bin (bin 512)
 #define N_BINS ((FRAME_SIZE >> 1) + 1) // For real FFT: N_BINS = (N/2)+1 = 513 
-#define FFT_FLOATS_PER_MIC (2u * N_BINS)
-#define FFT_PAYLOAD_BYTES (FFT_FLOATS_PER_MIC * sizeof(float))
 
 #define APP_USB_CMD_MAX_LEN 64u
 

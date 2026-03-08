@@ -20,6 +20,7 @@ extern "C" {
 /* =========================================================================
  * FUNCTION PROTOTYPES
  * ========================================================================= */
+
 void spi_stream_unit_test_build_packet(void);
 void spi_stream_unit_test_nulls(void);
 void spi_stream_unit_test_small_cap(void);
