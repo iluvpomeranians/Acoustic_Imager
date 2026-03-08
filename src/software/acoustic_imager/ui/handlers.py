@@ -1447,8 +1447,8 @@ def handle_menu_click(
         return video_recorder
 
     if "spectrum_analyzer" in menu_buttons and menu_buttons["spectrum_analyzer"].contains(x, y):
-        # Cycle dB -> NORM -> LITE -> dB
-        next_mode = {"dB": "NORM", "NORM": "LITE", "LITE": "dB"}.get(
+        # Cycle dB -> NORM -> dBA -> dB
+        next_mode = {"dB": "NORM", "NORM": "dBA", "dBA": "dB"}.get(
             button_state.spectrum_analyzer_mode, "dB"
         )
         button_state.spectrum_analyzer_mode = next_mode

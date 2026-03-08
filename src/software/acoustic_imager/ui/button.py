@@ -444,20 +444,20 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     cam_y = colormap_y + (item_h + gap)
     menu_buttons["cam"] = Button(menu_x, cam_y, menu_w, item_h, "CAM: ON" if button_state.camera_enabled else "CAM: OFF")
 
-    src_y = cam_y + (item_h + gap)
-    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SRC: {button_state.source_mode}")
-
-    debug_y = src_y + (item_h + gap)
+    debug_y = cam_y + (item_h + gap)
     menu_buttons["debug"] = Button(menu_x, debug_y, menu_w, item_h, "DEBUG")
 
-    spectrum_y = debug_y + (item_h + gap)
-    menu_buttons["spectrum_analyzer"] = Button(menu_x, spectrum_y, menu_w, item_h, f"SPECTRUM: {button_state.spectrum_analyzer_mode}")
-
-    email_y = spectrum_y + (item_h + gap)
+    email_y = debug_y + (item_h + gap)
     menu_buttons["email_settings"] = Button(menu_x, email_y, menu_w, item_h, "EMAIL SETTINGS")
 
-    crosshairs_y = email_y + (item_h + gap)
+    src_y = email_y + (item_h + gap)
+    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SRC: {button_state.source_mode}")
+
+    crosshairs_y = src_y + (item_h + gap)
     menu_buttons["crosshairs"] = Button(menu_x, crosshairs_y, menu_w, item_h, "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF")
+
+    spectrum_y = crosshairs_y + (item_h + gap)
+    menu_buttons["spectrum_analyzer"] = Button(menu_x, spectrum_y, menu_w, item_h, f"SPECTRUM: {button_state.spectrum_analyzer_mode}")
 
     # SHOT, Gallery, REC live in bottom HUD (bottom_hud creates/positions them each frame)
     menu_buttons["shot"] = Button(0, 0, 0, 0, "SHOT")
@@ -480,7 +480,7 @@ def update_button_states(mx: int, my: int) -> None:
 
     # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "spectrum_analyzer", "email_settings", "crosshairs"):
+        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer"):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 

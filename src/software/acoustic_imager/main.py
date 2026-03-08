@@ -954,7 +954,7 @@ def main() -> None:
 
             # ---- Process pending spectrum cursor (tap or dot drag): snap to closest point on blue curve ----
             if state.SPECTRUM_CURSOR_PENDING_TAP_Y is not None and fft_data is not None:
-                use_db = button_state.spectrum_analyzer_mode == "dB"
+                use_db = button_state.spectrum_analyzer_mode in ("dB", "dBA")
                 cursor_x_for_snap = (
                     state.SPECTRUM_CURSOR_PENDING_TAP_X
                     if state.SPECTRUM_CURSOR_PENDING_TAP_X is not None
@@ -969,6 +969,7 @@ def main() -> None:
                     config.f_axis,
                     config.FREQ_BAR_WIDTH,
                     use_db=use_db,
+                    mode=button_state.spectrum_analyzer_mode,
                 )
                 state.SPECTRUM_CURSOR_X = curve_x
                 state.SPECTRUM_CURSOR_DOT_FREQ = dot_freq

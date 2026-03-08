@@ -1,10 +1,10 @@
 """
 Spectrum analyzer overlay: frequency bar with smooth spectrum curve.
 
-Three modes (MENU: SPECTRUM: dB / NORM / LITE):
+Three modes (MENU: SPECTRUM: dB / NORM / dBA):
 - dB: amplitude in dB (relative to peak), bottom ruler, spectrum curve, bandpass overlay.
-- NORM: normalized amplitude (power^0.4), spectrum curve, bandpass overlay.
-- LITE: normalized bars + bandpass overlay only (no spectrum curve; lighter draw for performance).
+- NORM: normalized amplitude (power^0.4), linear 0-100% ruler, spectrum curve, bandpass overlay.
+- dBA: A-weighted dB, same scale as dB with "dBA" labels on ruler and cursor.
 
 Uses the same FFT data as the beamforming pipeline.
 """
@@ -22,14 +22,11 @@ from ..config import (
     REL_DB_MAX,
 )
 from .bars import _get_panel_bg, freq_to_y, y_to_freq
+from .spectrum_ruler import RULER_HEIGHT, BAR_MARGIN_LEFT, BAR_MARGIN_RIGHT, draw_spectrum_ruler
 
 
 SPECTRUM_DB_MIN = REL_DB_MIN
 SPECTRUM_DB_MAX = REL_DB_MAX
-
-BAR_MARGIN_LEFT = 8
-BAR_MARGIN_RIGHT = 5
-RULER_HEIGHT = 58   # bottom strip for dB ruler; tall enough for rotated labels at font_scale 0.40
 
 GRAPH_COLOR_TOP = (0, 220, 255)
 GRAPH_COLOR_BOT = (0, 120, 255)
@@ -37,83 +34,22 @@ GRAPH_DIM_TOP = (140, 160, 180)
 GRAPH_DIM_BOT = (90, 120, 150)
 SPECTRUM_CURVE_BGR = (255, 255, 200)
 SPECTRUM_CURVE_THICKNESS = 2
-DB_LABEL_COLOR = (200, 200, 200)
-RULER_TICK_COLOR = (180, 180, 180)
-# Numbers in line with each vertical tick, but nudge left so there's a gap (minus doesn't overlap the line)
-RULER_LABEL_GAP_FROM_TICK = 5
 
 # Subsample curve to reduce polylines cost (step 2 = every 2nd bin)
 CURVE_SUBSAMPLE = 2
 
-# Cache for dB ruler strip (bar_w, h) -> (RULER_HEIGHT, bar_w, 3) [kept for any non-overlay use]
-_RULER_CACHE: dict[tuple[int, int], np.ndarray] = {}
-# Cache for rotated dB label images (label_str -> rotated uint8 canvas, 255 = text)
-_RULER_LABEL_CACHE: dict[str, np.ndarray] = {}
 
-_RULER_FONT = cv2.FONT_HERSHEY_DUPLEX
-_RULER_FONT_SCALE = 0.40
-_RULER_THICKNESS = 1
-
-
-def _get_rotated_label_image(label: str) -> np.ndarray:
-    """Return rotated single-channel canvas (255 where text) for the given label. Cached."""
-    if label in _RULER_LABEL_CACHE:
-        return _RULER_LABEL_CACHE[label]
-    (tw, th), _ = cv2.getTextSize(label, _RULER_FONT, _RULER_FONT_SCALE, _RULER_THICKNESS)
-    pad = 2
-    canvas = np.zeros((th + 2 * pad, tw + 2 * pad), dtype=np.uint8)
-    cv2.putText(canvas, label, (pad, pad + th), _RULER_FONT, _RULER_FONT_SCALE, 255, _RULER_THICKNESS, cv2.LINE_AA)
-    rotated = cv2.rotate(canvas, cv2.ROTATE_90_COUNTERCLOCKWISE)
-    _RULER_LABEL_CACHE[label] = rotated
-    return rotated
-
-
-def _draw_db_ruler_onto(roi: np.ndarray, bar_w: int) -> None:
-    """Draw only ruler graphics (baseline, ticks, labels) onto roi. No background - graph shows through."""
-    graph_left = BAR_MARGIN_LEFT
-    graph_right = bar_w - BAR_MARGIN_RIGHT
-    graph_width = max(1, graph_right - graph_left)
-    db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
-    strip_h = roi.shape[0]
-    y_baseline = strip_h - 1
-    y_tick_top = y_baseline - 8
-    y_tick_bottom = y_baseline
-
-    cv2.line(roi, (graph_left, y_baseline), (graph_right, y_baseline), RULER_TICK_COLOR, 1, cv2.LINE_AA)
-    # Ruler: left = 0 dB (reference/loud), right = -60 dB (quiet), to match curve (peaks bulge left)
-    for db in range(int(SPECTRUM_DB_MIN), int(SPECTRUM_DB_MAX) + 1, 10):
-        frac = (SPECTRUM_DB_MAX - db) / db_span
-        x = int(np.clip(graph_left + frac * graph_width, graph_left, graph_right))
-        cv2.line(roi, (x, y_tick_top), (x, y_tick_bottom), RULER_TICK_COLOR, 1, cv2.LINE_AA)
-        label = f"{db} dB" if db != 0 else "0 dB"
-        rotated = _get_rotated_label_image(label)
-        r_h, r_w = rotated.shape
-        x0 = x - r_w // 2 - RULER_LABEL_GAP_FROM_TICK
-        x0 = max(0, min(bar_w - r_w, x0))
-        y0 = max(0, min(strip_h - r_h, y_baseline - r_h - 10))
-        r_h_clip = min(r_h, strip_h - y0)
-        r_w_clip = min(r_w, bar_w - x0)
-        if r_h_clip > 0 and r_w_clip > 0:
-            label_roi = roi[y0 : y0 + r_h_clip, x0 : x0 + r_w_clip]
-            mask = rotated[:r_h_clip, :r_w_clip] > 128
-            if mask.any():
-                for c in range(3):
-                    label_roi[:, :, c][mask] = DB_LABEL_COLOR[c]
-
-
-def _get_cached_db_ruler(bar_w: int, full_bar_bg: np.ndarray) -> np.ndarray:
-    """Bottom horizontal ruler with background (legacy/cache). Prefer _draw_db_ruler_onto for transparent overlay."""
-    h = full_bar_bg.shape[0]
-    key = (bar_w, h)
-    cached = _RULER_CACHE.get(key)
-    if cached is not None and cached.shape[0] == RULER_HEIGHT:
-        return cached
-    if cached is not None:
-        del _RULER_CACHE[key]
-    strip = full_bar_bg[h - RULER_HEIGHT : h, :].copy()
-    _draw_db_ruler_onto(strip, bar_w)
-    _RULER_CACHE[key] = strip
-    return strip
+def _a_weighting_db(f_hz: np.ndarray) -> np.ndarray:
+    """A-weighting in dB per frequency (IEC 61672 / ISO 226 style). f_hz can be a scalar or array."""
+    f = np.asarray(f_hz, dtype=np.float64)
+    f2 = np.maximum(f * f, 1e-30)
+    # Standard poles/zeros (approx): 20.6, 107.7, 737.9, 12194 Hz
+    c1, c2, c3, c4 = 20.6**2, 107.7**2, 737.9**2, 12194**2
+    num = (12194**2) * (f2 * f2)
+    den = (f2 + 20.6**2) * np.sqrt((f2 + 107.7**2) * (f2 + 737.9**2)) * (f2 + 12194**2)
+    den = np.maximum(den, 1e-30)
+    a_db = 20.0 * np.log10(num / den)
+    return a_db
 
 
 # Red vertical cursor for measuring freq/dB (drawn on top of bandpass)
@@ -129,10 +65,12 @@ def spectrum_closest_curve_point(
     f_axis: np.ndarray,
     bar_w: int,
     use_db: bool = True,
+    mode: str = "dB",
 ) -> tuple[float, float]:
     """
     Find the point on the blue spectrum curve closest to (cursor_x_bar, tap_y).
     Returns (curve_x_bar, dot_freq_hz) so the dot always lands on the curve.
+    mode: "dB" | "NORM" | "dBA" (use_db True for dB and dBA).
     """
     mag2 = np.sum(np.abs(fft_data) ** 2, axis=0).real
     valid = f_axis <= f_display_max
@@ -147,6 +85,8 @@ def spectrum_closest_curve_point(
     if use_db:
         ref = float(np.max(mag_valid)) + 1e-20
         mag_db = 10.0 * np.log10((mag_valid.astype(np.float64) + 1e-20) / ref)
+        if mode == "dBA":
+            mag_db = mag_db + _a_weighting_db(f_valid)
         db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
         frac = np.clip((mag_db - SPECTRUM_DB_MIN) / db_span, 0.0, 1.0)
     else:
@@ -167,8 +107,9 @@ def spectrum_curve_x_at_y(
     fft_data: np.ndarray,
     f_axis: np.ndarray,
     bar_w: int,
+    mode: str = "dB",
 ) -> float:
-    """Return the curve x (bar coords) at the frequency corresponding to tap_y."""
+    """Return the curve x (bar coords) at the frequency corresponding to tap_y. mode: dB | dBA | NORM."""
     mag2 = np.sum(np.abs(fft_data) ** 2, axis=0).real
     valid = f_axis <= f_display_max
     f_valid = f_axis[valid]
@@ -177,14 +118,19 @@ def spectrum_curve_x_at_y(
         return float(bar_w // 2)
     freq = y_to_freq(tap_y, h, f_display_max)
     idx = int(np.argmin(np.abs(f_valid - freq)))
-    ref = float(np.max(mag_valid)) + 1e-20
-    mag_db = 10.0 * np.log10((float(mag_valid[idx]) + 1e-20) / ref)
-    db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
-    frac = float(np.clip((mag_db - SPECTRUM_DB_MIN) / db_span, 0.0, 1.0))
     graph_left = BAR_MARGIN_LEFT
     graph_right = bar_w - BAR_MARGIN_RIGHT
-    graph_width = max(1, graph_right - graph_left)
-    curve_x = graph_right - frac * graph_width
+    if mode in ("dB", "dBA"):
+        ref = float(np.max(mag_valid)) + 1e-20
+        mag_db = 10.0 * np.log10((float(mag_valid[idx]) + 1e-20) / ref)
+        if mode == "dBA":
+            mag_db = mag_db + float(_a_weighting_db(np.array([f_valid[idx]]))[0])
+        db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
+        frac = float(np.clip((mag_db - SPECTRUM_DB_MIN) / db_span, 0.0, 1.0))
+    else:
+        mag_norm = float(mag_valid[idx]) / (float(np.max(mag_valid)) + 1e-12)
+        frac = (mag_norm ** 0.4)
+    curve_x = graph_right - frac * max(1, graph_right - graph_left)
     return float(np.clip(curve_x, graph_left, graph_right))
 
 
@@ -207,8 +153,8 @@ def draw_spectrum_analyzer(
     Draw the spectrum analyzer bar on the RIGHT side of the frame.
 
     mode="dB"   -> dB-scaled bars + curve + bottom ruler + bandpass overlay.
-    mode="NORM" -> normalized (power^0.4) bars + curve + bandpass overlay.
-    mode="LITE" -> normalized bars + bandpass overlay only (no spectrum curve; lighter draw for performance).
+    mode="NORM" -> normalized (power^0.4) bars + linear 0-100% ruler + curve + bandpass overlay.
+    mode="dBA"  -> A-weighted dB bars + curve + dBA ruler + bandpass overlay.
     """
     h, w, _ = frame.shape
     bar_w = int(max(1, freq_bar_width))
@@ -224,14 +170,10 @@ def draw_spectrum_analyzer(
     panel_bg = _get_panel_bg(h, bar_w)
     bar = panel_bg.copy()
 
-    use_db = mode == "dB"
-    draw_curve = mode != "LITE"   # LITE skips the continuous spectrum curve (saves FPS)
-    draw_bandpass = True         # all modes show bandpass (sliding window)
-    if use_db:
-        graph_h = h - RULER_HEIGHT   # where ruler strip is placed (drawn on top)
-    else:
-        graph_h = h
-    # Draw spectrum (bars + curve) at full height so graph isn't clipped; ruler is drawn on top of bottom strip
+    use_db = mode in ("dB", "dBA")
+    draw_curve = True
+    draw_bandpass = True
+    graph_h = h - RULER_HEIGHT
     draw_h = h
     graph_h_safe = max(1, draw_h)
     graph_left = BAR_MARGIN_LEFT
@@ -251,6 +193,8 @@ def draw_spectrum_analyzer(
         if use_db:
             ref = float(np.max(mag_valid)) + 1e-20
             mag_db = 10.0 * np.log10((mag_valid.astype(np.float64) + 1e-20) / ref)
+            if mode == "dBA":
+                mag_db = mag_db + _a_weighting_db(f_valid)
             db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
             frac = np.clip((mag_db - SPECTRUM_DB_MIN) / db_span, 0.0, 1.0)
         else:
@@ -308,10 +252,6 @@ def draw_spectrum_analyzer(
                     color=SPECTRUM_CURVE_BGR, thickness=SPECTRUM_CURVE_THICKNESS, lineType=cv2.LINE_AA
                 )
 
-        if use_db:
-            # Draw only ruler graphics (baseline, ticks, labels) on top of graph; no background so graph shows through
-            _draw_db_ruler_onto(bar[graph_h : h, :], bar_w)
-
         # Compute cursor: line position; dot position/readout use pinned dot_freq when set (stops bouncing)
         if spectrum_cursor_x is not None:
             cx = float(np.clip(spectrum_cursor_x, graph_left, graph_right))
@@ -337,6 +277,9 @@ def draw_spectrum_analyzer(
                 ref_cursor = float(np.max(mag_valid)) + 1e-20
                 cursor_db_val = 10.0 * np.log10((cursor_mag + 1e-20) / ref_cursor)
                 cursor_draw_y = int(np.clip((graph_h_safe - 1) - (cursor_freq_hz / f_display_max) * (graph_h_safe - 1), 0, graph_h_safe - 1))
+
+    # Ruler for all modes (NORM = linear 0-100%, dB/dBA = -60..0)
+    draw_spectrum_ruler(bar[graph_h : h, :], bar_w, mode)
 
     # ---- Bandpass overlay (sliding window; all modes) ----
     if draw_bandpass:
@@ -393,11 +336,16 @@ def draw_spectrum_analyzer(
         if spectrum_cursor_dot_bar_pos is not None:
             spectrum_cursor_dot_bar_pos[:] = [float(dx), float(cursor_draw_y)]
         freq_khz = cursor_freq_hz / 1000.0
-        # Show dB in same direction as ruler: ruler maps left = 0 dB, right = -60 dB (matches curve)
-        db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
-        label_db = SPECTRUM_DB_MAX - (dx - graph_left) / max(1, graph_width) * db_span
-        label_db = float(np.clip(label_db, SPECTRUM_DB_MIN, SPECTRUM_DB_MAX))
-        label = f"{freq_khz:.1f} kHz  {label_db:.0f} dB"
+        if mode == "dBA":
+            a_at_cursor = float(_a_weighting_db(np.array([cursor_freq_hz]))[0])
+            label_val = cursor_db_val + a_at_cursor
+            label = f"{freq_khz:.1f} kHz  {label_val:.1f} dBA"
+        else:
+            # Show dB in same direction as ruler: left = 0 dB, right = -60 dB
+            db_span = SPECTRUM_DB_MAX - SPECTRUM_DB_MIN
+            label_db = SPECTRUM_DB_MAX - (dx - graph_left) / max(1, graph_width) * db_span
+            label_db = float(np.clip(label_db, SPECTRUM_DB_MIN, SPECTRUM_DB_MAX))
+            label = f"{freq_khz:.1f} kHz  {label_db:.0f} dB"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.35, 1)
         # Place label above the dot, avoid clipping
         ly = max(th + 2, cursor_draw_y - 8)

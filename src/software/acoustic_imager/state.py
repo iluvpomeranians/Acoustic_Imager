@@ -60,7 +60,7 @@ class ButtonState:
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
-    spectrum_analyzer_mode: str = "dB"  # "dB" | "NORM" | "LITE" (LITE = NORM without bandpass overlay, for performance)
+    spectrum_analyzer_mode: str = "dB"  # "dB" | "NORM" | "dBA"
     crosshairs_enabled: bool = True     # heatmap crosshairs with freq/dB tooltip (menu: ON/OFF)
     crosshair_visible: bool = False     # True after click on heatmap; click again near crosshair to dismiss
     crosshair_x: float = 0.0            # position (updated each frame to local max when visible)

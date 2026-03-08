@@ -24,7 +24,7 @@ def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bg
 
 
 # Keys for menu dropdown (positions are shifted by offset_x when drawing)
-_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "source", "debug", "spectrum_analyzer", "email_settings", "crosshairs")
+_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer")
 
 
 def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -> None:
@@ -66,7 +66,7 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     if not button_state.menu_open:
         return
 
-    # SHOT and Gallery live in bottom HUD only; menu dropdown has 9 rows (fps, gain, colormap, cam, source, debug, spectrum_analyzer, email_settings, crosshairs)
+    # SHOT and Gallery live in bottom HUD only; menu dropdown has 9 rows (fps, gain, colormap, cam, debug, email_settings, source, crosshairs, spectrum_analyzer)
     item_h, gap, menu_w = 40, 8, menu_btn.w
     dropdown_h = 9 * (item_h + gap) + gap
     dropdown_y = menu_btn.y - dropdown_h - gap
@@ -93,18 +93,9 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
         if k in menu_buttons:
             menu_buttons[k].y += oy
     hud_bg = (0, 0, 0)  # same as menu button and bottom HUD pills for matching opacity
-    menu_buttons["fps30"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["fps60"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["fpsmax"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-
-    menu_buttons["gain"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["colormap"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["cam"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["source"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["debug"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["spectrum_analyzer"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["email_settings"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
-    menu_buttons["crosshairs"].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+    for k in _MENU_DROPDOWN_KEYS:
+        if k in menu_buttons:
+            menu_buttons[k].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
             menu_buttons[k].y -= oy
