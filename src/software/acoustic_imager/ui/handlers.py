@@ -19,7 +19,7 @@ from .storage_bar import _format_size
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
-from ..state import button_state
+from ..state import button_state, HUD
 from ..io.gallery_metadata import save_metadata
 from ..io.email_config import (
     load_config,
@@ -1408,6 +1408,17 @@ def handle_menu_click(
     #     return video_recorder  # 60FPS button commented out
     if "fpsmax" in menu_buttons and menu_buttons["fpsmax"].contains(x, y):
         button_state.fps_mode = "MAX"
+        return video_recorder
+
+    if "wifi" in menu_buttons and menu_buttons["wifi"].contains(x, y):
+        HUD.wifi_modal_open = True
+        HUD.wifi_modal_screen = "list"
+        if not HUD.wifi_networks:
+            HUD.wifi_networks = []
+        return video_recorder
+
+    if "main_menu_settings" in menu_buttons and menu_buttons["main_menu_settings"].contains(x, y):
+        HUD.settings_modal_open = True
         return video_recorder
 
     if "gain" in menu_buttons and menu_buttons["gain"].contains(x, y):

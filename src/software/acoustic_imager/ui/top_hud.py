@@ -65,6 +65,8 @@ def _in_rect(x: int, y: int, r: Tuple[int,int,int,int]) -> bool:
 # Merged battery+wifi pill: wifi icon (left) + battery icon + %
 BAT_WIFI_PILL_GAP = 10  # between wifi icon and battery
 
+from .icons import draw_wifi_icon
+
 
 def _time_remaining_display(percent: Optional[int], time_remaining_sec: Optional[float] = None) -> str:
     """
@@ -170,14 +172,6 @@ def draw_hud(
         cv2.rectangle(frame, (cx-2, cy+2), (cx,   cy+8), (0,0,0), -1, cv2.LINE_AA)
         cv2.rectangle(frame, (cx+3, cy-1), (cx+5, cy+8), (0,0,0), -1, cv2.LINE_AA)
 
-    def draw_wifi_icon(cx, cy):
-        cv2.circle(frame, (cx, cy), 12, (255,255,255), -1, cv2.LINE_AA)
-        cv2.circle(frame, (cx, cy), 12, (0,0,0), 1, cv2.LINE_AA)
-        # Wifi arcs (bottom half of circles) + center dot
-        for r, y_off in [(8, 1), (5, 3), (2, 5)]:
-            cv2.ellipse(frame, (cx, cy + y_off), (r, r), 0, 180, 360, (0,0,0), 1, cv2.LINE_AA)
-        cv2.circle(frame, (cx, cy + 5), 2, (0,0,0), -1, cv2.LINE_AA)
-
     # Basic measurement (rough, but stable)
     def tw(s: str, scale=0.55, thick=1):
         (ww, hh), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
@@ -240,7 +234,7 @@ def draw_hud(
     bat_y = y + (pill_h - bat_icon_h) // 2
     if not button_state.gallery_open:
         wifi_cx = bat_content_start + icon_radius
-        draw_wifi_icon(wifi_cx, cy)
+        draw_wifi_icon(frame, wifi_cx, cy, color=(0, 0, 0), bg_color=(255, 255, 255), size=12)
         draw_battery_icon(frame, x=bat_content_start + icon_w + BAT_WIFI_PILL_GAP, y=bat_y, percent=battery_percent)
         cv2.putText(frame, pct_txt, (bat_content_start + icon_w + BAT_WIFI_PILL_GAP + bat_icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
 

@@ -4,6 +4,7 @@ Button widget, icon drawing, and button/menu registries.
 
 from __future__ import annotations
 
+import math
 from typing import Optional, Dict, Tuple
 
 import cv2
@@ -19,6 +20,7 @@ def _vertical_gradient_uint8(h: int, w: int, top_bgr: Tuple[int, int, int], bot_
 
 from . import ui_cache
 from .storage_bar import feathered_composite
+from .icons import draw_wifi_icon as _draw_wifi_icon_shared
 from ..state import button_state
 
 try:
@@ -137,6 +139,26 @@ def _draw_gallery_icon(frame: np.ndarray, cx: int, cy: int, size: int = 10):
             y2 = y1 + half
             cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), -1, cv2.LINE_AA)
             cv2.rectangle(frame, (x1, y1), (x2, y2), (180, 180, 180), 1, cv2.LINE_AA)
+
+
+def _draw_settings_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
+    """Draw a clean gear/cog icon: rounded teeth around a hollow center (smooth modern style)."""
+    col = (255, 255, 255)
+    s = min(size, 10)
+    r_outer = s
+    r_inner = max(2, s // 3)
+    n_teeth = 8
+    thickness = max(1, s // 5)
+    # Draw teeth as rounded rectangles (simplified: lines from inner to outer radius)
+    for i in range(n_teeth):
+        ang = 2 * math.pi * i / n_teeth
+        x1 = int(cx + r_inner * math.cos(ang))
+        y1 = int(cy + r_inner * math.sin(ang))
+        x2 = int(cx + r_outer * math.cos(ang))
+        y2 = int(cy + r_outer * math.sin(ang))
+        cv2.line(frame, (x1, y1), (x2, y2), col, thickness, cv2.LINE_AA)
+    # Inner circle (hollow center)
+    cv2.circle(frame, (cx, cy), r_inner, col, thickness, cv2.LINE_AA)
 
 
 def _draw_trash_icon(frame: np.ndarray, cx: int, cy: int, size: int = 12):
@@ -333,6 +355,10 @@ class Button:
                 _draw_back_arrow_icon(frame, cx, cy, size=12)
             elif icon_type == "trash":
                 _draw_trash_icon(frame, cx, cy, size=14)
+            elif icon_type == "wifi":
+                _draw_wifi_icon_shared(frame, cx, cy, color=(255, 255, 255), bg_color=None, size=10)
+            elif icon_type == "settings":
+                _draw_settings_icon(frame, cx, cy, size=12)
         else:
             font = cv2.FONT_HERSHEY_SIMPLEX
             scale = 0.42 if "LOOP" in self.text else 0.52
@@ -424,11 +450,19 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     item_h = 40
     gap = 8
 
-    total_items = 9  # fps, gain, colormap, cam, source, debug, spectrum_analyzer, email_settings, crosshairs; SHOT/Gallery in bottom HUD
+    total_items = 9  # wifi, fps, gain, colormap, cam, debug|src, email_settings, crosshairs, spectrum_analyzer
     dropdown_h = total_items * (item_h + gap) + gap
     dropdown_y = menu_y - dropdown_h - gap
 
-    y0 = dropdown_y
+    # Top row: blank (left), wifi (center), settings (right)
+    wifi_y = dropdown_y
+    seg_gap_top = 6
+    seg_w_top = (menu_w - 2 * seg_gap_top) // 3
+    menu_buttons["top_left_blank"] = Button(menu_x + 0 * (seg_w_top + seg_gap_top), wifi_y, seg_w_top, item_h, "")
+    menu_buttons["wifi"] = Button(menu_x + 1 * (seg_w_top + seg_gap_top), wifi_y, seg_w_top, item_h, "")
+    menu_buttons["main_menu_settings"] = Button(menu_x + 2 * (seg_w_top + seg_gap_top), wifi_y, seg_w_top, item_h, "")
+
+    y0 = wifi_y + (item_h + gap)
     seg_gap = 6
     # 60FPS button commented out: only 30FPS and MAX on this line
     seg_w = (menu_w - 1 * seg_gap) // 2  # 2 segments: 30FPS | MAX
@@ -445,16 +479,16 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     cam_y = colormap_y + (item_h + gap)
     menu_buttons["cam"] = Button(menu_x, cam_y, menu_w, item_h, "CAM: ON" if button_state.camera_enabled else "CAM: OFF")
 
-    debug_y = cam_y + (item_h + gap)
-    menu_buttons["debug"] = Button(menu_x, debug_y, menu_w, item_h, "DEBUG")
+    # DEBUG and SRC on same line
+    debug_src_y = cam_y + (item_h + gap)
+    seg_w2 = (menu_w - 1 * seg_gap) // 2
+    menu_buttons["debug"] = Button(menu_x + 0 * (seg_w2 + seg_gap), debug_src_y, seg_w2, item_h, "DEBUG")
+    menu_buttons["source"] = Button(menu_x + 1 * (seg_w2 + seg_gap), debug_src_y, seg_w2, item_h, f"SRC: {button_state.source_mode}")
 
-    email_y = debug_y + (item_h + gap)
+    email_y = debug_src_y + (item_h + gap)
     menu_buttons["email_settings"] = Button(menu_x, email_y, menu_w, item_h, "EMAIL SETTINGS")
 
-    src_y = email_y + (item_h + gap)
-    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SRC: {button_state.source_mode}")
-
-    crosshairs_y = src_y + (item_h + gap)
+    crosshairs_y = email_y + (item_h + gap)
     menu_buttons["crosshairs"] = Button(menu_x, crosshairs_y, menu_w, item_h, "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF")
 
     spectrum_y = crosshairs_y + (item_h + gap)
@@ -481,7 +515,7 @@ def update_button_states(mx: int, my: int) -> None:
 
     # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in ("fps30", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer"):  # fps60 commented out
+        for k in ("top_left_blank", "wifi", "main_menu_settings", "fps30", "fpsmax", "gain", "colormap", "cam", "debug", "source", "email_settings", "crosshairs", "spectrum_analyzer"):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 

@@ -22,7 +22,15 @@ class HudState:
     details_level: str = "MIN"   # "OFF" | "MIN" | "MAX"
     open_panel: str = ""         # "" | "time" | "fps" | "net" | "battery"
     wifi_modal_open: bool = False
-    wifi_networks: List[str] = field(default_factory=list)   # SSIDs; placeholder until live scan
+    settings_modal_open: bool = False
+    wifi_modal_screen: str = "list"   # "list" | "password"
+    wifi_networks: List[dict] = field(default_factory=list)  # [{"ssid", "signal", "security"}, ...]
+    wifi_connect_ssid: str = ""
+    wifi_password: str = ""
+    wifi_keyboard_mode: str = "alpha"   # "alpha" | "symbol"
+    wifi_shift_next: bool = False
+    wifi_connect_status: str = ""   # "" | "connecting" | "ok" | "error"
+    wifi_connect_message: str = ""
     connected_ssid: str = ""      # currently connected SSID or ""
 
 HUD = HudState()
