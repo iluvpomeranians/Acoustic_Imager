@@ -11,8 +11,7 @@ import numpy as np
 
 from acoustic_imager import config
 from acoustic_imager.custom_types import LatestFrame, SourceStats
-from acoustic_imager.spi.spi_protocol import parse_mic_packet, build_mic_packet
-from acoustic_imager.io.spi_manager import BatchAccumulator
+from acoustic_imager.spi.spi_protocol import SPIProtocol
 
 try:
     import spidev  # type: ignore
@@ -30,17 +29,18 @@ class LoopbackStats(SourceStats):
 
 class SPILoopbackSource:
     """
-    REAL physical SPI loopback mode (no STM32). Option B: per-mic packets + batch accumulator.
+    REAL physical SPI loopback mode (no STM32).
 
     Requirements:
       - MOSI physically connected to MISO (Pi pin 19 -> pin 21).
       - SPI enabled on the Pi.
 
     Behavior:
-      - Generates one synthetic batch (16 mics) per tick
-      - Builds 16 per-mic packets (firmware format), sends each over SPI, reads back
-      - Parses each RX with parse_mic_packet, feeds BatchAccumulator
-      - When batch complete, publishes LatestFrame (same path as HW)
+      - Generates a synthetic FFT frame (software)
+      - Packs it into your STM32-style framed packet (header+payload+crc+end)
+      - Sends it over SPI (TX) and reads it back (RX) via MOSI->MISO loopback
+      - Validates framing/CRC and parses payload back into complex FFT
+      - Publishes LatestFrame via mailbox for the UI thread
     """
 
     def __init__(
@@ -84,10 +84,7 @@ class SPILoopbackSource:
         self._dt = 1.0 / float(update_hz)
         self._crc_every_n = int(crc_every_n)
 
-        self._n_mics = int(config.N_MICS)
-        self._n_bins = int(config.N_BINS)
-        self._mic_packet_bytes = int(getattr(config, "SPI_MIC_PACKET_BYTES", 2081))
-        self._accumulator = BatchAccumulator(self._n_mics, self._n_bins)
+        self._proto = SPIProtocol()
 
         # You can tune these “synthetic sources” to look like your old demo
         self._bins = list(getattr(config, "SPI_SIM_BINS", [35, 80, 160, 220]))
@@ -165,7 +162,6 @@ class SPILoopbackSource:
     def _worker(self) -> None:
         with self._lock:
             self._latest = LatestFrame()
-        self._accumulator = BatchAccumulator(self._n_mics, self._n_bins)
 
         t0 = time.time()
 
@@ -177,44 +173,56 @@ class SPILoopbackSource:
 
             self._seq += 1
             t = time.time() - t0
-            batch_id = self._seq
 
             try:
-                # One batch = 16 mics (synthetic FFT)
+                # TODO: this is hardcoded synthetic FFT generation
+                # fft = self._make_fft_frame(t)
+
+                # TODO: this is random noise FFT generation (exercises framing/CRC/parser without any particular source structure)
                 fft = (
-                    np.random.randn(self._n_mics, self._n_bins) +
-                    1j * np.random.randn(self._n_mics, self._n_bins)
+                    np.random.randn(config.N_MICS, config.N_BINS) +
+                    1j * np.random.randn(config.N_MICS, config.N_BINS)
                 ).astype(np.complex64)
 
-                st = self._get_stats()
-                frame = None
-                for mic_index in range(self._n_mics):
-                    tx = build_mic_packet(
-                        batch_id=batch_id,
-                        mic_index=mic_index,
-                        fft_1mic=fft[mic_index],
-                        frame_counter=(batch_id * self._n_mics + mic_index),
-                        sample_rate=int(getattr(config, "SAMPLE_RATE_HZ", 100000)),
-                    )
-                    rx = self._spi_xfer_bytes(tx)
-                    ok, bid, mid, fft_1mic = parse_mic_packet(rx)
-                    if not ok:
-                        st.bad_parse += 1
-                        st.last_err = "parse:mic_packet"
-                        self._set_stats(st)
-                        break
-                    frame = self._accumulator.add_mic(bid, mid, fft_1mic, st)
-                    if frame is not None:
-                        break
 
-                if frame is not None:
-                    st.frames_ok += 1
-                    st.last_err = ""
+                # 2) Convert to mag/phase float32 payload to match current protocol
+                payload = self._fft_to_payload_mag_phase(fft)
+
+                # 3) Build framed packet
+                tx = self._proto.build_frame(seq=self._seq, payload=payload)
+
+                # 4) Send/receive over SPI (requires MOSI->MISO loopback)
+                rx = self._spi_xfer_bytes(tx)
+
+                # 5) Validate framing + CRC (optionally every N)
+                ok, why = self._proto.validate_framing(rx)
+                st = self._get_stats()
+
+                if not ok:
+                    st.bad_parse += 1
+                    st.last_err = f"parse:{why}"
                     self._set_stats(st)
-                    self._publish(frame.fft_data, True, st)
-                elif st.last_err == "":
-                    # Partial batch (shouldn't happen in loopback since we send all 16)
-                    pass
+                    self._publish(None, False, st)
+                    time.sleep(self._dt)
+                    continue
+
+                if self._crc_every_n and ((st.frames_ok % self._crc_every_n) == 0):
+                    if not self._proto.validate_crc(rx):
+                        st.bad_crc += 1
+                        st.last_err = "crc"
+                        self._set_stats(st)
+                        self._publish(None, False, st)
+                        time.sleep(self._dt)
+                        continue
+
+                # 6) Parse payload back to fft (exercises parser)
+                payload_rx = rx[self._proto.header_len : self._proto.header_len + self._proto.payload_len]
+                fft_rx = self._proto.payload_to_fft(payload_rx)
+
+                st.frames_ok += 1
+                st.last_err = ""
+                self._set_stats(st)
+                self._publish(fft_rx, True, st)
 
             except Exception as e:
                 st = self._get_stats()

@@ -24,7 +24,6 @@ import numpy as np
 
 from acoustic_imager.custom_types import LatestFrame, SourceStats
 from acoustic_imager.spi.frame_ready import FrameReady, FrameReadyGPIO
-from acoustic_imager.spi.spi_protocol import parse_mic_packet
 
 try:
     import spidev
@@ -42,50 +41,6 @@ def _cfg(name: str):
             f"Add `{name} = ...` to config.py"
         )
     return getattr(config, name)
-
-
-class BatchAccumulator:
-    """
-    Accumulates per-mic packets by batch_id; returns a LatestFrame when all N_MICS
-    for a batch have been received. Thread-safe when used under the same lock as _latest.
-    """
-    def __init__(self, n_mics: int, n_bins: int) -> None:
-        self._n_mics = n_mics
-        self._n_bins = n_bins
-        self._batches: dict[int, tuple[np.ndarray, set[int]]] = {}
-        self._max_batches = 4  # cap to avoid unbounded growth
-
-    def add_mic(
-        self,
-        batch_id: int,
-        mic_index: int,
-        fft_1mic: np.ndarray,
-        stats: SourceStats,
-    ) -> Optional[LatestFrame]:
-        if mic_index < 0 or mic_index >= self._n_mics:
-            return None
-        if batch_id not in self._batches:
-            if len(self._batches) >= self._max_batches:
-                # drop oldest batch (arbitrary: min key)
-                old = min(self._batches.keys())
-                del self._batches[old]
-            self._batches[batch_id] = (
-                np.zeros((self._n_mics, self._n_bins), dtype=np.complex64),
-                set(),
-            )
-        arr, received = self._batches[batch_id]
-        arr[mic_index, :] = fft_1mic
-        received.add(mic_index)
-        if len(received) == self._n_mics:
-            frame = LatestFrame(
-                fft_data=arr.copy(),
-                frame_id=batch_id,
-                ok=True,
-                stats=stats,
-            )
-            del self._batches[batch_id]
-            return frame
-        return None  # no full batch yet
 
 
 class SPIManager:
@@ -129,10 +84,6 @@ class SPIManager:
         self.TRAILER_LEN = int(_cfg("TRAILER_LEN"))
         self.PAYLOAD_LEN = int(_cfg("PAYLOAD_LEN"))
         self.FRAME_BYTES = int(_cfg("FRAME_BYTES"))
-
-        # --- per-mic packet (firmware format) ---
-        self.SPI_MIC_PACKET_BYTES = int(getattr(config, "SPI_MIC_PACKET_BYTES", 2081))
-        self._accumulator = BatchAccumulator(self.N_MICS, self.N_BINS)
 
         # --- spi config ---
         self.SPI_BUS = int(_cfg("SPI_BUS"))
@@ -228,9 +179,9 @@ class SPIManager:
     # Worker loop
     # ------------------------------
     def _worker(self) -> None:
+        # reset mailbox
         with self._lock:
             self._latest = LatestFrame()
-        self._accumulator = BatchAccumulator(self.N_MICS, self.N_BINS)
 
         while not self._stop:
             if self._spi is None:
@@ -244,37 +195,56 @@ class SPIManager:
                     self._latest = fr
 
     # ------------------------------
-    # One mic packet read; accumulate until full batch
+    # One frame read
     # ------------------------------
     def _read_one(self) -> Optional[LatestFrame]:
-        # Wait for STM32 "frame ready" pulse (one mic packet ready)
+        self._seq_seen += 1
+
+        # Wait for STM32 "frame ready" pulse/level
         if self.use_frame_ready and self._frame_ready is not None:
             timeout_s = float(getattr(config, "FRAME_READY_TIMEOUT_S", 0.25))
-            self._frame_ready.clear()
+            self._frame_ready.clear()          # drop stale state
             got = self._frame_ready.wait(timeout=timeout_s)
             if not got:
                 return None
 
         try:
-            tx = bytes(self.SPI_MIC_PACKET_BYTES)
+
+            tx = bytes(self.FRAME_BYTES)
             rx = self._spi_xfer_bytes(tx)
 
-            ok, batch_id, mic_index, fft_1mic = parse_mic_packet(rx)
+            ok, why = self._framing_validate(rx)
             stats = self._get_stats()
             if not ok:
                 stats.bad_parse += 1
-                stats.last_err = "parse:mic_packet"
+                stats.last_err = f"parse:{why}"
                 self._set_stats(stats)
                 return None
 
-            frame = self._accumulator.add_mic(batch_id, mic_index, fft_1mic, stats)
+            if self.CRC_EVERY_N and ((stats.frames_ok % self.CRC_EVERY_N) == 0):
+                if not self._crc_validate(rx):
+                    stats.bad_crc += 1
+                    stats.last_err = "crc"
+                    self._set_stats(stats)
+                    return None
 
-            if frame is not None:
-                stats.frames_ok += 1
-                stats.last_err = ""
-                self._set_stats(stats)
-                return frame
-            return None
+            payload = rx[self.HEADER_LEN : self.HEADER_LEN + self.PAYLOAD_LEN]
+            mp = np.frombuffer(payload, dtype=np.float32).reshape(self.N_MICS, self.N_BINS, 2)
+
+            mag = mp[:, :, 0]
+            phase = mp[:, :, 1]
+            fft_data = (mag * (np.cos(phase) + 1j * np.sin(phase))).astype(np.complex64)
+
+            stats.frames_ok += 1
+            stats.last_err = ""
+            self._set_stats(stats)
+
+            return LatestFrame(
+                fft_data=fft_data,
+                frame_id=self._seq_seen,
+                ok=True,
+                stats=stats,
+            )
 
         except Exception as e:
             stats = self._get_stats()
