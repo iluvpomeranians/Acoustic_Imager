@@ -35,6 +35,15 @@ def _run_connect(ssid: str, password: str) -> None:
     HUD.wifi_connect_message = msg
 
 
+def _run_scan() -> None:
+    """Background thread: scan and update networks."""
+    HUD.wifi_scanning = True
+    try:
+        HUD.wifi_networks = scan_wifi_networks()
+    finally:
+        HUD.wifi_scanning = False
+
+
 def draw_wifi_modal(frame: np.ndarray) -> None:
     """Draw WiFi modal: list screen or password screen with keyboard."""
     if not HUD.wifi_modal_open:
@@ -94,17 +103,13 @@ def _draw_list_screen(
     # "Current connection" section header
     cv2.putText(frame, "Current connection", (row_x, current_y - 4), font, 0.44, (180, 180, 180), 1, cv2.LINE_AA)
     current_row_y = current_y + 6
-    # Reserve space for Disconnect button when connected
-    disconnect_btn_w = 90 if connected_ssid else 0
-    disconnect_btn_h = row_h - 8
-    content_w = row_w - disconnect_btn_w - 8 if connected_ssid else row_w
     expanded = HUD.wifi_current_expanded
     box_h = (row_h - 4) + (72 if expanded else 0)  # extra height when expanded
     if "wifi_current" not in menu_buttons:
-        menu_buttons["wifi_current"] = Button(row_x, current_row_y, content_w, box_h, "")
+        menu_buttons["wifi_current"] = Button(row_x, current_row_y, row_w, box_h, "")
     else:
         menu_buttons["wifi_current"].x, menu_buttons["wifi_current"].y = row_x, current_row_y
-        menu_buttons["wifi_current"].w, menu_buttons["wifi_current"].h = content_w, box_h
+        menu_buttons["wifi_current"].w, menu_buttons["wifi_current"].h = row_w, box_h
     # Blue highlight for current connection box (expanded when clicked)
     cv2.rectangle(frame, (row_x, current_row_y), (row_x + row_w, current_row_y + box_h), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
     cv2.rectangle(frame, (row_x, current_row_y), (row_x + row_w, current_row_y + box_h), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
@@ -128,23 +133,30 @@ def _draw_list_screen(
             sig = match.get("signal", "")
             sec = match.get("security", "Open")
             cv2.putText(frame, f"Signal: {sig}%  Security: {sec}", (row_x + 8, info_y + 3 * line_h), font, 0.40, info_color, 1, cv2.LINE_AA)
-    # Disconnect button (visible when connected)
-    if connected_ssid:
-        disc_x = row_x + row_w - disconnect_btn_w - 4
-        disc_y = current_row_y + 2
-        if "wifi_disconnect" not in menu_buttons:
-            menu_buttons["wifi_disconnect"] = Button(disc_x, disc_y, disconnect_btn_w, disconnect_btn_h, "Disconnect")
-        else:
-            menu_buttons["wifi_disconnect"].x, menu_buttons["wifi_disconnect"].y = disc_x, disc_y
-            menu_buttons["wifi_disconnect"].w, menu_buttons["wifi_disconnect"].h = disconnect_btn_w, disconnect_btn_h
-        cv2.rectangle(frame, (disc_x, disc_y), (disc_x + disconnect_btn_w, disc_y + disconnect_btn_h), (60, 60, 60), -1, cv2.LINE_AA)
-        cv2.rectangle(frame, (disc_x, disc_y), (disc_x + disconnect_btn_w, disc_y + disconnect_btn_h), (255, 255, 255), 1, cv2.LINE_AA)
-        (tw, th), _ = cv2.getTextSize("Disconnect", font, 0.4, 1)
-        cv2.putText(frame, "Disconnect", (disc_x + (disconnect_btn_w - tw) // 2, disc_y + (disconnect_btn_h + th) // 2), font, 0.4, text_color, 1, cv2.LINE_AA)
+        # Disconnect button: only when expanded, at bottom right of box
+        if connected_ssid:
+            disconnect_btn_w, disconnect_btn_h = 90, 28
+            disc_x = row_x + row_w - disconnect_btn_w - 8
+            disc_y = current_row_y + box_h - disconnect_btn_h - 6
+            if "wifi_disconnect" not in menu_buttons:
+                menu_buttons["wifi_disconnect"] = Button(disc_x, disc_y, disconnect_btn_w, disconnect_btn_h, "Disconnect")
+            else:
+                menu_buttons["wifi_disconnect"].x, menu_buttons["wifi_disconnect"].y = disc_x, disc_y
+                menu_buttons["wifi_disconnect"].w, menu_buttons["wifi_disconnect"].h = disconnect_btn_w, disconnect_btn_h
+            cv2.rectangle(frame, (disc_x, disc_y), (disc_x + disconnect_btn_w, disc_y + disconnect_btn_h), (60, 60, 60), -1, cv2.LINE_AA)
+            cv2.rectangle(frame, (disc_x, disc_y), (disc_x + disconnect_btn_w, disc_y + disconnect_btn_h), (255, 255, 255), 1, cv2.LINE_AA)
+            (tw, th), _ = cv2.getTextSize("Disconnect", font, 0.4, 1)
+            cv2.putText(frame, "Disconnect", (disc_x + (disconnect_btn_w - tw) // 2, disc_y + (disconnect_btn_h + th) // 2), font, 0.4, text_color, 1, cv2.LINE_AA)
+    if not (expanded and connected_ssid) and "wifi_disconnect" in menu_buttons:
+        menu_buttons["wifi_disconnect"].w = 0
+        menu_buttons["wifi_disconnect"].h = 0
 
     # "Other Networks" section (below expanded or collapsed current box)
     other_y0 = current_row_y + box_h + section_gap + 16
-    cv2.putText(frame, "Other Networks", (row_x, other_y0 - 4), font, 0.44, (180, 180, 180), 1, cv2.LINE_AA)
+    other_label = "Other Networks"
+    if HUD.wifi_scanning:
+        other_label += "  Scanning..."
+    cv2.putText(frame, other_label, (row_x, other_y0 - 4), font, 0.44, (180, 180, 180), 1, cv2.LINE_AA)
     list_y0 = other_y0 + 6
     max_rows = max(0, (modal_h - list_y0 + modal_y - pad) // row_h)
     networks = HUD.wifi_networks or []
@@ -297,12 +309,15 @@ def handle_wifi_modal_click(x: int, y: int) -> bool:
 
 def _handle_list_click(x: int, y: int) -> bool:
     if "wifi_scan" in menu_buttons and menu_buttons["wifi_scan"].contains(x, y):
-        HUD.wifi_networks = scan_wifi_networks()
+        if not HUD.wifi_scanning:
+            thread = threading.Thread(target=_run_scan, daemon=True)
+            thread.start()
         return True
-    if "wifi_disconnect" in menu_buttons and menu_buttons["wifi_disconnect"].contains(x, y):
+    if "wifi_disconnect" in menu_buttons and menu_buttons["wifi_disconnect"].w > 0 and menu_buttons["wifi_disconnect"].contains(x, y):
         ok, _ = disconnect_wifi()
-        if ok:
-            HUD.wifi_networks = scan_wifi_networks()
+        if ok and not HUD.wifi_scanning:
+            thread = threading.Thread(target=_run_scan, daemon=True)
+            thread.start()
         return True
     if "wifi_current" in menu_buttons and menu_buttons["wifi_current"].contains(x, y):
         HUD.wifi_current_expanded = not HUD.wifi_current_expanded

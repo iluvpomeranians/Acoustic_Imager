@@ -1214,11 +1214,14 @@ def draw_share_modal(frame: np.ndarray) -> None:
     title = getattr(button_state, "share_modal_title", "Share")
     message = getattr(button_state, "share_modal_message", "")
     sending = getattr(button_state, "share_modal_sending", False)
+    progress = getattr(button_state, "share_modal_progress", 0.0)
     modal_w = 420
     line_h = 24
     lines = message.split("\n") if message else [""]
     msg_h = min(120, len(lines) * line_h + 20)
-    modal_h = 80 + msg_h + 55
+    # Extra height for progress bar when sending
+    progress_bar_h = 28 if sending else 0
+    modal_h = 80 + msg_h + 55 + progress_bar_h
     modal_x = (frame.shape[1] - modal_w) // 2
     modal_y = (frame.shape[0] - modal_h) // 2
 
@@ -1240,6 +1243,18 @@ def draw_share_modal(frame: np.ndarray) -> None:
     for i, line in enumerate(lines[:5]):
         msg_y = modal_y + 62 + i * line_h
         cv2.putText(frame, line[:60], (modal_x + 20, msg_y), font, msg_scale, (220, 220, 220), 1, cv2.LINE_AA)
+
+    # Progress bar when sending: rectangle with fill increasing left-to-right
+    if sending:
+        bar_x = modal_x + 24
+        bar_y = modal_y + 62 + len(lines[:5]) * line_h + 12
+        bar_w = modal_w - 48
+        bar_h = 18
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1, cv2.LINE_AA)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 1, cv2.LINE_AA)
+        fill_w = max(0, int(bar_w * min(1.0, max(0.0, progress))))
+        if fill_w > 0:
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), (80, 180, 80), -1, cv2.LINE_AA)
 
     # OK only when not sending (thread finished or warning)
     if not sending:

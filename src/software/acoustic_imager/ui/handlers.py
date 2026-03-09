@@ -96,6 +96,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
         if "email_modal_panel" in menu_buttons and menu_buttons["email_modal_panel"].contains(x, y):
             return True
         button_state.email_settings_modal_open = False
+        HUD.settings_modal_open = True  # return to System Settings
         return True
 
     # Form screen: field focus and click-to-position cursor
@@ -316,6 +317,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
     if "email_save" in menu_buttons and menu_buttons["email_save"].contains(x, y):
         _save_email_config(output_dir)
         button_state.email_settings_modal_open = False
+        HUD.settings_modal_open = True  # return to System Settings
         button_state.email_modal_screen = "provider"
         button_state.email_modal_provider = ""
         button_state.email_focused_field = ""
@@ -329,6 +331,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
 
     if "email_cancel" in menu_buttons and menu_buttons["email_cancel"].contains(x, y):
         button_state.email_settings_modal_open = False
+        HUD.settings_modal_open = True  # return to System Settings
         button_state.email_modal_screen = "provider"
         button_state.email_modal_provider = ""
         button_state.email_focused_field = ""
@@ -347,6 +350,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
         return True
     # Click outside (e.g. negative space left/right of form above keyboard): close without saving (like Cancel)
     button_state.email_settings_modal_open = False
+    HUD.settings_modal_open = True  # return to System Settings
     button_state.email_modal_screen = "provider"
     button_state.email_modal_provider = ""
     button_state.email_focused_field = ""
@@ -1230,9 +1234,13 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.share_modal_sending = True
                 button_state.share_modal_title = "Share"
                 button_state.share_modal_message = "Sending..."
+                button_state.share_modal_progress = 0.0
 
                 def _run_share() -> None:
-                    ok, msg, details = send_share_email(output_dir, paths_to_send)
+                    def _on_progress(p: float, _phase: str) -> None:
+                        button_state.share_modal_progress = p
+
+                    ok, msg, details = send_share_email(output_dir, paths_to_send, progress_callback=_on_progress)
                     button_state.share_modal_sending = False
                     if ok:
                         button_state.share_modal_title = "Sent"
@@ -1434,22 +1442,6 @@ def handle_menu_click(
         menu_buttons["gain"].text = f"GAIN: {button_state.gain_mode}"
         return video_recorder
 
-    if "colormap" in menu_buttons and menu_buttons["colormap"].contains(x, y):
-        colormaps = ["MAGMA", "JET", "TURBO", "INFERNO"]
-        cur = button_state.colormap_mode
-        try:
-            i = colormaps.index(cur)
-        except ValueError:
-            i = 0
-        button_state.colormap_mode = colormaps[(i + 1) % len(colormaps)]
-        menu_buttons["colormap"].text = f"COLOUR: {button_state.colormap_mode}"
-        return video_recorder
-
-    if "cam" in menu_buttons and menu_buttons["cam"].contains(x, y):
-        button_state.camera_enabled = not button_state.camera_enabled
-        menu_buttons["cam"].text = "CAM: ON" if button_state.camera_enabled else "CAM: OFF"
-        return video_recorder
-
     if "source" in menu_buttons and menu_buttons["source"].contains(x, y):
         modes = list(SOURCE_MODES)
         cur = button_state.source_mode
@@ -1461,10 +1453,6 @@ def handle_menu_click(
         menu_buttons["source"].text = f"SRC: {button_state.source_mode}"
         return video_recorder
 
-    if "debug" in menu_buttons and menu_buttons["debug"].contains(x, y):
-        button_state.debug_enabled = not button_state.debug_enabled
-        return video_recorder
-
     if "spectrum_analyzer" in menu_buttons and menu_buttons["spectrum_analyzer"].contains(x, y):
         # Cycle dB -> NORM -> dBA -> dB
         next_mode = {"dB": "NORM", "NORM": "dBA", "dBA": "dB"}.get(
@@ -1472,19 +1460,6 @@ def handle_menu_click(
         )
         button_state.spectrum_analyzer_mode = next_mode
         menu_buttons["spectrum_analyzer"].text = f"SPECTRUM: {button_state.spectrum_analyzer_mode}"
-        return video_recorder
-
-    if "email_settings" in menu_buttons and menu_buttons["email_settings"].contains(x, y):
-        button_state.email_settings_modal_open = True
-        button_state.menu_open = False
-        button_state.email_modal_screen = "provider"
-        button_state.email_modal_provider = ""
-        button_state.email_keyboard_mode = "alpha"
-        return video_recorder
-
-    if "crosshairs" in menu_buttons and menu_buttons["crosshairs"].contains(x, y):
-        button_state.crosshairs_enabled = not button_state.crosshairs_enabled
-        menu_buttons["crosshairs"].text = "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF"
         return video_recorder
 
     return video_recorder
@@ -1509,7 +1484,7 @@ def handle_button_click(
 
     Returns updated video_recorder (may be created by menu click).
     """
-    video_recorder = handle_menu_click(
+    return handle_menu_click(
         x, y,
         current_frame=current_frame,
         output_dir=output_dir,
@@ -1517,26 +1492,6 @@ def handle_button_click(
         width=width,
         height=height,
     )
-
-    if "source" in buttons and buttons["source"].contains(x, y):
-        modes = list(SOURCE_MODES)
-        cur = button_state.source_mode
-        try:
-            i = modes.index(cur)
-        except ValueError:
-            i = modes.index(SOURCE_DEFAULT)
-
-        button_state.source_mode = modes[(i + 1) % len(modes)]
-        buttons["source"].text = f"Source: {button_state.source_mode}"
-        return video_recorder
-
-    if "debug" in buttons and buttons["debug"].contains(x, y):
-        button_state.debug_enabled = not button_state.debug_enabled
-        buttons["debug"].is_active = button_state.debug_enabled
-        buttons["debug"].text = "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
-        return video_recorder
-
-    return video_recorder
 
 
 def handle_gallery_viewer_mouse(event, x, y, flags, output_dir) -> bool:

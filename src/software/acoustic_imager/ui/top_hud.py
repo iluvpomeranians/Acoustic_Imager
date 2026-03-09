@@ -234,7 +234,9 @@ def draw_hud(
     bat_y = y + (pill_h - bat_icon_h) // 2
     if not button_state.gallery_open:
         wifi_cx = bat_content_start + icon_radius
-        draw_wifi_icon(frame, wifi_cx, cy, color=(0, 0, 0), bg_color=(255, 255, 255), size=12)
+        # HUD style: white background, black icon (inverted from dark-pill style)
+        draw_wifi_icon(frame, wifi_cx, cy, color=(0, 0, 0), bg_color=(255, 255, 255), size=12, circular=True)
+        cv2.circle(frame, (wifi_cx, cy), 12, (0, 0, 0), 1, cv2.LINE_AA)
         draw_battery_icon(frame, x=bat_content_start + icon_w + BAT_WIFI_PILL_GAP, y=bat_y, percent=battery_percent)
         cv2.putText(frame, pct_txt, (bat_content_start + icon_w + BAT_WIFI_PILL_GAP + bat_icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
 
