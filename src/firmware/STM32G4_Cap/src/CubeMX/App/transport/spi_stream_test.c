@@ -11,11 +11,15 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "protocol/spi_protocol.h"
+
 #include "spi.h"
 #include "spi_stream_test.h"
 #include "spi_stream.h"
+#include "spi_dma.h"
+
 #include "usb/usb_debug.h"
-#include "protocol/spi_protocol.h"
+
 #include "app_main.h"
 
 /* =========================================================================
@@ -26,6 +30,8 @@
  * STATIC VARIABLES
  * ========================================================================= */
 
+//  extern volatile uint32_t spi4_tx_dma_irq_count;
+//  extern volatile uint32_t spi4_rx_dma_irq_count;    
 /* =========================================================================
  * FORWARD DECLARATIONS
  * ========================================================================= */
@@ -276,10 +282,11 @@ void spi_loopback_unit_test(void)
     // ---------------------------------------------------------------------
     const uint32_t batch_id    = 2;
     const uint16_t mic_index   = 1;
-    const uint16_t mic_count   = 16;
-    const uint16_t fft_size    = 16;
+    const uint16_t fft_size    = 512;
     const uint32_t sample_rate = 48000;
-    const uint16_t bin_count   = 8; // keep small to start
+    const uint16_t bin_count   = 256; // keep small to start
+
+    const size_t transfer_size = SPI_PACKET_SIZE; // intentionally exact size for header+payload+checksum
 
     float fft_bins[2 * bin_count];
     for (uint16_t k = 0; k < bin_count; k++) {
@@ -291,14 +298,15 @@ void spi_loopback_unit_test(void)
     spi_stream_init(&stream);
 
     // Align buffers (DMA/HAL generally doesn't require for blocking, but it's nice)
-    union { uint32_t align; uint8_t b[256]; } tx_u, rx_u;
-    memset(tx_u.b, 0x00, sizeof(tx_u.b));
-    memset(rx_u.b, 0xCC, sizeof(rx_u.b));
+    uint8_t *tx_buf = spi_dma_get_tx_buffer();
+    uint8_t *rx_buf = spi_dma_get_rx_buffer();
+    memset(tx_buf, 0x00, transfer_size);
+    memset(rx_buf, 0xCC, transfer_size);
 
     const size_t tx_len = spi_stream_build_mic_packet(
         &stream,
-        tx_u.b,
-        sizeof(tx_u.b),
+        tx_buf,
+        transfer_size,
         batch_id,
         mic_index,
         fft_bins,
@@ -314,41 +322,38 @@ void spi_loopback_unit_test(void)
 
     usb_printf("Built packet len=%u\r\n", (unsigned)tx_len);
     usb_printf("TX (first 64 bytes):\r\n");
-    dump_hex(tx_u.b, (tx_len < 64) ? tx_len : 64);
+    dump_hex(tx_buf, (tx_len < 64) ? tx_len : 64);
 
     // ---------------------------------------------------------------------
     // 2) SPI transmit+receive
     // ---------------------------------------------------------------------
-    HAL_StatusTypeDef st = HAL_SPI_TransmitReceive(
-        &hspi4,
-        tx_u.b,
-        rx_u.b,
-        (uint16_t)tx_len,
-        HAL_MAX_DELAY);
+    int status = spi_stream_txrx_dma(tx_buf, rx_buf, (uint16_t)tx_len);
 
-    if (st != HAL_OK) {
-        usb_printf("FAIL: HAL_SPI_TransmitReceive returned %d\r\n", (int)st);
-        return;
-    }
+    usb_printf("spi_stream_txrx_dma returned %d\r\n", status);
+
+    while(!get_spi_dma_done()) {
+        usb_printf("Waiting for SPI DMA to complete...\r\n");
+        HAL_Delay(10);
+    };
 
     usb_printf("RX (first 64 bytes):\r\n");
-    dump_hex(rx_u.b, (tx_len < 64) ? tx_len : 64);
+    dump_hex(rx_buf, (tx_len < 64) ? tx_len : 64);
 
     // ---------------------------------------------------------------------
     // 3) Compare
     // ---------------------------------------------------------------------
     size_t first_bad = 0;
-    int ok = buffers_equal(tx_u.b, rx_u.b, tx_len, &first_bad);
+    int ok = buffers_equal(tx_buf, rx_buf, tx_len, &first_bad);
 
     if (!ok) {
         usb_printf("FAIL: TX != RX at byte index %u\r\n", (unsigned)first_bad);
         usb_printf("TX around mismatch:\r\n");
         size_t start = (first_bad > 16) ? (first_bad - 16) : 0;
         size_t end   = (first_bad + 16 < tx_len) ? (first_bad + 16) : tx_len;
-        dump_hex(&tx_u.b[start], end - start);
+        dump_hex(&tx_buf[start], end - start);
 
         usb_printf("RX around mismatch:\r\n");
-        dump_hex(&rx_u.b[start], end - start);
+        dump_hex(&rx_buf[start], end - start);
         return;
     }
 
@@ -358,7 +363,7 @@ void spi_loopback_unit_test(void)
     // 4) Optional: parse header from RX and sanity check
     // ---------------------------------------------------------------------
     SPI_FrameHeader_t hdr;
-    memcpy(&hdr, rx_u.b, sizeof(hdr));
+    memcpy(&hdr, rx_buf, sizeof(hdr));
     usb_printf("RX header magic=0x%08lX, batch_id=%lu, payload_len=%lu\r\n",
                (unsigned long)hdr.magic,
                (unsigned long)hdr.batch_id,
