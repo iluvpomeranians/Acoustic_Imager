@@ -794,7 +794,10 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     elif getattr(button_state, "gallery_search_keyboard_open", False) and "search_keyboard_panel" in menu_buttons and menu_buttons["search_keyboard_panel"].contains(x, y):
         _on_action_modal_panel = True
 
-    if not getattr(button_state, "gallery_archive_folder_view_id", None) and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y) and not _on_action_modal_panel:
+    # Skip archive panel when click is in header area (y < 98) so header buttons (SELECT ALL, etc.)
+    # take priority when the archive panel has scrolled up and overlaps the header.
+    GALLERY_HEADER_H = 98
+    if not getattr(button_state, "gallery_archive_folder_view_id", None) and y >= GALLERY_HEADER_H and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y) and not _on_action_modal_panel:
         if "archive_add_btn" in menu_buttons and menu_buttons["archive_add_btn"].contains(x, y):
             if output_dir:
                 folders = getattr(button_state, "gallery_archive_folders", [])
@@ -1195,13 +1198,18 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons:
             if menu_buttons["gallery_select_all"].contains(x, y):
-                items = get_displayed_gallery_items(output_dir)
-                if items:
-                    all_selected = len(button_state.gallery_selected_items) == len(items)
+                items = _get_current_gallery_items(output_dir)
+                # Only select images and videos (never folders)
+                selectable_indices = [i for i in range(len(items)) if items[i][1] in ("image", "video")]
+                if selectable_indices:
+                    all_selected = (
+                        len(button_state.gallery_selected_items) == len(selectable_indices)
+                        and all(i in button_state.gallery_selected_items for i in selectable_indices)
+                    )
                     if all_selected:
                         button_state.gallery_selected_items.clear()
                     else:
-                        button_state.gallery_selected_items = set(range(len(items)))
+                        button_state.gallery_selected_items = set(selectable_indices)
 
                 return True
 

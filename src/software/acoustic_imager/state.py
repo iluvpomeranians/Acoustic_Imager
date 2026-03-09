@@ -32,6 +32,9 @@ class HudState:
     wifi_connect_status: str = ""   # "" | "connecting" | "ok" | "error"
     wifi_connect_message: str = ""
     connected_ssid: str = ""      # currently connected SSID or ""
+    wifi_current_expanded: bool = False  # when True, show expanded network info
+    wifi_scanning: bool = False   # True while scan is in progress (background thread)
+    wifi_password_visible: bool = False  # show password characters (eye toggle)
 
 HUD = HudState()
 

@@ -35,6 +35,7 @@ except Exception:
 _GRAD_CACHE: Dict[Tuple[int, int, int, int, int], np.ndarray] = {}
 _REC_HUD_CACHE: Dict[Tuple[int, int, bool], np.ndarray] = {}
 _REC_TEXT_SIZE_CACHE: Dict[str, Tuple[int, int]] = {}
+_DATE_TEXT_SIZE_CACHE: Dict[str, Tuple[int, int]] = {}  # date_str -> (w, h) for gallery labels
 _THUMB_CACHE: Dict[Path, np.ndarray] = {}
 _THUMB_CACHE_MTIME: Dict[Path, float] = {}
 
