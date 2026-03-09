@@ -22,8 +22,32 @@ class HudState:
     details_level: str = "MIN"   # "OFF" | "MIN" | "MAX"
     open_panel: str = ""         # "" | "time" | "fps" | "net" | "battery"
     wifi_modal_open: bool = False
-    wifi_networks: List[str] = field(default_factory=list)   # SSIDs; placeholder until live scan
+    settings_modal_open: bool = False
+    wifi_modal_screen: str = "list"   # "list" | "password"
+    wifi_networks: List[dict] = field(default_factory=list)  # [{"ssid", "signal", "security"}, ...]
+    wifi_connect_ssid: str = ""
+    wifi_password: str = ""
+    wifi_keyboard_mode: str = "alpha"   # "alpha" | "symbol"
+    wifi_shift_next: bool = False
+    wifi_connect_status: str = ""   # "" | "connecting" | "ok" | "error"
+    wifi_connect_message: str = ""
     connected_ssid: str = ""      # currently connected SSID or ""
+    wifi_current_expanded: bool = False  # when True, show expanded network info
+    wifi_scanning: bool = False   # True while scan is in progress (background thread)
+    wifi_password_visible: bool = False  # show password characters (eye toggle)
+    settings_modal_scroll_offset: int = 0   # vertical scroll (px) for settings modal content
+    settings_modal_scroll_dragging: bool = False  # True while dragging scrollbar
+    settings_modal_drag_start_y: int = 0   # y at drag start
+    settings_modal_drag_start_scroll: int = 0   # scroll offset at drag start
+    # Touch/drag scroll (like gallery)
+    settings_modal_content_dragging: bool = False
+    settings_modal_content_drag_start_y: int = 0
+    settings_modal_content_drag_start_scroll: int = 0
+    settings_modal_content_drag_moved: bool = False
+    settings_modal_scroll_velocity: float = 0.0   # px/s for inertia
+    settings_modal_last_drag_t: float = 0.0
+    settings_modal_last_drag_y: int = 0
+    settings_modal_inertia_active: bool = False
 
 HUD = HudState()
 
@@ -36,7 +60,7 @@ class ButtonState:
     is_recording: bool = False
     is_paused: bool = False
     camera_enabled: bool = USE_CAMERA
-    source_mode: str = SOURCE_DEFAULT  # "SIM" | "SPI_LOOPBACK" | "SPI_HW"
+    source_mode: str = SOURCE_DEFAULT  # "SIM" | "LOOP" | "HW" | "REF"
 
     # MENU states
     menu_open: bool = False
@@ -123,6 +147,7 @@ class ButtonState:
     share_modal_sending: bool = False  # True while send is in progress (threaded)
     share_modal_title: str = "Share"
     share_modal_message: str = ""  # multi-line shown in modal
+    share_modal_progress: float = 0.0  # 0.0–1.0 while sending
 
     # Share confirm modal (before send): details + Send / Cancel
     share_confirm_modal_open: bool = False

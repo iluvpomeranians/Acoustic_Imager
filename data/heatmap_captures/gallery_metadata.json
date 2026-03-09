@@ -33,7 +33,8 @@
     "cool.png": "medium",
     "recording_20260306_001057.mp4": "low",
     "screenshot_20260306_000326.png": "low",
-    "recording_20260306_000321.mp4": "low"
+    "recording_20260306_000321.mp4": "low",
+    "basem.png": "low"
   },
   "file_tags": {},
   "tag_data": {
@@ -148,6 +149,10 @@
     "cool.png": {
       "asset_type": "dog",
       "leak_type": "cqt"
+    },
+    "basem.png": {
+      "asset_type": "g",
+      "leak_type": "h"
     }
   }
 }

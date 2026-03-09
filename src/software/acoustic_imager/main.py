@@ -94,6 +94,13 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_viewer_mouse,
     handle_email_modal_click,
 )
+from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click
+from acoustic_imager.ui.settings_modal import (
+    draw_settings_modal,
+    handle_settings_modal_click,
+    handle_settings_modal_mouse,
+    handle_settings_modal_scroll,
+)
 from acoustic_imager.ui.video_recorder import VideoRecorder
 from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
 
@@ -182,6 +189,21 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Check gallery view first (if open)
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
+
+        # WiFi modal (when open, handle first)
+        if HUD.wifi_modal_open:
+            if handle_wifi_modal_click(mx, my):
+                state.ui_click_was_on_ui = True
+                return
+
+        # Settings modal (when open, handle first)
+        if HUD.settings_modal_open:
+            if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
+                state.ui_click_was_on_ui = True
+                return
+            if handle_settings_modal_click(mx, my):
+                state.ui_click_was_on_ui = True
+                return
 
         # Email Settings modal (when open, handle first)
         if button_state.email_settings_modal_open:
@@ -566,6 +588,11 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
 
+        # Settings modal touch/drag scroll
+        if HUD.settings_modal_open:
+            if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
+                return
+
         bar_left = left_width
 
         # Dot drag: follow finger along curve (checked first; we don't set DRAG_ACTIVE for dot drag)
@@ -614,8 +641,21 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 elif state.DRAG_TARGET == "max":
                     state.F_MAX_HZ = max(f, state.F_MIN_HZ)
 
+    # Handle mouse wheel (scroll)
+    elif event == getattr(cv2, "EVENT_MOUSEWHEEL", 10):
+        if HUD.settings_modal_open:
+            # flags: positive = scroll up, negative = scroll down (platform-dependent)
+            delta = -80 if flags > 0 else 80
+            if handle_settings_modal_scroll(delta):
+                return
+
     # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
+
+        # Settings modal touch/drag scroll end
+        if HUD.settings_modal_open:
+            if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
+                pass  # consumed
 
         # End dot drag (dot stays at last snapped position)
         state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE = False
@@ -1177,6 +1217,14 @@ def main() -> None:
 
             state.HUD_RECTS = hud_rects
 
+            # WiFi modal drawn after top HUD
+            if HUD.wifi_modal_open:
+                draw_wifi_modal(output_frame)
+
+            # Settings modal drawn after top HUD
+            if HUD.settings_modal_open:
+                draw_settings_modal(output_frame)
+
             # Email modal drawn after top HUD so its dim overlay covers the HUD (higher z-order)
             if button_state.email_settings_modal_open:
                 from acoustic_imager.ui.email_modal import draw_email_modal
@@ -1232,9 +1280,14 @@ def main() -> None:
             # ---- Check for exit ----
             if cv2.getWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                 break
-            if key == 27 and button_state.email_settings_modal_open:
-                # ESC with email modal open: close modal only (don't exit app)
+            if key == 27 and HUD.wifi_modal_open:
+                HUD.wifi_modal_open = False
+            elif key == 27 and HUD.settings_modal_open:
+                HUD.settings_modal_open = False
+            elif key == 27 and button_state.email_settings_modal_open:
+                # ESC with email modal open: return to System Settings
                 button_state.email_settings_modal_open = False
+                HUD.settings_modal_open = True
                 button_state.email_modal_screen = "provider"
                 button_state.email_modal_provider = ""
                 button_state.email_test_status = ""

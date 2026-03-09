@@ -19,7 +19,7 @@ from .storage_bar import _format_size
 from .menu import get_recording_timestamp_rect
 from .screenshot import save_screenshot
 from ..config import SOURCE_MODES, SOURCE_DEFAULT
-from ..state import button_state
+from ..state import button_state, HUD
 from ..io.gallery_metadata import save_metadata
 from ..io.email_config import (
     load_config,
@@ -96,6 +96,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
         if "email_modal_panel" in menu_buttons and menu_buttons["email_modal_panel"].contains(x, y):
             return True
         button_state.email_settings_modal_open = False
+        HUD.settings_modal_open = True  # return to System Settings
         return True
 
     # Form screen: field focus and click-to-position cursor
@@ -316,6 +317,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
     if "email_save" in menu_buttons and menu_buttons["email_save"].contains(x, y):
         _save_email_config(output_dir)
         button_state.email_settings_modal_open = False
+        HUD.settings_modal_open = True  # return to System Settings
         button_state.email_modal_screen = "provider"
         button_state.email_modal_provider = ""
         button_state.email_focused_field = ""
@@ -329,6 +331,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
 
     if "email_cancel" in menu_buttons and menu_buttons["email_cancel"].contains(x, y):
         button_state.email_settings_modal_open = False
+        HUD.settings_modal_open = True  # return to System Settings
         button_state.email_modal_screen = "provider"
         button_state.email_modal_provider = ""
         button_state.email_focused_field = ""
@@ -347,6 +350,7 @@ def handle_email_modal_click(x: int, y: int, output_dir: Optional[Path]) -> bool
         return True
     # Click outside (e.g. negative space left/right of form above keyboard): close without saving (like Cancel)
     button_state.email_settings_modal_open = False
+    HUD.settings_modal_open = True  # return to System Settings
     button_state.email_modal_screen = "provider"
     button_state.email_modal_provider = ""
     button_state.email_focused_field = ""
@@ -794,7 +798,10 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
     elif getattr(button_state, "gallery_search_keyboard_open", False) and "search_keyboard_panel" in menu_buttons and menu_buttons["search_keyboard_panel"].contains(x, y):
         _on_action_modal_panel = True
 
-    if not getattr(button_state, "gallery_archive_folder_view_id", None) and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y) and not _on_action_modal_panel:
+    # Skip archive panel when click is in header area (y < 98) so header buttons (SELECT ALL, etc.)
+    # take priority when the archive panel has scrolled up and overlaps the header.
+    GALLERY_HEADER_H = 98
+    if not getattr(button_state, "gallery_archive_folder_view_id", None) and y >= GALLERY_HEADER_H and "archive_panel" in menu_buttons and menu_buttons["archive_panel"].contains(x, y) and not _on_action_modal_panel:
         if "archive_add_btn" in menu_buttons and menu_buttons["archive_add_btn"].contains(x, y):
             if output_dir:
                 folders = getattr(button_state, "gallery_archive_folders", [])
@@ -1195,13 +1202,18 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
 
         if button_state.gallery_select_mode and "gallery_select_all" in menu_buttons:
             if menu_buttons["gallery_select_all"].contains(x, y):
-                items = get_displayed_gallery_items(output_dir)
-                if items:
-                    all_selected = len(button_state.gallery_selected_items) == len(items)
+                items = _get_current_gallery_items(output_dir)
+                # Only select images and videos (never folders)
+                selectable_indices = [i for i in range(len(items)) if items[i][1] in ("image", "video")]
+                if selectable_indices:
+                    all_selected = (
+                        len(button_state.gallery_selected_items) == len(selectable_indices)
+                        and all(i in button_state.gallery_selected_items for i in selectable_indices)
+                    )
                     if all_selected:
                         button_state.gallery_selected_items.clear()
                     else:
-                        button_state.gallery_selected_items = set(range(len(items)))
+                        button_state.gallery_selected_items = set(selectable_indices)
 
                 return True
 
@@ -1222,9 +1234,13 @@ def handle_gallery_click(x: int, y: int, output_dir: Optional[Path]) -> bool:
                 button_state.share_modal_sending = True
                 button_state.share_modal_title = "Share"
                 button_state.share_modal_message = "Sending..."
+                button_state.share_modal_progress = 0.0
 
                 def _run_share() -> None:
-                    ok, msg, details = send_share_email(output_dir, paths_to_send)
+                    def _on_progress(p: float, _phase: str) -> None:
+                        button_state.share_modal_progress = p
+
+                    ok, msg, details = send_share_email(output_dir, paths_to_send, progress_callback=_on_progress)
                     button_state.share_modal_sending = False
                     if ok:
                         button_state.share_modal_title = "Sent"
@@ -1403,32 +1419,27 @@ def handle_menu_click(
     if "fps30" in menu_buttons and menu_buttons["fps30"].contains(x, y):
         button_state.fps_mode = "30"
         return video_recorder
-    if "fps60" in menu_buttons and menu_buttons["fps60"].contains(x, y):
-        button_state.fps_mode = "60"
-        return video_recorder
+    # if "fps60" in menu_buttons and menu_buttons["fps60"].contains(x, y):
+    #     button_state.fps_mode = "60"
+    #     return video_recorder  # 60FPS button commented out
     if "fpsmax" in menu_buttons and menu_buttons["fpsmax"].contains(x, y):
         button_state.fps_mode = "MAX"
+        return video_recorder
+
+    if "wifi" in menu_buttons and menu_buttons["wifi"].contains(x, y):
+        HUD.wifi_modal_open = True
+        HUD.wifi_modal_screen = "list"
+        if not HUD.wifi_networks:
+            HUD.wifi_networks = []
+        return video_recorder
+
+    if "main_menu_settings" in menu_buttons and menu_buttons["main_menu_settings"].contains(x, y):
+        HUD.settings_modal_open = True
         return video_recorder
 
     if "gain" in menu_buttons and menu_buttons["gain"].contains(x, y):
         button_state.gain_mode = "HIGH" if button_state.gain_mode == "LOW" else "LOW"
         menu_buttons["gain"].text = f"GAIN: {button_state.gain_mode}"
-        return video_recorder
-
-    if "colormap" in menu_buttons and menu_buttons["colormap"].contains(x, y):
-        colormaps = ["MAGMA", "JET", "TURBO", "INFERNO"]
-        cur = button_state.colormap_mode
-        try:
-            i = colormaps.index(cur)
-        except ValueError:
-            i = 0
-        button_state.colormap_mode = colormaps[(i + 1) % len(colormaps)]
-        menu_buttons["colormap"].text = f"COLOUR: {button_state.colormap_mode}"
-        return video_recorder
-
-    if "cam" in menu_buttons and menu_buttons["cam"].contains(x, y):
-        button_state.camera_enabled = not button_state.camera_enabled
-        menu_buttons["cam"].text = "CAM: ON" if button_state.camera_enabled else "CAM: OFF"
         return video_recorder
 
     if "source" in menu_buttons and menu_buttons["source"].contains(x, y):
@@ -1442,10 +1453,6 @@ def handle_menu_click(
         menu_buttons["source"].text = f"SRC: {button_state.source_mode}"
         return video_recorder
 
-    if "debug" in menu_buttons and menu_buttons["debug"].contains(x, y):
-        button_state.debug_enabled = not button_state.debug_enabled
-        return video_recorder
-
     if "spectrum_analyzer" in menu_buttons and menu_buttons["spectrum_analyzer"].contains(x, y):
         # Cycle dB -> NORM -> dBA -> dB
         next_mode = {"dB": "NORM", "NORM": "dBA", "dBA": "dB"}.get(
@@ -1453,19 +1460,6 @@ def handle_menu_click(
         )
         button_state.spectrum_analyzer_mode = next_mode
         menu_buttons["spectrum_analyzer"].text = f"SPECTRUM: {button_state.spectrum_analyzer_mode}"
-        return video_recorder
-
-    if "email_settings" in menu_buttons and menu_buttons["email_settings"].contains(x, y):
-        button_state.email_settings_modal_open = True
-        button_state.menu_open = False
-        button_state.email_modal_screen = "provider"
-        button_state.email_modal_provider = ""
-        button_state.email_keyboard_mode = "alpha"
-        return video_recorder
-
-    if "crosshairs" in menu_buttons and menu_buttons["crosshairs"].contains(x, y):
-        button_state.crosshairs_enabled = not button_state.crosshairs_enabled
-        menu_buttons["crosshairs"].text = "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF"
         return video_recorder
 
     return video_recorder
@@ -1490,7 +1484,7 @@ def handle_button_click(
 
     Returns updated video_recorder (may be created by menu click).
     """
-    video_recorder = handle_menu_click(
+    return handle_menu_click(
         x, y,
         current_frame=current_frame,
         output_dir=output_dir,
@@ -1498,26 +1492,6 @@ def handle_button_click(
         width=width,
         height=height,
     )
-
-    if "source" in buttons and buttons["source"].contains(x, y):
-        modes = list(SOURCE_MODES)
-        cur = button_state.source_mode
-        try:
-            i = modes.index(cur)
-        except ValueError:
-            i = modes.index(SOURCE_DEFAULT)
-
-        button_state.source_mode = modes[(i + 1) % len(modes)]
-        buttons["source"].text = f"Source: {button_state.source_mode}"
-        return video_recorder
-
-    if "debug" in buttons and buttons["debug"].contains(x, y):
-        button_state.debug_enabled = not button_state.debug_enabled
-        buttons["debug"].is_active = button_state.debug_enabled
-        buttons["debug"].text = "DEBUG: ON" if button_state.debug_enabled else "DEBUG: OFF"
-        return video_recorder
-
-    return video_recorder
 
 
 def handle_gallery_viewer_mouse(event, x, y, flags, output_dir) -> bool:

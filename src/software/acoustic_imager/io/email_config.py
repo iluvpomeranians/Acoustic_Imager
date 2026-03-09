@@ -12,7 +12,7 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Any, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 # Default max total attachment size (bytes). Many providers limit to 25 MB.
 SHARE_ATTACHMENT_LIMIT_BYTES = 25 * 1024 * 1024
@@ -228,11 +228,17 @@ def get_share_recipient(output_dir: Path) -> str:
 def send_share_email(
     output_dir: Path,
     file_paths: List[Path],
+    progress_callback: Optional[Callable[[float, str], None]] = None,
 ) -> Tuple[bool, str, dict]:
     """
     Send an email with the given files as attachments using the first configured provider.
+    progress_callback(progress: 0.0-1.0, phase: str) is called during preparation and send.
     Returns (success, message_for_ui, details). details has to_email, n_images, n_videos on success.
     """
+    def _progress(p: float, phase: str) -> None:
+        if progress_callback:
+            progress_callback(p, phase)
+
     provider, cfg = _get_first_configured_provider(output_dir)
     if not provider or not cfg:
         return False, "Email not configured", {}
@@ -243,28 +249,33 @@ def send_share_email(
     n_images = sum(1 for p in file_paths if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp"))
     n_videos = sum(1 for p in file_paths if p.suffix.lower() in (".mp4", ".avi", ".webm", ".mov"))
     try:
+        _progress(0.0, "preparing")
         msg = MIMEMultipart()
         msg["Subject"] = "Acoustic Imager – shared capture(s)"
         msg["From"] = email
         msg["To"] = to_email
         msg.attach(MIMEText(f"Shared {len(file_paths)} file(s) from Acoustic Imager.", "plain"))
-        for path in file_paths:
-            if not path.exists():
-                continue
+        valid_paths = [p for p in file_paths if p.exists()]
+        n = max(1, len(valid_paths))
+        for i, path in enumerate(valid_paths):
             with open(path, "rb") as f:
                 part = MIMEBase("application", "octet-stream")
                 part.set_payload(f.read())
             encoders.encode_base64(part)
             part.add_header("Content-Disposition", "attachment", filename=path.name)
             msg.attach(part)
+            _progress((i + 1) / n * 0.7, "preparing")  # 0–70% for attachment prep
+        _progress(0.75, "sending")
         if use_tls:
             server = smtplib.SMTP(host, port, timeout=30)
             server.starttls()
         else:
             server = smtplib.SMTP(host, port, timeout=30)
         server.login(email, password)
+        _progress(0.9, "sending")
         server.sendmail(email, [to_email], msg.as_string())
         server.quit()
+        _progress(1.0, "sending")
         logger.info("Share email sent to %s: %s files", to_email, len(file_paths))
         return True, "Sent!", {"to_email": to_email, "n_images": n_images, "n_videos": n_videos}
     except smtplib.SMTPAuthenticationError as e:
