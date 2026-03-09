@@ -1,5 +1,5 @@
-#ifndef DSP_PIPELINE_TEST_H
-#define DSP_PIPELINE_TEST_H
+#ifndef TEMPLATE_H
+#define TEMPLATE_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -8,6 +8,7 @@ extern "C" {
 /* =========================================================================
  * INCLUDES
  * ========================================================================= */
+
 #include <stdint.h>
 /* =========================================================================
  * DEFINES
@@ -21,11 +22,17 @@ extern "C" {
  * FUNCTION PROTOTYPES
  * ========================================================================= */
 
-void dsp_unit_test_sine_fft(void);
+uint8_t *spi_dma_get_tx_buffer(void);
+uint8_t *spi_dma_get_rx_buffer(void);
+uint8_t get_spi_dma_busy(void);
+uint8_t get_spi_dma_done(void);
+
+int spi_stream_tx_dma(uint8_t *tx_buf, uint16_t len);
+int spi_stream_txrx_dma(uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len);
 
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* DSP_PIPELINE_TEST_H */
+#endif /* TEMPLATE_H */

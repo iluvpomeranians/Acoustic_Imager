@@ -23,6 +23,7 @@
 #include "protocol/spi_protocol.h"
 #include "transport/spi_stream.h"
 #include "transport/spi_stream_test.h"
+#include "transport/spi_dma.h"
 
 #include "dsp/dsp_pipeline_test.h"
 
@@ -55,8 +56,6 @@ static float mic_fft_buffer[FRAME_SIZE];
 static arm_rfft_fast_instance_f32 fft_instance;
 
 static spi_stream_t spi_stream_ctx;
-
-static uint8_t spi_packet[SPI_PACKET_SIZE];
 
 static uint32_t _print_counter = 0;
 static uint32_t adc_pending_mask = 0;
@@ -182,10 +181,6 @@ void app_loop(void) {
 
   /* Periodic debug print of IRQ counters over UART (every ~1000 iterations) */
   
-  
- 
-
-
 
 void test_spi_stream_loop(void) {
   HAL_Delay(1000);
@@ -245,11 +240,13 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
                                    active_half,
                                    channel,
                                    mic_fft_buffer);
+      
+      uint8_t *tx_buf = spi_dma_get_tx_buffer();
 
       packet_len = spi_stream_build_mic_packet(
           &spi_stream_ctx,
-          spi_packet,
-          sizeof(spi_packet),
+          tx_buf,
+          SPI_PACKET_SIZE,
           batch_id,
           mic_index,
           mic_fft_buffer,
@@ -259,7 +256,8 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
           battery_millivolts);
 
       if (packet_len > 0u) {
-        spi_stream_tx_blocking(spi_packet, packet_len);
+        // spi_stream_tx_blocking(spi_tx, packet_len);
+        spi_stream_tx_dma(tx_buf, packet_len);
       }
     }
   }

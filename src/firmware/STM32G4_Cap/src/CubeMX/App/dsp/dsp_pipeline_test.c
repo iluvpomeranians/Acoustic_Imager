@@ -38,25 +38,13 @@ static float s_mag[(FRAME_SIZE / 2) + 1];       // one-sided magnitude length = 
  * FORWARD DECLARATIONS
  * ========================================================================= */
 
+ static void rfft_packed_to_mag(const float *packed, float *mag, uint32_t N);
 /* static void module_init(void); */
 /* static void module_process(void); */
 
 /* =========================================================================
  * PUBLIC FUNCTIONS
  * ========================================================================= */
-static void rfft_packed_to_mag(const float *packed, float *mag, uint32_t N)
-{
-    const uint32_t half = N >> 1; // N/2
-
-    mag[0]    = fabsf(packed[0]); // DC = Re(X[0])
-    mag[half] = fabsf(packed[1]); // Nyquist = Re(X[N/2]) for even N
-
-    for (uint32_t k = 1; k < half; k++) {
-        float re = packed[2U * k];
-        float im = packed[2U * k + 1U];
-        mag[k] = sqrtf(re * re + im * im);
-    }
-}
 
 void dsp_unit_test_sine_fft(void)
 {
@@ -140,6 +128,19 @@ void dsp_unit_test_sine_fft(void)
  * STATIC FUNCTIONS
  * ============================================================================ */
 
+ static void rfft_packed_to_mag(const float *packed, float *mag, uint32_t N)
+{
+    const uint32_t half = N >> 1; // N/2
+
+    mag[0]    = fabsf(packed[0]); // DC = Re(X[0])
+    mag[half] = fabsf(packed[1]); // Nyquist = Re(X[N/2]) for even N
+
+    for (uint32_t k = 1; k < half; k++) {
+        float re = packed[2U * k];
+        float im = packed[2U * k + 1U];
+        mag[k] = sqrtf(re * re + im * im);
+    }
+}
 /**
  * @brief Static helper function description
  * @return void
