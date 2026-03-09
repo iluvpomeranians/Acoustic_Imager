@@ -93,8 +93,10 @@ def _blit_icon(
     cy: int,
     bg_color: Optional[Tuple[int, int, int]],
     circular: bool = False,
+    clip_radius: Optional[int] = None,
 ) -> None:
-    """Blit cached icon to frame centered at (cx, cy). If circular=True, only copy pixels inside circle."""
+    """Blit cached icon to frame centered at (cx, cy). If circular=True, only copy pixels inside circle.
+    If clip_radius is set, use that as max radius (so border can match icon outline)."""
     h, w = icon.shape[:2]
     x0, y0 = cx - w // 2, cy - h // 2
     x1, y1 = x0 + w, y0 + h
@@ -108,10 +110,12 @@ def _blit_icon(
     roi = frame[sy0:sy1, sx0:sx1]
     src = icon[src_y0:src_y1, src_x0:src_x1].copy()
     if circular:
-        # Mask to circle: center of src, radius = min dimension / 2
+        # Mask to circle: center of src, radius = min dimension / 2 (or clip_radius if set)
         sh, sw = src.shape[:2]
         icx, icy = sw // 2, sh // 2
         r = min(icx, icy)
+        if clip_radius is not None:
+            r = min(r, clip_radius)
         yy, xx = np.ogrid[:sh, :sw]
         circle_mask = ((xx - icx) ** 2 + (yy - icy) ** 2) <= r * r
         inv_mask = ~circle_mask
@@ -137,10 +141,11 @@ def draw_wifi_icon(
     bg_color: Optional[Tuple[int, int, int]] = None,
     size: int = 12,
     circular: bool = False,
+    clip_radius: Optional[int] = None,
 ) -> None:
-    """Draw WiFi icon. Cached. If circular=True, clip to circle (for HUD)."""
+    """Draw WiFi icon. Cached. If circular=True, clip to circle (for HUD). clip_radius keeps bg inside outline."""
     icon = _get_cached_icon("wifi", size, color, bg_color)
-    _blit_icon(frame, icon, cx, cy, bg_color, circular=circular)
+    _blit_icon(frame, icon, cx, cy, bg_color, circular=circular, clip_radius=clip_radius)
 
 
 def draw_settings_icon(

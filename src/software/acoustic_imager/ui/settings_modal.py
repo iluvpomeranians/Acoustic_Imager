@@ -22,6 +22,11 @@ ROW_H = 42
 ITEM_GAP = 14
 SECTION_GAP = 24
 TOGGLE_W, TOGGLE_H = 52, 28
+# Hit area: only the switch plus ~0.5" to the left (debug-friendly, avoid full-row taps)
+TOGGLE_HIT_EXTRA_LEFT = 48
+# Extra hit padding for Email Settings button (easier touch)
+EMAIL_BTN_HIT_PAD_X = 8
+EMAIL_BTN_HIT_PAD_Y = 8
 SCROLLBAR_W = 14   # slightly wider for touch
 SCROLL_BTN_H = 36
 
@@ -64,6 +69,112 @@ def _compute_content_height() -> int:
     return display_h + advanced_h + share_h
 
 
+# Content cache: avoid redrawing scrollable content every frame when state unchanged
+_settings_content_cache: np.ndarray | None = None
+_settings_content_cache_key: tuple | None = None
+_settings_content_buffer: np.ndarray | None = None
+
+
+def _update_settings_button_positions(
+    content_top: int,
+    scroll_offset: int,
+    row_x: int,
+    row_w: int,
+) -> None:
+    """Update hit rects for all settings content buttons (same layout as draw, no redraw)."""
+    hit_x = row_x + row_w - TOGGLE_W - TOGGLE_HIT_EXTRA_LEFT
+    color_btn_w = (row_w - 3 * ITEM_GAP) // 4
+    email_h = 44
+    # Content y positions (must match _build_settings_content layout)
+    y_cam, y_cross, y_color, y_debug, y_email = 34, 90, 208, 314, 432
+    if "settings_cam" in menu_buttons:
+        b = menu_buttons["settings_cam"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_cam - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_crosshairs" in menu_buttons:
+        b = menu_buttons["settings_crosshairs"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_cross - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    for i in range(len(COLORMAPS)):
+        k = f"settings_colormap_{i}"
+        if k in menu_buttons:
+            cx = i * (color_btn_w + ITEM_GAP)
+            menu_buttons[k].x = row_x + cx
+            menu_buttons[k].y = content_top + y_color - scroll_offset
+            menu_buttons[k].w, menu_buttons[k].h = color_btn_w, ROW_H - 4
+    if "settings_debug" in menu_buttons:
+        b = menu_buttons["settings_debug"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_debug - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_email" in menu_buttons:
+        b = menu_buttons["settings_email"]
+        b.x = row_x - EMAIL_BTN_HIT_PAD_X
+        b.y = (content_top + y_email - scroll_offset) - EMAIL_BTN_HIT_PAD_Y
+        b.w = row_w + 2 * EMAIL_BTN_HIT_PAD_X
+        b.h = email_h + 2 * EMAIL_BTN_HIT_PAD_Y
+
+
+def _build_settings_content(
+    content_canvas: np.ndarray,
+    row_w: int,
+    font: int,
+    text_color: tuple,
+    section_color: tuple,
+) -> None:
+    """Draw full scrollable content onto content_canvas (for cache fill)."""
+    content_canvas[:] = (40, 40, 40)
+    y = 0
+    pad = CONTENT_PAD
+
+    def _toggle_row(canvas: np.ndarray, label: str, on: bool, key: str, y_pos: int) -> int:
+        cv2.putText(canvas, label, (0, y_pos + ROW_H // 2 + 6), font, 0.50, text_color, 1, cv2.LINE_AA)
+        toggle_x = row_w - TOGGLE_W
+        toggle_y = y_pos + (ROW_H - TOGGLE_H) // 2
+        _draw_toggle(canvas, toggle_x, toggle_y, TOGGLE_W, TOGGLE_H, on)
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(0, 0, row_w, ROW_H, "")
+        return y_pos + ROW_H + ITEM_GAP
+
+    cv2.putText(content_canvas, "Display", (0, y + 25), font, 0.56, section_color, 1, cv2.LINE_AA)
+    y += 20 + ITEM_GAP
+    y = _toggle_row(content_canvas, "Camera", button_state.camera_enabled, "settings_cam", y)
+    y = _toggle_row(content_canvas, "Crosshairs", button_state.crosshairs_enabled, "settings_crosshairs", y)
+    y += 6
+    cv2.putText(content_canvas, "Heatmap Theme", (0, y + ROW_H // 2 + 2), font, 0.50, text_color, 1, cv2.LINE_AA)
+    y += ROW_H + ITEM_GAP
+    color_btn_w = (row_w - 3 * ITEM_GAP) // 4
+    for i, cm in enumerate(COLORMAPS):
+        cx = i * (color_btn_w + ITEM_GAP)
+        is_selected = button_state.colormap_mode == cm
+        if is_selected:
+            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
+            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
+        else:
+            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), (50, 50, 50), -1, cv2.LINE_AA)
+            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), (80, 80, 80), 1, cv2.LINE_AA)
+        (tw, th), _ = cv2.getTextSize(cm, font, 0.42, 1)
+        text_x = cx + (color_btn_w - tw) // 2
+        text_y = y + (ROW_H - 4) // 2 + th // 2 + 2
+        cv2.putText(content_canvas, cm, (text_x, text_y), font, 0.42, text_color, 1, cv2.LINE_AA)
+        k = f"settings_colormap_{i}"
+        if k not in menu_buttons:
+            menu_buttons[k] = Button(0, 0, color_btn_w, ROW_H - 4, "")
+    y += ROW_H - 4 + SECTION_GAP
+    cv2.line(content_canvas, (0, y), (row_w, y), section_color, 1, cv2.LINE_AA)
+    y += SECTION_GAP
+    cv2.putText(content_canvas, "Advanced", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
+    y += 20 + ITEM_GAP
+    y = _toggle_row(content_canvas, "Debug", button_state.debug_enabled, "settings_debug", y)
+    y += SECTION_GAP
+    cv2.line(content_canvas, (0, y), (row_w, y), section_color, 1, cv2.LINE_AA)
+    y += SECTION_GAP
+    cv2.putText(content_canvas, "Setup Email & Send Test", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
+    y += 20 + ITEM_GAP
+    email_h = 44
+    cv2.rectangle(content_canvas, (0, y), (row_w, y + email_h), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
+    cv2.rectangle(content_canvas, (0, y), (row_w, y + email_h), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
+    cv2.putText(content_canvas, "Email Settings", ((row_w - 110) // 2, y + email_h // 2 + 6), font, 0.54, text_color, 1, cv2.LINE_AA)
+    if "settings_email" not in menu_buttons:
+        menu_buttons["settings_email"] = Button(0, 0, row_w, email_h, "")
+
+
 def draw_settings_modal(frame: np.ndarray) -> None:
     """Draw System Settings modal with scrollable content and improved spacing."""
     if not HUD.settings_modal_open:
@@ -75,10 +186,8 @@ def draw_settings_modal(frame: np.ndarray) -> None:
     border_color = (100, 100, 100)
     section_color = (180, 180, 180)
 
-    # Dark overlay
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+    # Dark overlay (cached black buffer, no frame copy)
+    ui_cache.apply_modal_dim(frame, 0.5)
 
     modal_x = (fw - MODAL_W) // 2
     modal_y = (fh - MODAL_H) // 2
@@ -141,98 +250,33 @@ def draw_settings_modal(frame: np.ndarray) -> None:
     scroll_offset = min(scroll_offset, max_scroll)
     HUD.settings_modal_scroll_offset = scroll_offset
 
-    # Create content on a temp canvas, then blit visible region
-    content_canvas = np.zeros((total_content_h, MODAL_W - SCROLLBAR_W - 2 * pad, 3), dtype=np.uint8)
-    content_canvas[:] = (40, 40, 40)
+    # Content cache: redraw only when toggles/colormap change
+    content_w = MODAL_W - SCROLLBAR_W - 2 * pad
+    state_key = (
+        button_state.camera_enabled,
+        button_state.crosshairs_enabled,
+        button_state.colormap_mode,
+        button_state.debug_enabled,
+    )
+    global _settings_content_cache, _settings_content_cache_key, _settings_content_buffer
+    cache_hit = _settings_content_cache_key == state_key and _settings_content_cache is not None
+    if _settings_content_cache_key != state_key or _settings_content_cache is None:
+        if _settings_content_buffer is None or _settings_content_buffer.shape[0] != total_content_h or _settings_content_buffer.shape[1] != content_w:
+            _settings_content_buffer = np.zeros((total_content_h, content_w, 3), dtype=np.uint8)
+        _build_settings_content(_settings_content_buffer, row_w, font, text_color, section_color)
+        _settings_content_cache = _settings_content_buffer.copy()
+        _settings_content_cache_key = state_key
 
-    y = 0
-
-    def _toggle_row(canvas: np.ndarray, label: str, on: bool, key: str, y_pos: int) -> int:
-        cv2.putText(canvas, label, (0, y_pos + ROW_H // 2 + 6), font, 0.50, text_color, 1, cv2.LINE_AA)
-        toggle_x = row_w - TOGGLE_W
-        toggle_y = y_pos + (ROW_H - TOGGLE_H) // 2
-        _draw_toggle(canvas, toggle_x, toggle_y, TOGGLE_W, TOGGLE_H, on)
-        if key not in menu_buttons:
-            menu_buttons[key] = Button(0, 0, row_w, ROW_H, "")
-        menu_buttons[key].x = row_x
-        menu_buttons[key].y = content_top + y_pos - scroll_offset
-        menu_buttons[key].w = row_w
-        menu_buttons[key].h = ROW_H
-        return y_pos + ROW_H + ITEM_GAP
-
-    # --- Display section ---
-    cv2.putText(content_canvas, "Display", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
-    y += 20 + ITEM_GAP
-
-    y = _toggle_row(content_canvas, "Camera", button_state.camera_enabled, "settings_cam", y)
-    theme_on = getattr(button_state, "theme_mode", "dark") == "light"
-    y = _toggle_row(content_canvas, "Light mode", theme_on, "settings_theme", y)
-    y = _toggle_row(content_canvas, "Crosshairs", button_state.crosshairs_enabled, "settings_crosshairs", y)
-
-    y += 6   # reduced gap before Heatmap (was ITEM_GAP)
-    cv2.putText(content_canvas, "Heatmap Library Color", (0, y + ROW_H // 2 + 6), font, 0.50, text_color, 1, cv2.LINE_AA)
-    y += ROW_H + ITEM_GAP
-    color_btn_w = (row_w - 3 * ITEM_GAP) // 4
-    for i, cm in enumerate(COLORMAPS):
-        cx = i * (color_btn_w + ITEM_GAP)
-        is_selected = button_state.colormap_mode == cm
-        if is_selected:
-            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
-            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
-        else:
-            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), (50, 50, 50), -1, cv2.LINE_AA)
-            cv2.rectangle(content_canvas, (cx, y), (cx + color_btn_w, y + ROW_H - 4), (80, 80, 80), 1, cv2.LINE_AA)
-        (tw, th), _ = cv2.getTextSize(cm, font, 0.42, 1)
-        text_x = cx + (color_btn_w - tw) // 2
-        text_y = y + (ROW_H - 4) // 2 + th // 2 + 2
-        cv2.putText(content_canvas, cm, (text_x, text_y), font, 0.42, text_color, 1, cv2.LINE_AA)
-        k = f"settings_colormap_{i}"
-        if k not in menu_buttons:
-            menu_buttons[k] = Button(0, 0, color_btn_w, ROW_H - 4, "")
-        menu_buttons[k].x = row_x + cx
-        menu_buttons[k].y = content_top + y - scroll_offset
-        menu_buttons[k].w = color_btn_w
-        menu_buttons[k].h = ROW_H - 4
-    y += ROW_H - 4 + SECTION_GAP
-
-    # Divider
-    cv2.line(content_canvas, (0, y), (row_w, y), section_color, 1, cv2.LINE_AA)
-    y += SECTION_GAP
-
-    # --- Advanced section ---
-    cv2.putText(content_canvas, "Advanced", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
-    y += 20 + ITEM_GAP
-
-    y = _toggle_row(content_canvas, "Debug", button_state.debug_enabled, "settings_debug", y)
-    y += SECTION_GAP
-
-    # Divider
-    cv2.line(content_canvas, (0, y), (row_w, y), section_color, 1, cv2.LINE_AA)
-    y += SECTION_GAP
-
-    # --- Share & Notify section ---
-    cv2.putText(content_canvas, "Share & Notify", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
-    y += 20 + ITEM_GAP
-
-    email_h = 44
-    cv2.rectangle(content_canvas, (0, y), (row_w, y + email_h), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
-    cv2.rectangle(content_canvas, (0, y), (row_w, y + email_h), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
-    cv2.putText(content_canvas, "Email Settings", ((row_w - 110) // 2, y + email_h // 2 + 6), font, 0.54, text_color, 1, cv2.LINE_AA)
-    if "settings_email" not in menu_buttons:
-        menu_buttons["settings_email"] = Button(0, 0, row_w, email_h, "")
-    menu_buttons["settings_email"].x = row_x
-    menu_buttons["settings_email"].y = content_top + y - scroll_offset
-    menu_buttons["settings_email"].w = row_w
-    menu_buttons["settings_email"].h = email_h
-
-    # Blit visible portion of content
+    # Blit visible portion of cached content
     src_y1 = scroll_offset
     src_y2 = min(scroll_offset + content_h, total_content_h)
     dst_y1 = content_top
     dst_y2 = content_top + (src_y2 - src_y1)
-    visible = content_canvas[src_y1:src_y2, :]
+    visible = _settings_content_cache[src_y1:src_y2, :]
     if visible.size > 0:
         frame[dst_y1:dst_y2, row_x:row_x + visible.shape[1]] = visible
+
+    _update_settings_button_positions(content_top, scroll_offset, row_x, row_w)
 
     # Scrollbar
     sb_x = modal_x + MODAL_W - SCROLLBAR_W - 4

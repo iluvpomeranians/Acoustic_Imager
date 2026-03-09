@@ -21,6 +21,7 @@ from ..config import (
     BATTERY_DISCHARGE_MA,
 )
 from ..state import button_state, HUD
+from . import ui_cache
 from .menu import _blue_gradient_overlay
 from .battery_icon import draw_battery_icon, BATTERY_BODY_W, BATTERY_TIP_W, BATTERY_BODY_H
 from .button import menu_buttons, Button
@@ -235,7 +236,7 @@ def draw_hud(
     if not button_state.gallery_open:
         wifi_cx = bat_content_start + icon_radius
         # HUD style: white background, black icon (inverted from dark-pill style)
-        draw_wifi_icon(frame, wifi_cx, cy, color=(0, 0, 0), bg_color=(255, 255, 255), size=12, circular=True)
+        draw_wifi_icon(frame, wifi_cx, cy, color=(0, 0, 0), bg_color=(255, 255, 255), size=12, circular=True, clip_radius=12)
         cv2.circle(frame, (wifi_cx, cy), 12, (0, 0, 0), 1, cv2.LINE_AA)
         draw_battery_icon(frame, x=bat_content_start + icon_w + BAT_WIFI_PILL_GAP, y=bat_y, percent=battery_percent)
         cv2.putText(frame, pct_txt, (bat_content_start + icon_w + BAT_WIFI_PILL_GAP + bat_icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
@@ -343,9 +344,7 @@ def draw_wifi_connections_modal(frame: np.ndarray) -> None:
     modal_x = (fw - modal_w) // 2
     modal_y = (fh - modal_h) // 2
 
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+    ui_cache.apply_modal_dim(frame, 0.55)
 
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)

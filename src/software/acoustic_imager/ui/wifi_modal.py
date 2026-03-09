@@ -10,6 +10,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from . import ui_cache
 from .button import menu_buttons, Button
 from .standard_keyboard import (
     draw_standard_alpha_keyboard,
@@ -54,10 +55,8 @@ def draw_wifi_modal(frame: np.ndarray) -> None:
     text_color = (255, 255, 255)
     border_color = (100, 100, 100)
 
-    # Dark overlay
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+    # Dark overlay (cached black buffer, no frame copy)
+    ui_cache.apply_modal_dim(frame, 0.5)
 
     if HUD.wifi_modal_screen == "list":
         _draw_list_screen(frame, fw, fh, font, text_color, border_color)
