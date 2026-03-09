@@ -10,7 +10,7 @@ import numpy as np
 
 from . import ui_cache
 from .button import menu_buttons
-from ..state import button_state
+from ..state import button_state, HUD
 from .video_recorder import VideoRecorder
 from ..config import HUD_MENU_OPACITY, MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
@@ -24,7 +24,7 @@ def _blue_gradient_overlay(h: int, w: int, top_bgr: Tuple[int, int, int], bot_bg
 
 
 # Keys for menu dropdown (positions are shifted by offset_x when drawing)
-_MENU_DROPDOWN_KEYS = ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer")
+_MENU_DROPDOWN_KEYS = ("wifi", "main_menu_settings", "fps30", "fpsmax", "gain", "source", "spectrum_analyzer")
 
 
 def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -> None:
@@ -66,25 +66,23 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     if not button_state.menu_open:
         return
 
-    # SHOT and Gallery live in bottom HUD only; menu dropdown has 9 rows (fps, gain, colormap, cam, debug, email_settings, source, crosshairs, spectrum_analyzer)
+    # SHOT and Gallery live in bottom HUD only; menu dropdown has 5 rows (wifi|settings, fps, gain, source, spectrum_analyzer)
     item_h, gap, menu_w = 40, 8, menu_btn.w
-    dropdown_h = 9 * (item_h + gap) + gap
+    dropdown_h = 5 * (item_h + gap) + gap
     dropdown_y = menu_btn.y - dropdown_h - gap
     oy = int(offset_y)
 
+    menu_buttons["main_menu_settings"].is_active = HUD.settings_modal_open
+    menu_buttons["wifi"].is_active = HUD.wifi_modal_open
     menu_buttons["fps30"].is_active = (button_state.fps_mode == "30")
-    menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")
+    # menu_buttons["fps60"].is_active = (button_state.fps_mode == "60")  # 60FPS button commented out
     menu_buttons["fpsmax"].is_active = (button_state.fps_mode == "MAX")
 
     menu_buttons["gain"].is_active = True
-    menu_buttons["colormap"].is_active = True
-    menu_buttons["cam"].is_active = button_state.camera_enabled
     menu_buttons["source"].is_active = True
-    menu_buttons["debug"].is_active = button_state.debug_enabled
+    menu_buttons["source"].text = f"SRC: {button_state.source_mode}"
     menu_buttons["spectrum_analyzer"].is_active = True
     menu_buttons["spectrum_analyzer"].text = f"SPECTRUM: {button_state.spectrum_analyzer_mode}"
-    menu_buttons["crosshairs"].is_active = button_state.crosshairs_enabled
-    menu_buttons["crosshairs"].text = "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF"
     menu_buttons["gallery"].is_active = button_state.gallery_open
 
     white_border = (255, 255, 255)
@@ -95,7 +93,8 @@ def draw_menu(frame: np.ndarray, offset_x: float = 0.0, offset_y: float = 0.0) -
     hud_bg = (0, 0, 0)  # same as menu button and bottom HUD pills for matching opacity
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
-            menu_buttons[k].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg)
+            icon_type = "wifi" if k == "wifi" else ("settings" if k == "main_menu_settings" else None)
+            menu_buttons[k].draw(frame, transparent=True, active_color=MENU_ACTIVE_BLUE, active_border_color=white_border, fill_alpha=HUD_MENU_OPACITY, inactive_bg=hud_bg, icon_type=icon_type)
     for k in _MENU_DROPDOWN_KEYS:
         if k in menu_buttons:
             menu_buttons[k].y -= oy

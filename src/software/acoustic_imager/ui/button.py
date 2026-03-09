@@ -19,6 +19,7 @@ def _vertical_gradient_uint8(h: int, w: int, top_bgr: Tuple[int, int, int], bot_
 
 from . import ui_cache
 from .storage_bar import feathered_composite
+from .icons import draw_wifi_icon as _draw_wifi_icon_shared, draw_settings_icon as _draw_settings_icon_shared
 from ..state import button_state
 
 try:
@@ -333,6 +334,10 @@ class Button:
                 _draw_back_arrow_icon(frame, cx, cy, size=12)
             elif icon_type == "trash":
                 _draw_trash_icon(frame, cx, cy, size=14)
+            elif icon_type == "wifi":
+                _draw_wifi_icon_shared(frame, cx, cy, color=(255, 255, 255), bg_color=None, size=14)
+            elif icon_type == "settings":
+                _draw_settings_icon_shared(frame, cx, cy, color=(255, 255, 255), size=12)
         else:
             font = cv2.FONT_HERSHEY_SIMPLEX
             scale = 0.42 if "LOOP" in self.text else 0.52
@@ -424,39 +429,30 @@ def init_menu_buttons(left_width: int, frame_height: Optional[int] = None) -> No
     item_h = 40
     gap = 8
 
-    total_items = 9  # fps, gain, colormap, cam, source, debug, spectrum_analyzer, email_settings, crosshairs; SHOT/Gallery in bottom HUD
+    total_items = 5  # wifi|settings, fps, gain, source, spectrum_analyzer
     dropdown_h = total_items * (item_h + gap) + gap
     dropdown_y = menu_y - dropdown_h - gap
 
-    y0 = dropdown_y
+    # Top row: wifi | settings (2 segments)
+    wifi_y = dropdown_y
+    seg_gap_top = 6
+    seg_w_top = (menu_w - 1 * seg_gap_top) // 2
+    menu_buttons["wifi"] = Button(menu_x + 0 * (seg_w_top + seg_gap_top), wifi_y, seg_w_top, item_h, "")
+    menu_buttons["main_menu_settings"] = Button(menu_x + 1 * (seg_w_top + seg_gap_top), wifi_y, seg_w_top, item_h, "")
+
+    y0 = wifi_y + (item_h + gap)
     seg_gap = 6
-    seg_w = (menu_w - 2 * seg_gap) // 3
+    seg_w = (menu_w - 1 * seg_gap) // 2  # 30FPS | MAX
     menu_buttons["fps30"]  = Button(menu_x + 0 * (seg_w + seg_gap), y0, seg_w, item_h, "30FPS")
-    menu_buttons["fps60"]  = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "60FPS")
-    menu_buttons["fpsmax"] = Button(menu_x + 2 * (seg_w + seg_gap), y0, seg_w, item_h, "MAX")
+    menu_buttons["fpsmax"] = Button(menu_x + 1 * (seg_w + seg_gap), y0, seg_w, item_h, "MAX")
 
     gain_y = y0 + (item_h + gap)
     menu_buttons["gain"] = Button(menu_x, gain_y, menu_w, item_h, f"GAIN: {button_state.gain_mode}")
 
-    colormap_y = gain_y + (item_h + gap)
-    menu_buttons["colormap"] = Button(menu_x, colormap_y, menu_w, item_h, f"COLOUR: {button_state.colormap_mode}")
+    source_y = gain_y + (item_h + gap)
+    menu_buttons["source"] = Button(menu_x, source_y, menu_w, item_h, f"SRC: {button_state.source_mode}")
 
-    cam_y = colormap_y + (item_h + gap)
-    menu_buttons["cam"] = Button(menu_x, cam_y, menu_w, item_h, "CAM: ON" if button_state.camera_enabled else "CAM: OFF")
-
-    debug_y = cam_y + (item_h + gap)
-    menu_buttons["debug"] = Button(menu_x, debug_y, menu_w, item_h, "DEBUG")
-
-    email_y = debug_y + (item_h + gap)
-    menu_buttons["email_settings"] = Button(menu_x, email_y, menu_w, item_h, "EMAIL SETTINGS")
-
-    src_y = email_y + (item_h + gap)
-    menu_buttons["source"] = Button(menu_x, src_y, menu_w, item_h, f"SRC: {button_state.source_mode}")
-
-    crosshairs_y = src_y + (item_h + gap)
-    menu_buttons["crosshairs"] = Button(menu_x, crosshairs_y, menu_w, item_h, "CROSSHAIRS: ON" if button_state.crosshairs_enabled else "CROSSHAIRS: OFF")
-
-    spectrum_y = crosshairs_y + (item_h + gap)
+    spectrum_y = source_y + (item_h + gap)
     menu_buttons["spectrum_analyzer"] = Button(menu_x, spectrum_y, menu_w, item_h, f"SPECTRUM: {button_state.spectrum_analyzer_mode}")
 
     # SHOT, Gallery, REC live in bottom HUD (bottom_hud creates/positions them each frame)
@@ -480,7 +476,7 @@ def update_button_states(mx: int, my: int) -> None:
 
     # Dropdown items: only when menu is open
     if button_state.menu_open:
-        for k in ("fps30", "fps60", "fpsmax", "gain", "colormap", "cam", "debug", "email_settings", "source", "crosshairs", "spectrum_analyzer"):
+        for k in ("wifi", "main_menu_settings", "fps30", "fpsmax", "gain", "source", "spectrum_analyzer"):
             if k in menu_buttons:
                 menu_buttons[k].is_hovered = menu_buttons[k].contains(mx, my)
 

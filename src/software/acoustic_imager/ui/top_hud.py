@@ -21,6 +21,7 @@ from ..config import (
     BATTERY_DISCHARGE_MA,
 )
 from ..state import button_state, HUD
+from . import ui_cache
 from .menu import _blue_gradient_overlay
 from .battery_icon import draw_battery_icon, BATTERY_BODY_W, BATTERY_TIP_W, BATTERY_BODY_H
 from .button import menu_buttons, Button
@@ -64,6 +65,8 @@ def _in_rect(x: int, y: int, r: Tuple[int,int,int,int]) -> bool:
 
 # Merged battery+wifi pill: wifi icon (left) + battery icon + %
 BAT_WIFI_PILL_GAP = 10  # between wifi icon and battery
+
+from .icons import draw_wifi_icon
 
 
 def _time_remaining_display(percent: Optional[int], time_remaining_sec: Optional[float] = None) -> str:
@@ -170,14 +173,6 @@ def draw_hud(
         cv2.rectangle(frame, (cx-2, cy+2), (cx,   cy+8), (0,0,0), -1, cv2.LINE_AA)
         cv2.rectangle(frame, (cx+3, cy-1), (cx+5, cy+8), (0,0,0), -1, cv2.LINE_AA)
 
-    def draw_wifi_icon(cx, cy):
-        cv2.circle(frame, (cx, cy), 12, (255,255,255), -1, cv2.LINE_AA)
-        cv2.circle(frame, (cx, cy), 12, (0,0,0), 1, cv2.LINE_AA)
-        # Wifi arcs (bottom half of circles) + center dot
-        for r, y_off in [(8, 1), (5, 3), (2, 5)]:
-            cv2.ellipse(frame, (cx, cy + y_off), (r, r), 0, 180, 360, (0,0,0), 1, cv2.LINE_AA)
-        cv2.circle(frame, (cx, cy + 5), 2, (0,0,0), -1, cv2.LINE_AA)
-
     # Basic measurement (rough, but stable)
     def tw(s: str, scale=0.55, thick=1):
         (ww, hh), _ = cv2.getTextSize(s, cv2.FONT_HERSHEY_SIMPLEX, scale, thick)
@@ -240,7 +235,9 @@ def draw_hud(
     bat_y = y + (pill_h - bat_icon_h) // 2
     if not button_state.gallery_open:
         wifi_cx = bat_content_start + icon_radius
-        draw_wifi_icon(wifi_cx, cy)
+        # HUD style: white background, black icon (inverted from dark-pill style)
+        draw_wifi_icon(frame, wifi_cx, cy, color=(0, 0, 0), bg_color=(255, 255, 255), size=12, circular=True, clip_radius=12)
+        cv2.circle(frame, (wifi_cx, cy), 12, (0, 0, 0), 1, cv2.LINE_AA)
         draw_battery_icon(frame, x=bat_content_start + icon_w + BAT_WIFI_PILL_GAP, y=bat_y, percent=battery_percent)
         cv2.putText(frame, pct_txt, (bat_content_start + icon_w + BAT_WIFI_PILL_GAP + bat_icon_w + gap_icon_text, text_y), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
 
@@ -347,9 +344,7 @@ def draw_wifi_connections_modal(frame: np.ndarray) -> None:
     modal_x = (fw - modal_w) // 2
     modal_y = (fh - modal_h) // 2
 
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+    ui_cache.apply_modal_dim(frame, 0.55)
 
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (40, 40, 40), -1)
     cv2.rectangle(frame, (modal_x, modal_y), (modal_x + modal_w, modal_y + modal_h), (100, 100, 100), 3, cv2.LINE_AA)

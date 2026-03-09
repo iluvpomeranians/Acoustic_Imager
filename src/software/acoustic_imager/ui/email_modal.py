@@ -11,6 +11,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from . import ui_cache
 from .button import menu_buttons, Button
 from ..state import button_state
 from ..config import HUD_MENU_OPACITY, MENU_ACTIVE_BLUE
@@ -35,10 +36,8 @@ def draw_email_modal(frame: np.ndarray, output_dir: Optional[Path]) -> None:
     text_color = (255, 255, 255)
     border_color = (100, 100, 100)
 
-    # Dark overlay
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, 0), (fw, fh), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+    # Dark overlay (cached black buffer, no frame copy)
+    ui_cache.apply_modal_dim(frame, 0.5)
 
     if button_state.email_modal_screen == "provider":
         _draw_provider_screen(frame, fw, fh, font, text_color, border_color)

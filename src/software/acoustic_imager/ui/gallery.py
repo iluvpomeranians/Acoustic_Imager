@@ -12,6 +12,11 @@ import numpy as np
 
 from . import ui_cache
 from .button import menu_buttons, Button
+
+# Cache formatted date strings by (year, month, day) to avoid repeated strftime per frame
+_DATE_STR_CACHE: Dict[Tuple[int, int, int], str] = {}
+# Cache type badge [IMG]/[VID] text dimensions (scale 0.45)
+_TYPE_BADGE_SIZE_CACHE: Dict[str, Tuple[int, int]] = {}
 from .viewer_dock import (
     draw_viewer_chrome,
     draw_viewer_back_button_on_top,
@@ -1209,11 +1214,14 @@ def draw_share_modal(frame: np.ndarray) -> None:
     title = getattr(button_state, "share_modal_title", "Share")
     message = getattr(button_state, "share_modal_message", "")
     sending = getattr(button_state, "share_modal_sending", False)
+    progress = getattr(button_state, "share_modal_progress", 0.0)
     modal_w = 420
     line_h = 24
     lines = message.split("\n") if message else [""]
     msg_h = min(120, len(lines) * line_h + 20)
-    modal_h = 80 + msg_h + 55
+    # Extra height for progress bar when sending
+    progress_bar_h = 28 if sending else 0
+    modal_h = 80 + msg_h + 55 + progress_bar_h
     modal_x = (frame.shape[1] - modal_w) // 2
     modal_y = (frame.shape[0] - modal_h) // 2
 
@@ -1235,6 +1243,18 @@ def draw_share_modal(frame: np.ndarray) -> None:
     for i, line in enumerate(lines[:5]):
         msg_y = modal_y + 62 + i * line_h
         cv2.putText(frame, line[:60], (modal_x + 20, msg_y), font, msg_scale, (220, 220, 220), 1, cv2.LINE_AA)
+
+    # Progress bar when sending: rectangle with fill increasing left-to-right
+    if sending:
+        bar_x = modal_x + 24
+        bar_y = modal_y + 62 + len(lines[:5]) * line_h + 12
+        bar_w = modal_w - 48
+        bar_h = 18
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1, cv2.LINE_AA)
+        cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (100, 100, 100), 1, cv2.LINE_AA)
+        fill_w = max(0, int(bar_w * min(1.0, max(0.0, progress))))
+        if fill_w > 0:
+            cv2.rectangle(frame, (bar_x, bar_y), (bar_x + fill_w, bar_y + bar_h), (80, 180, 80), -1, cv2.LINE_AA)
 
     # OK only when not sending (thread finished or warning)
     if not sending:
@@ -1809,7 +1829,12 @@ def _draw_gallery_header(
             else:
                 menu_buttons["gallery_select_all"].x, menu_buttons["gallery_select_all"].y = select_all_btn_x, action_btn_y
                 menu_buttons["gallery_select_all"].w, menu_buttons["gallery_select_all"].h = dock_row_w, dock_row_h
-                all_selected = len(button_state.gallery_selected_items) == len(items) if items else False
+                selectable_indices = [i for i in range(len(items)) if items[i][1] in ("image", "video")]
+                all_selected = (
+                    len(selectable_indices) > 0
+                    and len(button_state.gallery_selected_items) == len(selectable_indices)
+                    and all(i in button_state.gallery_selected_items for i in selectable_indices)
+                )
                 menu_buttons["gallery_select_all"].text = "DESELECT ALL" if all_selected else "SELECT ALL"
             menu_buttons["gallery_select_all"].is_active = True
             menu_buttons["gallery_select_all"].draw(
@@ -2112,12 +2137,15 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
         if label_y >= header_h and label_y <= frame.shape[0]:
             type_icon = "[IMG]" if item_type == "image" else "[VID]"
             type_color = (100, 200, 100) if item_type == "image" else (100, 150, 255)
-            (badge_w, _), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
+            badge_size = _TYPE_BADGE_SIZE_CACHE.get(type_icon)
+            if badge_size is None:
+                (badge_w, text_h), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
+                _TYPE_BADGE_SIZE_CACHE[type_icon] = (badge_w, text_h)
+            else:
+                badge_w, text_h = badge_size
 
             # Line 1: [IMG]/[VID] then filename; priority circle right-aligned under thumbnail
             cv2.putText(frame, type_icon, (x, label_y), font, 0.45, type_color, 1, cv2.LINE_AA)
-
-            (_, text_h), _ = cv2.getTextSize(type_icon, font, 0.45, 1)
             filename_x = x + badge_w + 6
             max_fname_chars = 28
             display_name = filepath.stem if filepath.stem else filepath.name
@@ -2183,6 +2211,23 @@ def draw_gallery_view(frame: np.ndarray, output_dir: Optional[Path]) -> None:
                 tag_scale = 0.51  # 10% larger than 0.46
                 cv2.putText(frame, tag_text, (x + tag_icon_w, line2_y + 4),
                             font, tag_scale, (180, 200, 180), 1, cv2.LINE_AA)
+
+            # Date on line 2, right-justified under priority circle (cached)
+            date_key = (mtime.year, mtime.month, mtime.day)
+            date_str = _DATE_STR_CACHE.get(date_key)
+            if date_str is None:
+                date_str = mtime.strftime("%b %d, %Y")
+                _DATE_STR_CACHE[date_key] = date_str
+            date_scale = 0.42
+            date_size = ui_cache._DATE_TEXT_SIZE_CACHE.get(date_str)
+            if date_size is None:
+                (date_w, date_h), _ = cv2.getTextSize(date_str, font, date_scale, 1)
+                ui_cache._DATE_TEXT_SIZE_CACHE[date_str] = (date_w, date_h)
+            else:
+                date_w = date_size[0]
+            date_x = x + thumb_w - date_w - 4
+            cv2.putText(frame, date_str, (date_x, line2_y + 4),
+                        font, date_scale, (150, 150, 160), 1, cv2.LINE_AA)
 
     # Redraw header on top so scrolled content (archive panel, thumbnails) goes under it
     _draw_gallery_header(frame, header_h, items, folder_title)

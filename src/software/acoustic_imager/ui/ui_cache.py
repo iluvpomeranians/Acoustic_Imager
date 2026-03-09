@@ -1,10 +1,11 @@
 """
-Shared UI caches (gradients, recording HUD, thumbnails) and config fallbacks.
+Shared UI caches (gradients, recording HUD, thumbnails, modal overlays) and config fallbacks.
 """
 
 from pathlib import Path
 from typing import Dict, Tuple
 
+import cv2
 import numpy as np
 
 DRAG_PX = 4  # tweak (6-12 feels good)
@@ -35,8 +36,31 @@ except Exception:
 _GRAD_CACHE: Dict[Tuple[int, int, int, int, int], np.ndarray] = {}
 _REC_HUD_CACHE: Dict[Tuple[int, int, bool], np.ndarray] = {}
 _REC_TEXT_SIZE_CACHE: Dict[str, Tuple[int, int]] = {}
+_DATE_TEXT_SIZE_CACHE: Dict[str, Tuple[int, int]] = {}  # date_str -> (w, h) for gallery labels
 _THUMB_CACHE: Dict[Path, np.ndarray] = {}
 _THUMB_CACHE_MTIME: Dict[Path, float] = {}
+
+# Modal dim overlay: black buffer per (fw, fh) to avoid frame.copy() every frame
+_MODAL_OVERLAY_BLACK: Dict[Tuple[int, int], np.ndarray] = {}
+
+
+def get_modal_overlay_black(fw: int, fh: int) -> np.ndarray:
+    """Return cached fullscreen black buffer (BGR) for modal dim. Avoids copying frame."""
+    key = (fw, fh)
+    buf = _MODAL_OVERLAY_BLACK.get(key)
+    if buf is not None:
+        return buf
+    buf = np.zeros((fh, fw, 3), dtype=np.uint8)
+    buf[:] = (0, 0, 0)
+    _MODAL_OVERLAY_BLACK[key] = buf
+    return buf
+
+
+def apply_modal_dim(frame: np.ndarray, alpha: float = 0.5) -> None:
+    """Dim frame in-place using cached black overlay (no frame copy). alpha=0.5 => half brightness."""
+    fh, fw = frame.shape[:2]
+    black = get_modal_overlay_black(fw, fh)
+    cv2.addWeighted(black, alpha, frame, 1.0 - alpha, 0, frame)
 
 
 def get_grad(w: int, h: int, color: Tuple[int, int, int]) -> np.ndarray:
