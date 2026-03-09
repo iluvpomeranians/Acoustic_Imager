@@ -8,10 +8,16 @@ extern "C" {
 /* =========================================================================
  * INCLUDES
  * ========================================================================= */
+
 #include <stdint.h>
 /* =========================================================================
  * DEFINES
  * ========================================================================= */
+
+ // Float print helper macros
+#define PRINT_F1(x) ((int)((x) * 10.0f) / 10),  ((int)((x) * 10.0f) % 10)
+#define PRINT_F2(x) ((int)((x) * 100.0f) / 100), ((int)((x) * 100.0f) % 100)
+#define PRINT_F3(x) ((int)((x) * 1000.0f) / 1000), ((int)((x) * 1000.0f) % 1000)
 
 /* =========================================================================
  * TYPE DEFINITIONS
@@ -21,7 +27,17 @@ extern "C" {
  * FUNCTION PROTOTYPES
  * ========================================================================= */
 
-void dsp_unit_test_sine_fft(void);
+void rfft_packed_to_mag(const float *packed, float *mag, uint32_t N);
+void dsp_unit_test_suite(void);
+void dsp_analyze_signal(float *time, float *fft_buf, float *mag, uint32_t N);
+uint32_t dsp_print_fft_report(float fs, float *mag, uint32_t N);
+
+void dsp_run_fft_unit_test(void);
+
+
+
+
+
 
 
 #ifdef __cplusplus

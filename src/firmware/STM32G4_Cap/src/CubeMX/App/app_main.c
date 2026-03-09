@@ -53,12 +53,19 @@ static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
 static float mic_fft_buffer[FRAME_SIZE];
 
+// TODO: Test buffer for raw FFT output magnitude calcs, delete or pre-processor guard
+static float mag_buffer[FRAME_SIZE/2 + 1];
+
 static arm_rfft_fast_instance_f32 fft_instance;
 
 static spi_stream_t spi_stream_ctx;
 
 static uint32_t _print_counter = 0;
 static uint32_t adc_pending_mask = 0;
+
+// TODO: sample_rate_hz bug
+static uint32_t sample_rate_hz = 0;
+#define SAMPLE_RATE_HZ 1770
 
 static struct {
   uint8_t enabled;
@@ -137,7 +144,9 @@ void app_start(void) {
 
   // Start Timer6 (triggers all ADCs synchronously)
   HAL_TIM_Base_Start(&htim6);
+  HAL_Delay(1000);
 
+  sample_rate_hz = app_get_tim6_trigger_hz();
   // Start all 4 ADCs with DMA (2048 samples = 1024×2 ping-pong)
   HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc1_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
   HAL_ADC_Start_DMA(&hadc2, (uint32_t*)adc2_buf, (uint32_t)(ADC_DMA_BUF_SIZE));
@@ -170,12 +179,6 @@ void app_loop(void) {
                               (uint16_t)(SPI_FRAME_FLAG_SYNCED_ALL_MICS | SPI_FRAME_FLAG_SECOND_HALF));
   }
   
-  if (++_print_counter >= 10000) {
-    _print_counter = 0;
-    spi_stream_unit_test_build_packet();
-    // usb_cdc_smoke_test();
-  }
-  HAL_Delay(1);  
 }
 
 
@@ -193,7 +196,7 @@ void test_spi_stream_loop(void) {
 
 void test_dsp_pipeline_loop(void) {
   HAL_Delay(1000);
-  dsp_unit_test_sine_fft();
+  dsp_unit_test_suite();
 }
 
 /* ============================================================================
@@ -217,7 +220,7 @@ static uint32_t app_get_tim6_trigger_hz(void)
 
 static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags)
 {
-  uint32_t sample_rate_hz;
+  // uint32_t sample_rate_hz;
   uint32_t batch_id;
   uint16_t battery_millivolts;
 
@@ -225,7 +228,7 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
 
 
   // TODO: Might want to do this once only?
-  sample_rate_hz = app_get_tim6_trigger_hz();
+  // sample_rate_hz = app_get_tim6_trigger_hz();
   batch_id = spi_stream_next_batch(&spi_stream_ctx);
   battery_millivolts = app_read_battery_millivolts();
 
@@ -235,11 +238,24 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
     for (uint8_t channel = 0; channel < N_CH_PER_ADC; channel++) {
       uint16_t mic_index = (uint16_t)(adc * N_CH_PER_ADC + channel);
       size_t packet_len;
-
+      
       process_adc_channel_pipeline(&fft_instance,
                                    active_half,
                                    channel,
                                    mic_fft_buffer);
+      
+      // if (_print_counter++ == 100) {
+      // _print_counter = 0;
+
+      // for (int i = 0; i < FRAME_SIZE; i++) {
+      //   usb_printf("index=%d, value=%d.%02d\r\n",
+      //             i,
+      //             PRINT_F3(mic_fft_buffer[i]));          
+      // }
+      // rfft_packed_to_mag(mic_fft_buffer, mag_buffer, FRAME_SIZE);
+      // dsp_print_fft_report(SAMPLE_RATE_HZ, mag_buffer, FRAME_SIZE);
+      // }
+     
       
       uint8_t *tx_buf = spi_dma_get_tx_buffer();
 
