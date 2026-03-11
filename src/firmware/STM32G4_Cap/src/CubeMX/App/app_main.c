@@ -168,15 +168,25 @@ void app_loop(void) {
   adc_pending_mask |= adc_ready_mask;
   adc_ready_mask = 0;
   __enable_irq();
-  if (!fft_in_progress && (adc_pending_mask & ADC_READY_HALF_MASK) == ADC_READY_HALF_MASK) {
+
+  if ((adc_pending_mask & ADC_READY_HALF_MASK) == ADC_READY_HALF_MASK) {
     adc_pending_mask &= ~ADC_READY_HALF_MASK;
-    app_process_synced_window(0u, SPI_FRAME_FLAG_SYNCED_ALL_MICS);
+
+    if (!fft_in_progress && !get_spi_dma_busy()) {
+      app_process_synced_window(0u, SPI_FRAME_FLAG_SYNCED_ALL_MICS);
+    }
+    return;
   }
 
-  if (!fft_in_progress && (adc_pending_mask & ADC_READY_FULL_MASK) == ADC_READY_FULL_MASK) {
+  if ((adc_pending_mask & ADC_READY_FULL_MASK) == ADC_READY_FULL_MASK) {
     adc_pending_mask &= ~ADC_READY_FULL_MASK;
-    app_process_synced_window(ADC_DMA_BUF_SIZE / 2u,
-                              (uint16_t)(SPI_FRAME_FLAG_SYNCED_ALL_MICS | SPI_FRAME_FLAG_SECOND_HALF));
+
+    if (!fft_in_progress && !get_spi_dma_busy()) {
+      app_process_synced_window(ADC_DMA_BUF_SIZE / 2u,
+                                (uint16_t)(SPI_FRAME_FLAG_SYNCED_ALL_MICS |
+                                           SPI_FRAME_FLAG_SECOND_HALF));
+    }
+    return;
   }
   
 }
@@ -187,11 +197,12 @@ void app_loop(void) {
 
 void test_spi_stream_loop(void) {
   HAL_Delay(1000);
-  spi_stream_unit_test_build_packet();
-  spi_stream_unit_test_nulls();
-  spi_stream_unit_test_small_cap();
-  spi_stream_unit_test_frame_counter();
-  spi_loopback_unit_test();
+  // spi_stream_unit_test_build_packet();
+  // spi_stream_unit_test_nulls();
+  // spi_stream_unit_test_small_cap();
+  // spi_stream_unit_test_frame_counter();
+  // spi_loopback_unit_test();
+  spi_loopback_unit_test2();
 }
 
 void test_dsp_pipeline_loop(void) {
@@ -218,11 +229,14 @@ static uint32_t app_get_tim6_trigger_hz(void)
   return timer_clock_hz / ((htim6.Init.Prescaler + 1u) * (htim6.Init.Period + 1u));
 }
 
+
 static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags)
 {
   // uint32_t sample_rate_hz;
   uint32_t batch_id;
   uint16_t battery_millivolts;
+  uint8_t  mic_index;
+  size_t   payload_len, final_len;
 
   fft_in_progress = 1u;
 
@@ -232,13 +246,42 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
   batch_id = spi_stream_next_batch(&spi_stream_ctx);
   battery_millivolts = app_read_battery_millivolts();
 
+  // Keep mic_index and set to 16 for now
+  mic_index = N_MICS;
+  payload_len = N_MICS * SPI_MIC_PAYLOAD_BYTES;
+  final_len = 0;
+
+  // Need to check here if SPI is done transmitting before starting next batch
+  // Use pending flag with spi_dma_done flag?
+
+  uint8_t *tx_buf = spi_dma_get_tx_buffer();
+  size_t offset = 0;
+  // Fill the header once
+
+  offset += spi_stream_build_frame_header(&spi_stream_ctx,
+                                          tx_buf,
+                                          SPI_FRAME_PACKET_SIZE_BYTES,
+                                          batch_id,
+                                          mic_index,
+                                          FRAME_SIZE,
+                                          sample_rate_hz,
+                                          (uint16_t)(frame_flags | SPI_FRAME_FLAG_PAYLOAD_COMPLEX | SPI_FRAME_FLAG_BATTERY_VALID),
+                                          payload_len,
+                                          battery_millivolts);
+
+  if (offset == 0) {
+    // Failed to build header, skip this batch
+    fft_in_progress = 0u;
+    return;
+  }
+
+  // Fill the payload with each mic's FFT data
   for (uint8_t adc = 0; adc < N_ADCS; adc++) {
     uint16_t *active_half = (uint16_t *)(app_get_adc_buffer(adc) + half_offset);
 
     for (uint8_t channel = 0; channel < N_CH_PER_ADC; channel++) {
-      uint16_t mic_index = (uint16_t)(adc * N_CH_PER_ADC + channel);
-      size_t packet_len;
-      
+      // uint16_t mic_index = (uint16_t)(adc * N_CH_PER_ADC + channel);
+      size_t appended_len = 0;
       process_adc_channel_pipeline(&fft_instance,
                                    active_half,
                                    channel,
@@ -256,26 +299,32 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
       // dsp_print_fft_report(SAMPLE_RATE_HZ, mag_buffer, FRAME_SIZE);
       // }
      
+      appended_len = spi_stream_append_mic_payload(tx_buf + offset,
+                                                    SPI_FRAME_PACKET_SIZE_BYTES - offset,
+                                                    mic_fft_buffer,
+                                                    FRAME_SIZE);
       
-      uint8_t *tx_buf = spi_dma_get_tx_buffer();
-
-      packet_len = spi_stream_build_mic_packet(
-          &spi_stream_ctx,
-          tx_buf,
-          SPI_PACKET_SIZE,
-          batch_id,
-          mic_index,
-          mic_fft_buffer,
-          FRAME_SIZE,
-          sample_rate_hz,
-          (uint16_t)(frame_flags | SPI_FRAME_FLAG_PAYLOAD_COMPLEX | SPI_FRAME_FLAG_BATTERY_VALID),
-          battery_millivolts);
-
-      if (packet_len > 0u) {
-        // spi_stream_tx_blocking(spi_tx, packet_len);
-        spi_stream_tx_dma(tx_buf, packet_len);
+      if (appended_len == 0u) {
+        fft_in_progress = 0u;
+        return;
       }
+      offset += appended_len;                                              
     }
+  }
+
+  // Send one big frame, set a pending flag
+  final_len = spi_stream_finalize_frame(tx_buf,
+                                        SPI_FRAME_PACKET_SIZE_BYTES - offset,
+                                        offset);
+  
+  if (final_len == 0u) {
+    fft_in_progress = 0u;
+    return;
+  }
+
+  if (final_len == SPI_FRAME_PACKET_SIZE_BYTES) {
+    // spi_stream_tx_blocking(spi_tx, packet_len);
+    spi_stream_tx_dma(tx_buf, SPI_FRAME_PACKET_SIZE_BYTES);
   }
 
   usb_dbg_push_adc_window_4adc(&adc1_buf[half_offset],
@@ -414,4 +463,79 @@ static void app_handle_usb_command(const char *command)
 
   usb_printf("unknown command: %s\r\n", command);
 }
+
+/* Old app_process_synced_window, can be deleted but leaving for now in case */
+
+// static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags)
+// {
+//   // uint32_t sample_rate_hz;
+//   uint32_t batch_id;
+//   uint16_t battery_millivolts;
+
+//   fft_in_progress = 1u;
+
+
+//   // TODO: Might want to do this once only?
+//   // sample_rate_hz = app_get_tim6_trigger_hz();
+//   batch_id = spi_stream_next_batch(&spi_stream_ctx);
+//   battery_millivolts = app_read_battery_millivolts();
+
+//   for (uint8_t adc = 0; adc < N_ADCS; adc++) {
+//     uint16_t *active_half = (uint16_t *)(app_get_adc_buffer(adc) + half_offset);
+
+//     for (uint8_t channel = 0; channel < N_CH_PER_ADC; channel++) {
+//       uint16_t mic_index = (uint16_t)(adc * N_CH_PER_ADC + channel);
+//       size_t packet_len;
+      
+//       process_adc_channel_pipeline(&fft_instance,
+//                                    active_half,
+//                                    channel,
+//                                    mic_fft_buffer);
+      
+//       // if (_print_counter++ == 100) {
+//       // _print_counter = 0;
+
+//       // for (int i = 0; i < FRAME_SIZE; i++) {
+//       //   usb_printf("index=%d, value=%d.%02d\r\n",
+//       //             i,
+//       //             PRINT_F3(mic_fft_buffer[i]));          
+//       // }
+//       // rfft_packed_to_mag(mic_fft_buffer, mag_buffer, FRAME_SIZE);
+//       // dsp_print_fft_report(SAMPLE_RATE_HZ, mag_buffer, FRAME_SIZE);
+//       // }
+     
+      
+//       uint8_t *tx_buf = spi_dma_get_tx_buffer();
+
+//       packet_len = spi_stream_build_mic_packet(
+//           &spi_stream_ctx,
+//           tx_buf,
+//           SPI_PACKET_SIZE,
+//           batch_id,
+//           mic_index,
+//           mic_fft_buffer,
+//           FRAME_SIZE,
+//           sample_rate_hz,
+//           (uint16_t)(frame_flags | SPI_FRAME_FLAG_PAYLOAD_COMPLEX | SPI_FRAME_FLAG_BATTERY_VALID),
+//           battery_millivolts);
+
+//       if (packet_len > 0u) {
+//         // spi_stream_tx_blocking(spi_tx, packet_len);
+//         spi_stream_tx_dma(tx_buf, packet_len);
+//       }
+//     }
+//   }
+
+//   usb_dbg_push_adc_window_4adc(&adc1_buf[half_offset],
+//                                &adc2_buf[half_offset],
+//                                &adc3_buf[half_offset],
+//                                &adc4_buf[half_offset],
+//                                FRAME_SIZE);
+
+//   if (passthrough_state.enabled) {
+//     app_send_passthrough_window(half_offset, sample_rate_hz);
+//   }
+
+//   fft_in_progress = 0u;
+// }
   
