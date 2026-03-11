@@ -187,11 +187,12 @@ void app_loop(void) {
 
 void test_spi_stream_loop(void) {
   HAL_Delay(1000);
-  spi_stream_unit_test_build_packet();
-  spi_stream_unit_test_nulls();
-  spi_stream_unit_test_small_cap();
-  spi_stream_unit_test_frame_counter();
-  spi_loopback_unit_test();
+  // spi_stream_unit_test_build_packet();
+  // spi_stream_unit_test_nulls();
+  // spi_stream_unit_test_small_cap();
+  // spi_stream_unit_test_frame_counter();
+  // spi_loopback_unit_test();
+  spi_loopback_unit_test2();
 }
 
 void test_dsp_pipeline_loop(void) {
@@ -306,6 +307,8 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
   // sample_rate_hz = app_get_tim6_trigger_hz();
   batch_id = spi_stream_next_batch(&spi_stream_ctx);
   battery_millivolts = app_read_battery_millivolts();
+
+  // Keep mic_index and set to 16 for now
   mic_index = N_MICS;
   payload_len = N_MICS * SPI_MIC_PAYLOAD_BYTES;
   final_len = 0;
@@ -360,7 +363,8 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
      
       appended_len = spi_stream_append_mic_payload(tx_buf + offset,
                                                     SPI_FRAME_PACKET_SIZE_BYTES - offset,
-                                                    mic_fft_buffer);
+                                                    mic_fft_buffer,
+                                                    FRAME_SIZE);
       
       if (appended_len == 0u) {
         fft_in_progress = 0u;

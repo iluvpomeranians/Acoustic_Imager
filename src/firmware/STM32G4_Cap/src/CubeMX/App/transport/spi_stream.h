@@ -68,7 +68,8 @@ size_t spi_stream_build_frame_header(
 size_t spi_stream_append_mic_payload(
     uint8_t *dst,
     size_t dst_cap,
-    const float *fft_data);
+    const float *fft_data,
+    uint16_t fft_size);
 
 size_t spi_stream_finalize_frame(
     uint8_t *dst,

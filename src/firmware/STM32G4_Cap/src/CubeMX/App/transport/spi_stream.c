@@ -113,12 +113,13 @@ size_t spi_stream_build_frame_header(
 size_t spi_stream_append_mic_payload(
     uint8_t *dst,
     size_t dst_cap,
-    const float *fft_data)
+    const float *fft_data,
+    uint16_t fft_size)
 {
   if (!dst || !fft_data)
     return 0;
 
-  const size_t payload_bytes = SPI_MIC_PAYLOAD_BYTES;
+  const size_t payload_bytes = fft_size * sizeof(float);
 
   if (dst_cap < payload_bytes)
       return 0;
