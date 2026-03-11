@@ -22,7 +22,9 @@ extern "C" {
 #define N_CH_PER_ADC 4
 #define N_MICS 16
 
-#define VALIDATION_MODE 0
+#define SPI_SINGLE_MIC 0
+#define SPI_FULL_FRAME 1
+#define SPI_MODE SPI_FULL_FRAME
 
 // TODO: Consider discarding Nyquist bin (bin 512)
 #define N_BINS ((FRAME_SIZE >> 1) + 1) // For real FFT: N_BINS = (N/2)+1 = 513 

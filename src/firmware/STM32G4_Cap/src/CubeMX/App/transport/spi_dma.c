@@ -27,8 +27,13 @@
 /* =========================================================================
  * STATIC VARIABLES
  * ========================================================================= */
+
+#if SPI_MODE == SPI_FULL_FRAME
+static uint8_t spi_tx[SPI_FRAME_PACKET_SIZE_BYTES];
+#else
 static uint8_t spi_tx[2][SPI_PACKET_SIZE];
 static uint8_t spi_rx[2][SPI_PACKET_SIZE];
+#endif
 
 volatile uint8_t spi_dma_busy = 0;
 volatile uint8_t spi_dma_done = 0;
@@ -49,8 +54,12 @@ static volatile uint16_t spi_dma_len  = 0;
  * PUBLIC FUNCTIONS
  * ========================================================================= */
 
+#if SPI_MODE == SPI_FULL_FRAME
+uint8_t *spi_dma_get_tx_buffer(void) { return spi_tx; }
+#else
 uint8_t *spi_dma_get_tx_buffer(void) { return spi_tx[spi_fill_buf]; }
 uint8_t *spi_dma_get_rx_buffer(void) { return spi_rx[spi_fill_buf]; }
+#endif
 
 uint8_t get_spi_dma_busy(void) { return spi_dma_busy; }
 uint8_t get_spi_dma_done(void) { return spi_dma_done; }
@@ -88,51 +97,51 @@ int spi_stream_tx_dma(uint8_t *tx_buf, uint16_t len)
   return 1;
 }
 
-int spi_stream_txrx_dma(uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len)
-{
-  HAL_StatusTypeDef status;
+// int spi_stream_txrx_dma(uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len)
+// {
+//   HAL_StatusTypeDef status;
 
-  if ((tx_buf == NULL) || (rx_buf == NULL) || (len == 0u)) {
-      return 0;
-  }
+//   if ((tx_buf == NULL) || (rx_buf == NULL) || (len == 0u)) {
+//       return 0;
+//   }
 
-  while (spi_dma_busy) {
-    usb_printf("%s", "SPI DMA busy, waiting...\r\n");
-    HAL_Delay(10);
-  }
-  // if (spi_dma_busy) {
-  //     return 0;
-  // }
+//   while (spi_dma_busy) {
+//     usb_printf("%s", "SPI DMA busy, waiting...\r\n");
+//     HAL_Delay(10);
+//   }
+//   // if (spi_dma_busy) {
+//   //     return 0;
+//   // }
 
-  const uint8_t buf_index = spi_fill_buf;
-  spi_active_buf = buf_index;
-  spi_fill_buf ^= 1u;
+//   const uint8_t buf_index = spi_fill_buf;
+//   spi_active_buf = buf_index;
+//   spi_fill_buf ^= 1u;
 
-  spi_dma_busy  = 1u;
-  spi_dma_done  = 0u;
-  spi_dma_error = 0u;
-  spi_dma_len   = len;
+//   spi_dma_busy  = 1u;
+//   spi_dma_done  = 0u;
+//   spi_dma_error = 0u;
+//   spi_dma_len   = len;
 
-  usb_printf("Starting SPI TxRx DMA: len=%u\r\n", (unsigned)len);
-  status = HAL_SPI_TransmitReceive_DMA(&hspi4, tx_buf, rx_buf, len);
+//   usb_printf("Starting SPI TxRx DMA: len=%u\r\n", (unsigned)len);
+//   status = HAL_SPI_TransmitReceive_DMA(&hspi4, tx_buf, rx_buf, len);
 
-  if (status != HAL_OK) {
-      spi_dma_busy = 0u;
-      return 0;
-  }
+//   if (status != HAL_OK) {
+//       spi_dma_busy = 0u;
+//       return 0;
+//   }
 
-  // usb_printf("TX CNDTR=%lu RX CNDTR=%lu\r\n",
-  //            (unsigned long)hspi4.hdmatx->Instance->CNDTR,
-  //            (unsigned long)hspi4.hdmarx->Instance->CNDTR);
+//   // usb_printf("TX CNDTR=%lu RX CNDTR=%lu\r\n",
+//   //            (unsigned long)hspi4.hdmatx->Instance->CNDTR,
+//   //            (unsigned long)hspi4.hdmarx->Instance->CNDTR);
 
-  // HAL_Delay(1000);
+//   // HAL_Delay(1000);
 
-  // usb_printf("TX CNDTR=%lu RX CNDTR=%lu\r\n",
-  //            (unsigned long)hspi4.hdmatx->Instance->CNDTR,
-  //            (unsigned long)hspi4.hdmarx->Instance->CNDTR);
+//   // usb_printf("TX CNDTR=%lu RX CNDTR=%lu\r\n",
+//   //            (unsigned long)hspi4.hdmatx->Instance->CNDTR,
+//   //            (unsigned long)hspi4.hdmarx->Instance->CNDTR);
 
-  return 1;
-}
+//   return 1;
+// }
 
  void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
