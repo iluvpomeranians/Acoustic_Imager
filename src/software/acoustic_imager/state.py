@@ -81,6 +81,9 @@ class ButtonState:
     email_password_visible: bool = False  # show password characters (eye toggle)
     email_test_status: str = ""          # "" | "sending" | "ok" | "error"
     email_test_message: str = ""         # short message for UI (e.g. "Sent!" or error)
+    firmware_flash_modal_open: bool = False
+    firmware_flash_version: str = "v1.0.0"   # placeholder; set when flashing starts
+    firmware_flash_status: str = ""   # "" | "flashing" | "success" | "error"
     gain_mode: str = "LOW"     # placeholder toggle
     debug_enabled: bool = True
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
