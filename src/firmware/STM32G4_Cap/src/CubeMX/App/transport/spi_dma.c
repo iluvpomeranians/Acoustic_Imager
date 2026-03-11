@@ -91,6 +91,9 @@ int spi_stream_tx_dma(uint8_t *tx_buf, uint16_t len)
   spi_dma_error = 0u;
   spi_dma_len = len;
 
+  // Set MCU_STATUS pin to HIGH
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_SET);
+  
   status = HAL_SPI_Transmit_DMA(&hspi4, tx_buf, len);
 
   if (status != HAL_OK) {
@@ -106,7 +109,7 @@ int spi_stream_txrx_dma(uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len)
   HAL_StatusTypeDef status;
 
   if ((tx_buf == NULL) || (rx_buf == NULL) || (len == 0u)) {
-      return 0;
+    return 0;
   }
 
   while (spi_dma_busy) {
@@ -127,11 +130,15 @@ int spi_stream_txrx_dma(uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len)
   spi_dma_len   = len;
 
   usb_printf("Starting SPI TxRx DMA: len=%u\r\n", (unsigned)len);
+
+  // Set MCU_STATUS pin to HIGH
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_SET);
+
   status = HAL_SPI_TransmitReceive_DMA(&hspi4, tx_buf, rx_buf, len);
 
   if (status != HAL_OK) {
-      spi_dma_busy = 0u;
-      return 0;
+    spi_dma_busy = 0u;
+    return 0;
   }
 
   // usb_printf("TX CNDTR=%lu RX CNDTR=%lu\r\n",
@@ -157,6 +164,9 @@ int spi_stream_txrx_dma(uint8_t *tx_buf, uint8_t *rx_buf, uint16_t len)
   /* DMA transfer completed successfully */
   spi_dma_busy  = 0u;
   spi_dma_done  = 1u;
+
+  // Reset MCU_STATUS pin to LOW
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_RESET);
 }
 
 
@@ -167,9 +177,12 @@ void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)
       return;
   }
 
-  usb_printf("%s", "SPI Tx DMA complete callback\r\n");
+  // usb_printf("%s", "SPI Tx DMA complete callback\r\n");
   spi_dma_busy  = 0u;
   spi_dma_done  = 1u;
+
+  // Reset MCU_STATUS pin to LOW
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_0, GPIO_PIN_RESET);
 }
 
 

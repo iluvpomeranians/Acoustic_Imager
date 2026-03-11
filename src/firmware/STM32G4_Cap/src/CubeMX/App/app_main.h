@@ -36,6 +36,11 @@ extern "C" {
 #define BATT_DIVIDER_NUMERATOR 1u
 #define BATT_DIVIDER_DENOMINATOR 1u
 
+// Float print helper macros
+#define PRINT_F1(x) ((int)((x) * 10.0f) / 10),  ((int)((x) * 10.0f) % 10)
+#define PRINT_F2(x) ((int)((x) * 100.0f) / 100), ((int)((x) * 100.0f) % 100)
+#define PRINT_F3(x) ((int)((x) * 1000.0f) / 1000), ((int)((x) * 1000.0f) % 1000)
+
 /* =========================================================================
  * TYPE DEFINITIONS
  * ========================================================================= */

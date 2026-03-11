@@ -507,12 +507,23 @@ void spi_loopback_unit_test2(void)
   /* ------------------------------------------------------------------ */
   /* 5) Optional payload sanity check                                   */
   /* ------------------------------------------------------------------ */
-  const float *rx_payload = (const float *)(rx_buf + sizeof(SPI_FrameHeader_t));
+  const uint8_t *rx_payload = rx_buf + sizeof(SPI_FrameHeader_t);
+  size_t mic_stride_bytes = fft_size * sizeof(float);
+
+  float mic0_bin0  = read_f32_le(rx_payload + 0u  * mic_stride_bytes);
+  float mic1_bin0  = read_f32_le(rx_payload + 1u  * mic_stride_bytes);
+  float mic15_bin0 = read_f32_le(rx_payload + 15u * mic_stride_bytes);
 
   usb_printf("Payload spot-check:\r\n");
-  usb_printf("mic0[0]   = %d.%02d\r\n", PRINT_F2(rx_payload[0]));
-  usb_printf("mic1[0]   = %d.%02d\r\n", PRINT_F2(rx_payload[fft_size]));
-  usb_printf("mic15[0]  = %d.%02d\r\n", PRINT_F2(rx_payload[15u * fft_size]));
+
+  usb_printf("mic0[0]   = %d.%02d (expected 0.25)\r\n",
+            PRINT_F2(mic0_bin0));
+
+  usb_printf("mic1[0]   = %d.%02d (expected 1000.25)\r\n",
+            PRINT_F2(mic1_bin0));
+
+  usb_printf("mic15[0]  = %d.%02d (expected 15000.25)\r\n",
+            PRINT_F2(mic15_bin0));
 
   usb_printf("=== END LOOPBACK TEST ===\r\n");
 }
