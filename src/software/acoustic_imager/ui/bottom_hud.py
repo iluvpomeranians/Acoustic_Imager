@@ -50,7 +50,6 @@ STOP_PILL_BG: Tuple[int, int, int] = (0, 0, 200)       # red
 RESUME_PILL_BORDER: Tuple[int, int, int] = (0, 220, 255)
 STOP_PILL_BORDER: Tuple[int, int, int] = (0, 0, 255)
 
-
 def _draw_pill_tint(
     frame: np.ndarray, x: int, y: int, w: int, h: int,
     tint_bgr: Tuple[int, int, int], border_bgr: Tuple[int, int, int], alpha: float = 0.5,
@@ -230,3 +229,4 @@ def draw_bottom_hud(
         gpatch = cv2.GaussianBlur(gpatch, (0, 0), 2.0)
         feathered_composite(frame, gy0, gy1, gx0, gx1, gpatch, ACTION_BTN_GLOW * 0.6, feather_px=8)
     cv2.putText(frame, "GALLERY", (gal_tx, gal_ty), font, 0.48, (255, 255, 255), 1, cv2.LINE_AA)
+

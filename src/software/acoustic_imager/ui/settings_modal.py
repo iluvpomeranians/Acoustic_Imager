@@ -11,6 +11,7 @@ import numpy as np
 
 from .button import menu_buttons, Button
 from . import ui_cache
+from .. import state
 from ..state import HUD, button_state
 from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
@@ -55,17 +56,19 @@ def _draw_toggle(frame: np.ndarray, x: int, y: int, w: int, h: int, on: bool) ->
     cv2.circle(frame, (knob_x, knob_y), knob_r, (160, 160, 160), 1, cv2.LINE_AA)
 
 
-CONTENT_BOTTOM_PAD = 50  # extra space below Email Settings so it scrolls fully into view
+CONTENT_BOTTOM_PAD = 50  # extra space below last button so it scrolls fully into view
+# Flash Firmware button (red, below Email Settings)
+FLASH_FIRMWARE_BTN_H = 44
 
 
 def _compute_content_height() -> int:
     """Total height of scrollable content (must match actual drawn layout)."""
     # Display: label + gap + 3 toggles + gap + heatmap label + gap + color row + section_gap
     display_h = 20 + ITEM_GAP + 3 * (ROW_H + ITEM_GAP) + 6 + ROW_H + ITEM_GAP + (ROW_H - 4) + SECTION_GAP  # 6 = reduced gap before heatmap
-    # Divider + Advanced: section_gap + label + gap + Debug + section_gap
-    advanced_h = SECTION_GAP + 20 + ITEM_GAP + ROW_H + SECTION_GAP
-    # Divider + Share: section_gap + label + gap + email button + bottom padding
-    share_h = SECTION_GAP + 20 + ITEM_GAP + 44 + CONTENT_BOTTOM_PAD
+    # Divider + Advanced: section_gap + label + gap + Debug + Radar + Map Tiles + Position Services + Record History + Show Radar Debug + section_gap
+    advanced_h = SECTION_GAP + 20 + ITEM_GAP + 6 * (ROW_H + ITEM_GAP) + SECTION_GAP
+    # Divider + Share: section_gap + label + gap + email button + gap + flash label + gap + flash button + bottom padding
+    share_h = SECTION_GAP + 20 + ITEM_GAP + 44 + ITEM_GAP + 20 + ITEM_GAP + FLASH_FIRMWARE_BTN_H + CONTENT_BOTTOM_PAD
     return display_h + advanced_h + share_h
 
 
@@ -86,7 +89,8 @@ def _update_settings_button_positions(
     color_btn_w = (row_w - 3 * ITEM_GAP) // 4
     email_h = 44
     # Content y positions (must match _build_settings_content layout)
-    y_cam, y_cross, y_color, y_debug, y_email = 34, 90, 208, 314, 432
+    y_cam, y_cross, y_color, y_debug, y_radar, y_mapstyle, y_possvc, y_record, y_radar_dbg, y_email = 34, 90, 208, 314, 370, 426, 482, 538, 594, 712
+    y_flash = y_email + email_h + ITEM_GAP + 20 + ITEM_GAP  # after "Update to latest firmware" label
     if "settings_cam" in menu_buttons:
         b = menu_buttons["settings_cam"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_cam - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
@@ -103,12 +107,31 @@ def _update_settings_button_positions(
     if "settings_debug" in menu_buttons:
         b = menu_buttons["settings_debug"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_debug - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_radar_ui" in menu_buttons:
+        b = menu_buttons["settings_radar_ui"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_radar - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_position_services" in menu_buttons:
+        b = menu_buttons["settings_position_services"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_possvc - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_map_style" in menu_buttons:
+        b = menu_buttons["settings_map_style"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_mapstyle - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_record_compass_history" in menu_buttons:
+        b = menu_buttons["settings_record_compass_history"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_record - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_show_radar_debug" in menu_buttons:
+        b = menu_buttons["settings_show_radar_debug"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_radar_dbg - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
     if "settings_email" in menu_buttons:
         b = menu_buttons["settings_email"]
         b.x = row_x - EMAIL_BTN_HIT_PAD_X
         b.y = (content_top + y_email - scroll_offset) - EMAIL_BTN_HIT_PAD_Y
         b.w = row_w + 2 * EMAIL_BTN_HIT_PAD_X
         b.h = email_h + 2 * EMAIL_BTN_HIT_PAD_Y
+    if "settings_flash_firmware" in menu_buttons:
+        b = menu_buttons["settings_flash_firmware"]
+        b.x, b.y = row_x, content_top + y_flash - scroll_offset
+        b.w, b.h = row_w, FLASH_FIRMWARE_BTN_H
 
 
 def _build_settings_content(
@@ -123,11 +146,14 @@ def _build_settings_content(
     y = 0
     pad = CONTENT_PAD
 
-    def _toggle_row(canvas: np.ndarray, label: str, on: bool, key: str, y_pos: int) -> int:
-        cv2.putText(canvas, label, (0, y_pos + ROW_H // 2 + 6), font, 0.50, text_color, 1, cv2.LINE_AA)
+    def _toggle_row(
+        canvas: np.ndarray, label: str, on: bool, key: str, y_pos: int, disabled: bool = False
+    ) -> int:
+        color = (120, 120, 120) if disabled else text_color
+        cv2.putText(canvas, label, (0, y_pos + ROW_H // 2 + 6), font, 0.50, color, 1, cv2.LINE_AA)
         toggle_x = row_w - TOGGLE_W
         toggle_y = y_pos + (ROW_H - TOGGLE_H) // 2
-        _draw_toggle(canvas, toggle_x, toggle_y, TOGGLE_W, TOGGLE_H, on)
+        _draw_toggle(canvas, toggle_x, toggle_y, TOGGLE_W, TOGGLE_H, on and not disabled)
         if key not in menu_buttons:
             menu_buttons[key] = Button(0, 0, row_w, ROW_H, "")
         return y_pos + ROW_H + ITEM_GAP
@@ -162,6 +188,36 @@ def _build_settings_content(
     cv2.putText(content_canvas, "Advanced", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
     y += 20 + ITEM_GAP
     y = _toggle_row(content_canvas, "Debug", button_state.debug_enabled, "settings_debug", y)
+    y = _toggle_row(
+        content_canvas,
+        "Radar UI",
+        button_state.radar_ui_enabled,
+        "settings_radar_ui",
+        y,
+        disabled=not state.MAGNETOMETER_AVAILABLE,
+    )
+    y = _toggle_row(
+        content_canvas,
+        "Map Tiles (Dark/Light)",
+        button_state.map_tile_style == "dark",
+        "settings_map_style",
+        y,
+    )
+    y = _toggle_row(content_canvas, "Position Services", button_state.position_services_enabled, "settings_position_services", y)
+    y = _toggle_row(
+        content_canvas,
+        "Record Compass History",
+        button_state.record_compass_history,
+        "settings_record_compass_history",
+        y,
+    )
+    y = _toggle_row(
+        content_canvas,
+        "Show Radar Debug",
+        button_state.show_radar_debug,
+        "settings_show_radar_debug",
+        y,
+    )
     y += SECTION_GAP
     cv2.line(content_canvas, (0, y), (row_w, y), section_color, 1, cv2.LINE_AA)
     y += SECTION_GAP
@@ -173,6 +229,23 @@ def _build_settings_content(
     cv2.putText(content_canvas, "Email Settings", ((row_w - 110) // 2, y + email_h // 2 + 6), font, 0.54, text_color, 1, cv2.LINE_AA)
     if "settings_email" not in menu_buttons:
         menu_buttons["settings_email"] = Button(0, 0, row_w, email_h, "")
+    y += email_h + ITEM_GAP
+
+    # Flash Firmware: grey label then red button
+    cv2.putText(content_canvas, "Update to latest firmware", (0, y + 14), font, 0.50, section_color, 1, cv2.LINE_AA)
+    y += 20 + ITEM_GAP
+
+    # Flash Firmware button (red, below Email Settings)
+    FLASH_BTN_RED = (0, 0, 255)  # BGR red
+    FLASH_BTN_RED_LIGHT = (100, 100, 255)
+    cv2.rectangle(content_canvas, (0, y), (row_w, y + FLASH_FIRMWARE_BTN_H), FLASH_BTN_RED, -1, cv2.LINE_AA)
+    cv2.rectangle(content_canvas, (0, y), (row_w, y + FLASH_FIRMWARE_BTN_H), FLASH_BTN_RED_LIGHT, 1, cv2.LINE_AA)
+    (tw, th), _ = cv2.getTextSize("Flash Firmware", font, 0.54, 1)
+    text_x = (row_w - tw) // 2
+    text_y = y + FLASH_FIRMWARE_BTN_H // 2 + th // 2 + 2
+    cv2.putText(content_canvas, "Flash Firmware", (text_x, text_y), font, 0.54, text_color, 1, cv2.LINE_AA)
+    if "settings_flash_firmware" not in menu_buttons:
+        menu_buttons["settings_flash_firmware"] = Button(0, 0, row_w, FLASH_FIRMWARE_BTN_H, "")
 
 
 def draw_settings_modal(frame: np.ndarray) -> None:
@@ -257,6 +330,11 @@ def draw_settings_modal(frame: np.ndarray) -> None:
         button_state.crosshairs_enabled,
         button_state.colormap_mode,
         button_state.debug_enabled,
+        button_state.radar_ui_enabled,
+        button_state.map_tile_style,
+        button_state.position_services_enabled,
+        button_state.record_compass_history,
+        button_state.show_radar_debug,
     )
     global _settings_content_cache, _settings_content_cache_key, _settings_content_buffer
     cache_hit = _settings_content_cache_key == state_key and _settings_content_cache is not None
@@ -417,7 +495,9 @@ def _hit_any_settings_button(x: int, y: int) -> bool:
     """True if (x,y) hits any interactive button in the modal."""
     for k in (
         "settings_close", "settings_scroll_up", "settings_scroll_down", "settings_scrollbar",
-        "settings_email", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
+        "settings_flash_firmware", "settings_email", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
+        "settings_radar_ui", "settings_map_style", "settings_position_services", "settings_record_compass_history",
+        "settings_show_radar_debug",
     ):
         if k in menu_buttons:
             b = menu_buttons[k]
@@ -463,6 +543,13 @@ def handle_settings_modal_click(x: int, y: int) -> bool:
         HUD.settings_modal_drag_start_scroll = HUD.settings_modal_scroll_offset
         return True
 
+    # Flash Firmware
+    if "settings_flash_firmware" in menu_buttons and menu_buttons["settings_flash_firmware"].contains(x, y):
+        _reset_settings_modal_scroll_state()
+        HUD.settings_modal_open = False
+        button_state.firmware_flash_modal_open = True
+        return True
+
     # Email Settings
     if "settings_email" in menu_buttons and menu_buttons["settings_email"].contains(x, y):
         _reset_settings_modal_scroll_state()
@@ -485,6 +572,22 @@ def handle_settings_modal_click(x: int, y: int) -> bool:
         return True
     if "settings_debug" in menu_buttons and menu_buttons["settings_debug"].contains(x, y):
         button_state.debug_enabled = not button_state.debug_enabled
+        return True
+    if "settings_radar_ui" in menu_buttons and menu_buttons["settings_radar_ui"].contains(x, y):
+        if state.MAGNETOMETER_AVAILABLE:
+            button_state.radar_ui_enabled = not button_state.radar_ui_enabled
+        return True
+    if "settings_map_style" in menu_buttons and menu_buttons["settings_map_style"].contains(x, y):
+        button_state.map_tile_style = "light" if button_state.map_tile_style == "dark" else "dark"
+        return True
+    if "settings_position_services" in menu_buttons and menu_buttons["settings_position_services"].contains(x, y):
+        button_state.position_services_enabled = not button_state.position_services_enabled
+        return True
+    if "settings_record_compass_history" in menu_buttons and menu_buttons["settings_record_compass_history"].contains(x, y):
+        button_state.record_compass_history = not button_state.record_compass_history
+        return True
+    if "settings_show_radar_debug" in menu_buttons and menu_buttons["settings_show_radar_debug"].contains(x, y):
+        button_state.show_radar_debug = not button_state.show_radar_debug
         return True
 
     # Heatmap color selector
