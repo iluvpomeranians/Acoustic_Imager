@@ -80,11 +80,22 @@ The MUSIC summary is the **exact input set** your beamformer expects.
 - **What:** Explicit mapping: `0=U1, 1=U2, … 8=U11, … 15=U19`.
 - **Why it matters:** Ensures that whenever you use `x_coords[i]` / `y_coords[i]` (or the i-th FFT channel), you know which physical mic that is. The same mapping must be used in config, SPI parsing, and MUSIC so that the geometry and the data channels stay aligned.
 
+### 4.4. Other MUSIC-relevant metrics (sanity checks)
+
+The script also prints these so you can cross-check and tune the pipeline:
+
+| Metric | Meaning | Why it matters |
+|--------|--------|----------------|
+| **speed_sound (m/s)** | Speed of sound used in steering vector (`k = 2πf/c`). Matches `config.SPEED_SOUND` (343 m/s). | Must match between array_geometry and config so angles and wavelengths are consistent. |
+| **aperture_radius (m)** | Max distance from array center to any mic. | Drives angular resolution (~λ/aperture). Compare with config’s design aperture if you had one. |
+| **wavelength at 30 kHz (m)** | λ = c/f at a reference frequency (middle of bandpass). Also prints λ/2. | Steering vector uses wavenumber k = 2π/λ. Use λ/2 for spatial Nyquist checks. |
+| **pairwise distances (m)** | Min, max, and mean distance between any two mics. | If **max pairwise distance > λ/2** at your operating frequency, you can get grating lobes (ambiguous angles). Use to sanity-check operating band. |
+
 ---
 
 ## 5. Summary
 
 - **Table:** Documents the full geometry and distances/angles for checking and calibration.
-- **MUSIC summary:** Gives you the drop-in arrays and pitch (and channel order) to drive the beamformer and heatmap with your real array layout.
+- **MUSIC summary:** Gives you the drop-in arrays (`x_coords`, `y_coords`), `pitch`, `speed_sound`, channel order, plus aperture, wavelength (and λ/2), and pairwise distances for sanity checks and tuning.
 
 Keep this file next to `array_geometry.py` and the generated CSV so you can quickly look up column meanings and how the numbers feed into the pipeline.
