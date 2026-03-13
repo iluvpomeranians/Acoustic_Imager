@@ -252,7 +252,7 @@ SPI_DEV = _SPI_DEV
 SPI_MODE = 1
 SPI_BITS = 8
 
-SPI_MAX_SPEED_HZ = 20_000_000  # 20 MHz; stable for full-frame. See utilities/debug/SPI_settings.md for 21.25/30 MHz notes.
+SPI_MAX_SPEED_HZ = 30_000_000
 SPI_XFER_CHUNK = 8192
 
 # Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces)
@@ -281,7 +281,7 @@ CALIBRATION_NOTE = "Camera left, board right, same heading"
 # Per-mic gain correction (length N_MICS): boost weak mics; 1.0 = no change. Use metrics_debug.py --live --write-config to tune.
 SPI_MIC_GAIN = (1.00, 3.03, 12.56, 5.18, 2.62, 9.78, 9.79, 12.94, 2.66, 10.76, 24.53, 10.12, 4.03, 9.67, 12.75, 11.90)
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
-SPI_ARRAY_GAIN = 2.0
+SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
 SPI_TOP_K_BINS = 4
 # Only bins within this many dB of peak (in bandpass) are eligible for heatmap; lower = stricter, less noisy
