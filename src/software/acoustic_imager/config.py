@@ -9,6 +9,7 @@ Default source on startup is HW.
 
 from __future__ import annotations
 
+import os
 import struct
 import numpy as np
 
@@ -107,12 +108,35 @@ F_MAX_HZ_DEFAULT = 35000.0
 
 # Radar / position (branch-specific: state.py imports these)
 RADAR_UI_DEFAULT = False
-POSITION_SERVICES_DEFAULT = False
+POSITION_SERVICES_DEFAULT = True
 RADAR_MAP_TILE_STYLE_DEFAULT = "dark"   # "dark" | "light"
 DIRECTIONAL_HISTORY_RECORD_DEFAULT = False
 RADAR_DEBUG_OVERLAY_DEFAULT = False
 # Circular radar widget diameter (px)
 RADAR_MAP_DIAMETER_PX = 200
+# Tile URLs for radar map (use {z},{x},{y} in URL)
+RADAR_MAP_TILE_URL_LIGHT = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+RADAR_MAP_TILE_URL_DARK = "https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png"
+# Brightness multiplier for tiles (1.0 = unchanged). Dark tiles use higher value so they appear brighter than light.
+RADAR_MAP_BRIGHTNESS_LIGHT = 1.0
+RADAR_MAP_BRIGHTNESS_DARK = 3.25
+
+# Wi-Fi geolocation (Google Geolocation API). Env WIFI_GEO_API_KEY, or file ~/.config/acoustic-imager/wifi_geo_api_key (one line).
+def _load_wifi_geo_api_key() -> str:
+    key = (os.environ.get("WIFI_GEO_API_KEY", "") or "").strip()
+    if key:
+        return key
+    path = os.path.expanduser("~/.config/acoustic-imager/wifi_geo_api_key")
+    try:
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                return (f.readline() or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+WIFI_GEO_API_KEY = _load_wifi_geo_api_key()
 
 # Magnetometer (compass) — main.py uses these for MagnetometerReader
 MAG_UART_DEVICE = "/dev/ttyS0"
