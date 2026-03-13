@@ -3,9 +3,9 @@
 Heatmap pipeline debug: live-data sanity check and unit tests for noise floor, level scale, etc.
 
 Usage (from repo root; for --live, stop the acoustic imager first):
-  python3 utilities/debug/heatmap_pipeline_debug.py --unit
-  python3 utilities/debug/heatmap_pipeline_debug.py --live
-  python3 utilities/debug/heatmap_pipeline_debug.py --live --frames 20 --sec 3
+  python3 utilities/calibration/heatmap_pipeline_debug.py --unit
+  python3 utilities/calibration/heatmap_pipeline_debug.py --live
+  python3 utilities/calibration/heatmap_pipeline_debug.py --live --frames 20 --sec 3
 
 SPI clock: config.SPI_MAX_SPEED_HZ is 21.25 MHz. Raising to 30 MHz may be possible if
 the STM32 and wiring support it; overclocking can cause marginal timing, CRC errors, or
@@ -142,6 +142,24 @@ def test_contrast_stretch_clips() -> None:
         assert stretched.max() <= 255 and stretched.min() >= 0
 
 
+def test_hw_geometry_present() -> None:
+    """Config must define x_coords_hw and y_coords_hw (measured array geometry) with length N_MICS."""
+    if config is None:
+        raise RuntimeError("config not available")
+    assert hasattr(config, "x_coords_hw"), "config missing x_coords_hw (HW geometry)"
+    assert hasattr(config, "y_coords_hw"), "config missing y_coords_hw (HW geometry)"
+    assert len(config.x_coords_hw) == config.N_MICS, (
+        f"x_coords_hw length {len(config.x_coords_hw)} != config.N_MICS ({config.N_MICS})"
+    )
+    assert len(config.y_coords_hw) == config.N_MICS, (
+        f"y_coords_hw length {len(config.y_coords_hw)} != config.N_MICS ({config.N_MICS})"
+    )
+    # Sanity: positions in meters, typical aperture ~0.05–0.15 m
+    assert np.all(np.isfinite(config.x_coords_hw)) and np.all(np.isfinite(config.y_coords_hw)), (
+        "x_coords_hw / y_coords_hw must be finite"
+    )
+
+
 def run_unit_tests() -> Tuple[int, int]:
     """Run unit tests; return (passed, failed)."""
     tests = [
@@ -149,6 +167,7 @@ def run_unit_tests() -> Tuple[int, int]:
         test_top_k_respects_k,
         test_level_scale_in_range,
         test_contrast_stretch_clips,
+        test_hw_geometry_present,
     ]
     passed = failed = 0
     for t in tests:
@@ -176,7 +195,7 @@ def main() -> int:
         return 0
 
     if args.unit:
-        print("Unit tests (noise floor, top-K, level scale, contrast stretch):")
+        print("Unit tests (noise floor, top-K, level scale, contrast stretch, HW geometry):")
         passed, failed = run_unit_tests()
         print(f"  Result: {passed} passed, {failed} failed")
         if failed:
