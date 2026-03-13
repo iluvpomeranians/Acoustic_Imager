@@ -57,7 +57,11 @@ def spectra_to_heatmap_absolute(
 
     cx_all = (peak_idx.astype(np.float32) * (w - 1) / max(1, (Nang - 1))).astype(np.int32)
     cx_all = np.clip(cx_all, 0, w - 1)
-    cy = h // 2
+    if Nsrc == 1:
+        cy_all = np.array([h // 2], dtype=np.int32)
+    else:
+        cy_all = np.round(np.arange(Nsrc, dtype=np.float32) * (h - 1) / max(1, Nsrc - 1)).astype(np.int32)
+        cy_all = np.clip(cy_all, 0, h - 1)
 
     base_radius = 60.0
 
@@ -67,6 +71,7 @@ def spectra_to_heatmap_absolute(
             continue
 
         cx = int(cx_all[i])
+        cy = int(cy_all[i])
 
         blob_radius = base_radius * (0.7 + 0.3 * float(sharp[i]))
         sigma = blob_radius / 1.8
