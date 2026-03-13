@@ -122,6 +122,10 @@ void usb_cdc_smoke_test() {
 void app_init(void) {
   // Initialize FFT instance (precompute twiddle factors, etc.)
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
+  
+  // Initialize FFT performance measurement
+  init_fft_performance_measurement();
+  
   spi_stream_init(&spi_stream_ctx);
 }
 
@@ -171,6 +175,10 @@ void app_loop(void) {
   if (_print_counter++ >= 1000) {
     _print_counter = 0;
     usb_printf("Main loop heartbeat\r\n");
+    
+    // Report FFT performance
+    usb_printf("FFT Avg Cycles: %d.%02d\r\n", PRINT_F2(get_fft_avg_cycles()));
+    usb_printf("FFT Last Cycles: %d.%02d\r\n", PRINT_F2(get_fft_last_cycles()));
   }
   __disable_irq();
   adc_pending_mask |= adc_ready_mask;
