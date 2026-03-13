@@ -31,6 +31,12 @@ REF_FREQ_HZ = 30000.0  # reference for wavelength (middle of typical bandpass)
 
 OUTPUT_CSV = Path(__file__).resolve().parent / "array_geometry.csv"
 
+# Packed RFFT layout (one mic): matches firmware / unpack_packed_rfft_to_complex in spi_protocol.py
+FFT_FRAME_SIZE = 512
+FFT_HALF = 256
+FFT_N_BINS = FFT_HALF + 1  # 257
+# float array layout: fft_data[0]=Re(DC), fft_data[1]=Re(Nyquist); for i=1..255: fft_data[2*i]=Re(bin i), fft_data[2*i+1]=Im(bin i)
+
 # ===============================================================
 # 2. Raw measurement data (FreeCAD)
 # ===============================================================
@@ -38,9 +44,7 @@ OUTPUT_CSV = Path(__file__).resolve().parent / "array_geometry.csv"
 ARRAY_CENTER_TO_CAMERA_MM = (47.05, 32.80, 8.64)
 ARRAY_CENTER_TO_CAMERA_DIST_MM = 58.00
 
-# Mics: (label, min_dist_mm, x_mm, y_mm, z_mm) in channel order; x,y,z = from camera to mic
-# Channel order: 0=U1, 1=U2, 2=U3, 3=U4, 4=U6, 5=U7, 6=U8, 7=U9, 8=U11, 9=U12,
-#                10=U13, 11=U14, 12=U16, 13=U17, 14=U18, 15=U19
+# Mics: (label, min_dist_mm, x_mm, y_mm, z_mm); x,y,z = from camera to mic (source of truth for measurements)
 MICS_RAW = [
     ("U1", 51.86, 45.00, 24.30, 8.64),
     ("U2", 37.61, 23.10, 28.40, 8.64),
@@ -60,6 +64,33 @@ MICS_RAW = [
     ("U19", 63.75, 50.60, 37.80, 8.64),
 ]
 
+# Payload index -> physical mic (firmware/SPI order; fft_data[row, :] = payload[row])
+# Used to build x_coords/y_coords in payload order so MUSIC aligns with SPI.
+PAYLOAD_TO_MIC = (
+    "U3", "U2", "U1", "U4", "U8", "U6", "U9", "U7",
+    "U18", "U16", "U19", "U17", "U13", "U12", "U11", "U14",
+)
+
+# Payload index -> (adc_ch, pin, mic_label) for table/reference
+PAYLOAD_ADC_PIN_MIC = (
+    (0, "ADC1 ch1 PA0", "U3"),
+    (1, "ADC1 ch2 PA1", "U2"),
+    (2, "ADC1 ch3 PA2", "U1"),
+    (3, "ADC1 ch4 PA3", "U4"),
+    (4, "ADC2 ch3 PA6", "U8"),
+    (5, "ADC2 ch4 PA7", "U6"),
+    (6, "ADC2 ch5 PC4", "U9"),
+    (7, "ADC2 ch6 PC0", "U7"),
+    (8, "ADC3 ch1 PB1", "U18"),
+    (9, "ADC3 ch2 PE9", "U16"),
+    (10, "ADC3 ch3 PE13", "U19"),
+    (11, "ADC3 ch4 PE7", "U17"),
+    (12, "ADC4 ch1 PE14", "U13"),
+    (13, "ADC4 ch2 PE15", "U12"),
+    (14, "ADC4 ch3 PB12", "U11"),
+    (15, "ADC4 ch4 PB14", "U14"),
+)
+
 
 def _to_array_center_xy(x_cam_mm: float, y_cam_mm: float) -> tuple[float, float]:
     """Convert camera-frame (from camera to point) to array-center frame XY (mm)."""
@@ -73,46 +104,52 @@ def _flip_180(x_mm: float, y_mm: float) -> tuple[float, float]:
 
 
 # ===============================================================
-# 3. Geometry setup (measured array, flipped frame)
+# 3. Geometry setup (measured array, flipped frame, payload order)
 # ===============================================================
 # Camera in array-center frame then flipped
 _cam_center_x = ARRAY_CENTER_TO_CAMERA_MM[0]
 _cam_center_y = ARRAY_CENTER_TO_CAMERA_MM[1]
 cam_fx, cam_fy = _flip_180(_cam_center_x, _cam_center_y)
 
-x_mm_list: list[float] = []
-y_mm_list: list[float] = []
-geometry_table: list[dict] = []
-
-for ch, (label, min_dist_mm, x_cam, y_cam, z_cam) in enumerate(MICS_RAW):
+# Build per-mic lookup from MICS_RAW (label -> computed row)
+_mics_by_label: dict[str, dict] = {}
+for label, min_dist_mm, x_cam, y_cam, z_cam in MICS_RAW:
     x_center, y_center = _to_array_center_xy(x_cam, y_cam)
     x_f, y_f = _flip_180(x_center, y_center)
-
-    x_mm_list.append(x_f)
-    y_mm_list.append(y_f)
-
     dist_to_camera_mm = math.hypot(x_cam, y_cam, z_cam)
     dist_to_center_mm = math.hypot(x_center, y_center)
     azimuth_deg = math.degrees(math.atan2(y_f, x_f))
     x_m = x_f / 1000.0
     y_m = y_f / 1000.0
-
-    geometry_table.append({
-        "channel_index": ch,
+    _mics_by_label[label] = {
         "mic_label": label,
         "x_mm": round(x_f, 2),
         "y_mm": round(y_f, 2),
+        "x_mm_raw": x_f,
+        "y_mm_raw": y_f,
         "x_m": x_m,
         "y_m": y_m,
         "dist_to_camera_mm": round(dist_to_camera_mm, 2),
         "dist_to_center_mm": round(dist_to_center_mm, 2),
         "azimuth_deg": round(azimuth_deg, 2),
         "min_dist_mm": min_dist_mm,
-    })
+    }
 
-# Arrays in meters (same names as config.py for drop-in use)
-x_coords = np.array([r["x_m"] for r in geometry_table], dtype=np.float64)
-y_coords = np.array([r["y_m"] for r in geometry_table], dtype=np.float64)
+# Build geometry_table, x_coords, y_coords, x_mm_list, y_mm_list in payload order
+# so index i = payload index i (matches fft_data[row, :] from SPI).
+geometry_table = []
+for payload_idx in range(N_MICS):
+    mic = PAYLOAD_TO_MIC[payload_idx]
+    row = {k: v for k, v in _mics_by_label[mic].items() if k not in ("x_mm_raw", "y_mm_raw")}
+    row["payload_index"] = payload_idx
+    geometry_table.append(row)
+
+x_mm_list = [_mics_by_label[PAYLOAD_TO_MIC[i]]["x_mm_raw"] for i in range(N_MICS)]
+y_mm_list = [_mics_by_label[PAYLOAD_TO_MIC[i]]["y_mm_raw"] for i in range(N_MICS)]
+
+# Arrays in meters, payload order (same names as config.py for drop-in use)
+x_coords = np.array([_mics_by_label[PAYLOAD_TO_MIC[i]]["x_m"] for i in range(N_MICS)], dtype=np.float64)
+y_coords = np.array([_mics_by_label[PAYLOAD_TO_MIC[i]]["y_m"] for i in range(N_MICS)], dtype=np.float64)
 
 # Pitch: mean radial spacing (m), used by ESPRIT
 radii = sorted(set(round(math.hypot(x, y), 6) for x, y in zip(x_mm_list, y_mm_list)))
@@ -133,6 +170,14 @@ for i in range(N_MICS):
 min_pair_m = min(pair_dists) if pair_dists else 0.0
 max_pair_m = max(pair_dists) if pair_dists else 0.0
 mean_pair_m = sum(pair_dists) / len(pair_dists) if pair_dists else 0.0
+
+# ===============================================================
+# 4. FFT packed layout (reference only)
+# ===============================================================
+# Per-mic payload from firmware: FRAME_SIZE=512 floats, half=256.
+# Layout: fft_data[0]=Re(DC bin 0), fft_data[1]=Re(Nyquist bin 256);
+# for i=1..255: fft_data[2*i]=Re(bin i), fft_data[2*i+1]=Im(bin i).
+# Implemented in acoustic_imager.spi.spi_protocol.unpack_packed_rfft_to_complex.
 
 
 def run() -> None:
@@ -157,7 +202,7 @@ def run() -> None:
     ax.plot(disp_cam_x, disp_cam_y, "k^", markersize=12, label="Camera", zorder=5)
     ax.annotate("Camera", (disp_cam_x, disp_cam_y), xytext=(5, -5), textcoords="offset points", fontsize=9)
 
-    for (label, _, _, _, _), (dx, dy) in zip(MICS_RAW, zip(disp_mic_x, disp_mic_y)):
+    for label, (dx, dy) in zip(PAYLOAD_TO_MIC, zip(disp_mic_x, disp_mic_y)):
         ax.plot(dx, dy, "o", color="C0", markersize=6, zorder=3)
         ax.annotate(label, (dx, dy), xytext=(3, 3), textcoords="offset points", fontsize=8)
 
@@ -167,14 +212,14 @@ def run() -> None:
     plt.show()
 
     # ---- Table to stdout ----
-    print("TABLE (flipped frame, array center = origin)")
-    print("-" * 100)
-    header = "ch  label   x_mm    y_mm    x_m      y_m      dist_cam_mm  dist_center_mm  azimuth_deg  min_dist_mm"
+    print("TABLE (flipped frame, array center = origin; row index = payload index)")
+    print("-" * 110)
+    header = "pay  label   x_mm    y_mm    x_m      y_m      dist_cam_mm  dist_center_mm  azimuth_deg  min_dist_mm"
     print(header)
-    print("-" * 100)
+    print("-" * 110)
     for r in geometry_table:
         print(
-            f"{r['channel_index']:2}   {r['mic_label']:<6} "
+            f"{r['payload_index']:2}   {r['mic_label']:<6} "
             f"{r['x_mm']:7.2f} {r['y_mm']:7.2f} "
             f"{r['x_m']:.6f} {r['y_m']:.6f} "
             f"{r['dist_to_camera_mm']:12.2f} {r['dist_to_center_mm']:15.2f} "
@@ -187,7 +232,7 @@ def run() -> None:
         w = csv.DictWriter(
             f,
             fieldnames=[
-                "channel_index", "mic_label", "x_mm", "y_mm", "x_m", "y_m",
+                "payload_index", "mic_label", "x_mm", "y_mm", "x_m", "y_m",
                 "dist_to_camera_mm", "dist_to_center_mm", "azimuth_deg", "min_dist_mm",
             ],
         )
@@ -199,8 +244,8 @@ def run() -> None:
     # ---- MUSIC-ready summary ----
     print("MUSIC-ready summary (use in config/beamforming)")
     print("-" * 60)
-    print("Channel order: 0=U1, 1=U2, 2=U3, 3=U4, 4=U6, 5=U7, 6=U8, 7=U9,")
-    print("               8=U11, 9=U12, 10=U13, 11=U14, 12=U16, 13=U17, 14=U18, 15=U19")
+    print("Payload order (row index = payload index): 0=U3, 1=U2, 2=U1, 3=U4, 4=U8, 5=U6, 6=U9, 7=U7,")
+    print("                                           8=U18, 9=U16, 10=U19, 11=U17, 12=U13, 13=U12, 14=U11, 15=U14")
     print()
     print("x_coords (m) = np.array([")
     print("    " + ", ".join(f"{x:.6f}" for x in x_coords))
