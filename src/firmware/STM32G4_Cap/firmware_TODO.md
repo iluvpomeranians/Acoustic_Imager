@@ -3,6 +3,8 @@
 **Priority 0**
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
    -> Yep — you’re thinking of the ARM DWT cycle counter, usually accessed through DWT->CYCCNT.
+- [ ] Fix USB CDC freeze issue (change usb_printf to non-blocking)
+
 **Priority 1**
 - [ ] **APP unit testing**
 - [ ] Test app_read_battery_millivolts(void) (when we have battery)
