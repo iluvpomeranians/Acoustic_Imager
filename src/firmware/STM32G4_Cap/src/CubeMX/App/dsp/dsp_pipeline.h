@@ -23,6 +23,9 @@ extern "C" {
 /* FFT Performance Measurement */
 #define FFT_PERF_BETA 0.1f
 
+/* FFT Bin Averaging (EMA) */
+#define FFT_BIN_AVG_BETA 0.1f
+
 /* =========================================================================
  * TYPE DEFINITIONS
  * ======================================================================== */
@@ -45,6 +48,9 @@ void process_adc_pipeline(arm_rfft_fast_instance_f32 *fft_instance,
 void init_fft_performance_measurement(void);
 float get_fft_avg_cycles(void);
 float get_fft_last_cycles(void);
+
+/* FFT bin averaging (element-wise EMA across windows) */
+void update_fft_bin_average(float *avg, const float *new_data, uint32_t length, float beta);
 
 #ifdef __cplusplus
 }

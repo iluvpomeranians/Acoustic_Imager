@@ -52,6 +52,7 @@ static uint16_t adc3_buf[ADC_DMA_BUF_SIZE];
 static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
 static float mic_fft_buffer[FRAME_SIZE];
+static float fft_avg[N_MICS][FRAME_SIZE];
 
 // TODO: Test buffer for raw FFT output magnitude calcs, delete or pre-processor guard
 static float mag_buffer[FRAME_SIZE/2 + 1];
@@ -302,6 +303,11 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
                                    active_half,
                                    channel,
                                    mic_fft_buffer);
+
+      {
+        uint8_t mic_idx = adc * N_CH_PER_ADC + channel;
+        update_fft_bin_average(fft_avg[mic_idx], mic_fft_buffer, FRAME_SIZE, FFT_BIN_AVG_BETA);
+      }
       
       // if (_print_counter++ == 100) {
       // _print_counter = 0;

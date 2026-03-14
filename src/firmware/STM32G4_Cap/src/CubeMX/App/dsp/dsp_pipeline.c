@@ -202,6 +202,13 @@ float get_fft_last_cycles(void)
   return fft_last_cycles;
 }
 
+void update_fft_bin_average(float *avg, const float *new_data, uint32_t length, float beta)
+{
+  for (uint32_t i = 0; i < length; i++) {
+    avg[i] = avg[i] + beta * (new_data[i] - avg[i]);
+  }
+}
+
 static void pack_rfft_complex_bins(const float *packed_fft,
                                    float *complex_output,
                                    uint32_t fft_size)
