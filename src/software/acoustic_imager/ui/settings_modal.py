@@ -550,6 +550,13 @@ def handle_settings_modal_click(x: int, y: int) -> bool:
         button_state.firmware_flash_modal_open = True
         return True
 
+    # Flash Firmware
+    if "settings_flash_firmware" in menu_buttons and menu_buttons["settings_flash_firmware"].contains(x, y):
+        _reset_settings_modal_scroll_state()
+        HUD.settings_modal_open = False
+        button_state.firmware_flash_modal_open = True
+        return True
+
     # Email Settings
     if "settings_email" in menu_buttons and menu_buttons["settings_email"].contains(x, y):
         _reset_settings_modal_scroll_state()

@@ -23,6 +23,17 @@ except ImportError:
 from .. import config
 from ..state import HUD
 
+# #region agent log
+DEBUG_LOG_PATH = "/home/acousticgod/Capstone_490_Software/.cursor/debug-2bfbda.log"
+def _debug_log(location: str, message: str, data: dict, hypothesis_id: str = "") -> None:
+    import json
+    try:
+        with open(DEBUG_LOG_PATH, "a") as f:
+            f.write(json.dumps({"sessionId": "2bfbda", "timestamp": int(time.time() * 1000), "location": location, "message": message, "data": data, "hypothesisId": hypothesis_id}) + "\n")
+    except Exception:
+        pass
+# #endregion
+
 
 def _nmea_checksum(s: str) -> bool:
     """Validate NMEA checksum. s is full sentence including $ and *XX."""
@@ -65,18 +76,55 @@ def _parse_heading_nmea(line: str) -> Optional[float]:
     return None
 
 
+def _i2c_scan_bus(bus_num: int) -> list[int]:
+    """Scan I2C bus for devices that ACK (addresses 0x08--0x77). Returns list of addresses."""
+    if SMBus is None:
+        return []
+    found = []
+    try:
+        smb = SMBus(bus_num)
+        try:
+            for a in range(0x08, 0x78):
+                try:
+                    smb.read_byte(a)
+                    found.append(a)
+                except Exception:
+                    pass
+        finally:
+            smb.close()
+    except Exception:
+        pass
+    return found
+
+
 def probe_i2c_magnetometer(bus: int, addr: int) -> bool:
     """Probe for HMC5883L (or compatible) at the given I2C bus and address. Returns True if present."""
+    # #region agent log
+    _debug_log("magnetometer.py:probe_i2c_magnetometer", "I2C probe start", {"bus": bus, "expected_addr_hex": hex(addr), "expected_addr_dec": addr}, "A")
+    # #endregion
     if SMBus is None:
+        # #region agent log
+        _debug_log("magnetometer.py:probe_i2c_magnetometer", "SMBus not available", {"reason": "smbus2 not installed"}, "D")
+        # #endregion
         return False
     try:
         smb = SMBus(bus)
         try:
+            # #region agent log
+            addrs_found = _i2c_scan_bus(bus)
+            _debug_log("magnetometer.py:probe_i2c_magnetometer", "I2C scan result", {"bus": bus, "addresses_hex": [hex(a) for a in addrs_found], "expected_addr_hex": hex(addr), "expected_in_scan": addr in addrs_found}, "B")
+            # #endregion
             smb.read_byte_data(addr, 0x00)  # config A
+            # #region agent log
+            _debug_log("magnetometer.py:probe_i2c_magnetometer", "Probe success", {"addr_hex": hex(addr)}, "E")
+            # #endregion
             return True
         finally:
             smb.close()
-    except Exception:
+    except Exception as e:
+        # #region agent log
+        _debug_log("magnetometer.py:probe_i2c_magnetometer", "Probe failed", {"bus": bus, "addr_hex": hex(addr), "exception_type": type(e).__name__, "exception_msg": str(e)}, "C")
+        # #endregion
         return False
 
 

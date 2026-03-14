@@ -1170,7 +1170,7 @@ def main() -> None:
 
                         spec_matrix[i, :] = music_spectrum(
                             R_use, config.ANGLES, f_sig, config.SPI_MUSIC_N_SOURCES,
-                            config.x_coords, config.y_coords, config.SPEED_SOUND
+                            config.x_coords_hw, config.y_coords_hw, config.SPEED_SOUND
                         )
                         power[i] = float(np.sum(np.abs(Xf) ** 2).real)
                         # Suppress diffuse noise: only show bins that are directional (coherent)

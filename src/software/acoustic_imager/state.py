@@ -151,7 +151,7 @@ class ButtonState:
     firmware_flash_modal_open: bool = False
     firmware_flash_version: str = "v1.0.0"   # placeholder; set when flashing starts
     firmware_flash_status: str = ""   # "" | "flashing" | "success" | "error"
-    gain_mode: str = "LOW"     # placeholder toggle
+    gain_mode: str = "HIGH"    # LOW or HIGH; drives GAIN_CONTROL
     debug_enabled: bool = True
     radar_ui_enabled: bool = RADAR_UI_DEFAULT
     position_services_enabled: bool = POSITION_SERVICES_DEFAULT

@@ -107,7 +107,7 @@ def _fetch_tile_worker(style: str, z: int, x: int, y: int) -> None:
         if style == "light":
             tile_url = getattr(config, "RADAR_MAP_TILE_URL_LIGHT", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
         else:
-            tile_url = getattr(config, "RADAR_MAP_TILE_URL_DARK", "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png")
+            tile_url = getattr(config, "RADAR_MAP_TILE_URL_DARK", "https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png")
         url = tile_url.format(
             z=z, x=x, y=y
         )

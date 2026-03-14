@@ -304,7 +304,7 @@ class SPILoopbackSource:
 
             a0 = np.exp(
                 -1j * 2.0 * np.pi * f0 / config.SPEED_SOUND *
-                -(config.x_coords * np.cos(theta) + config.y_coords * np.sin(theta))
+                -(config.x_coords_hw * np.cos(theta) + config.y_coords_hw * np.sin(theta))
             ).astype(np.complex64)
 
             for dbin in range(-self._spread_bins, self._spread_bins + 1):
