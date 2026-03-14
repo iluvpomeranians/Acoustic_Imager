@@ -25,3 +25,9 @@ Reference for the physical layout used when testing heatmap vs camera alignment.
 ## Use
 
 - For calibration tests and for future overlay code that maps heatmap angle space to camera pixels (so the blob for the array appears over the array in the image).
+
+## Array geometry
+
+- Mic positions are **measured** and produced by [array_geometry.py](array_geometry/array_geometry.py) (table, CSV, `x_coords` / `y_coords` in meters, payload order).
+- The app uses these in [config.py](../../src/software/acoustic_imager/config.py) as **`x_coords_hw`** and **`y_coords_hw`** for **SRC:HW** and **LOOP** (MUSIC/heatmap).
+- For full reference (payload order, table columns, MUSIC summary), see [array_geometry.md](array_geometry/array_geometry.md).

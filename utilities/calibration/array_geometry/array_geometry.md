@@ -38,7 +38,7 @@ So it’s the **angle in the XY plane** from the positive x-axis to the mic, in 
 - **±180°** = −x  
 - **−90°** = −y  
 
-Your values (about −134° to −156°) put all mics in the **third quadrant** (negative x, negative y) in the flipped frame, which matches the geometry.
+Your values (about −138° to −160°) put all mics in the **third quadrant** (negative x, negative y) in the flipped frame, which matches the geometry.
 
 It’s the same “angle from the array” that shows up when you think of a source at some azimuth: MUSIC and your heatmap work in angles, so having each mic’s azimuth in this table helps you sanity-check that the layout (and any angle convention) is consistent.
 

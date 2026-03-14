@@ -9,6 +9,7 @@ Default source on startup is HW.
 
 from __future__ import annotations
 
+import os
 import struct
 import numpy as np
 
@@ -107,12 +108,35 @@ F_MAX_HZ_DEFAULT = 35000.0
 
 # Radar / position (branch-specific: state.py imports these)
 RADAR_UI_DEFAULT = False
-POSITION_SERVICES_DEFAULT = False
+POSITION_SERVICES_DEFAULT = True
 RADAR_MAP_TILE_STYLE_DEFAULT = "dark"   # "dark" | "light"
 DIRECTIONAL_HISTORY_RECORD_DEFAULT = False
 RADAR_DEBUG_OVERLAY_DEFAULT = False
 # Circular radar widget diameter (px)
 RADAR_MAP_DIAMETER_PX = 200
+# Tile URLs for radar map (use {z},{x},{y} in URL)
+RADAR_MAP_TILE_URL_LIGHT = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+RADAR_MAP_TILE_URL_DARK = "https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png"
+# Brightness multiplier for tiles (1.0 = unchanged). Dark tiles use higher value so they appear brighter than light.
+RADAR_MAP_BRIGHTNESS_LIGHT = 1.0
+RADAR_MAP_BRIGHTNESS_DARK = 3.25
+
+# Wi-Fi geolocation (Google Geolocation API). Env WIFI_GEO_API_KEY, or file ~/.config/acoustic-imager/wifi_geo_api_key (one line).
+def _load_wifi_geo_api_key() -> str:
+    key = (os.environ.get("WIFI_GEO_API_KEY", "") or "").strip()
+    if key:
+        return key
+    path = os.path.expanduser("~/.config/acoustic-imager/wifi_geo_api_key")
+    try:
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                return (f.readline() or "").strip()
+    except Exception:
+        pass
+    return ""
+
+
+WIFI_GEO_API_KEY = _load_wifi_geo_api_key()
 
 # Magnetometer (compass) — main.py uses these for MagnetometerReader
 MAG_UART_DEVICE = "/dev/ttyS0"
@@ -240,8 +264,8 @@ SPI_USE_FULL_FRAME = True  # HW: one read of 32801 bytes per frame; no per-mic a
 
 # --- SPI bus & GPIO (HW only) ---
 # Single switch: 0 = SPI0 (CE0, primary header), 1 = SPI1 (CE2, secondary header). Pinouts in branch_merge_preservation_checklist.md §10.
-SPI_INTERFACE = 1  # default SPI1 (current setup); set 0 for SPI0
-# (SPI_BUS, SPI_DEV, FRAME_READY_BCM_PIN, GAIN_CTRL_BCM_PIN) per interface
+SPI_INTERFACE = 0  # 0 = SPI0 (/dev/spidev0.0), 1 = SPI1 (/dev/spidev1.2). Pins below are remapped automatically.
+# (SPI_BUS, SPI_DEV, FRAME_READY_BCM_PIN, GAIN_CTRL_BCM_PIN) per interface — single source of truth; no other config file.
 _SPI_PIN_SETUPS = {
     0: (0, 0, 7, 25),   # SPI0: /dev/spidev0.0, frame-ready BCM7, gain BCM25
     1: (1, 2, 7, 25),   # SPI1: /dev/spidev1.2, frame-ready BCM7, gain BCM25
@@ -249,13 +273,15 @@ _SPI_PIN_SETUPS = {
 _SPI_BUS, _SPI_DEV, _FRAME_READY_BCM, _GAIN_CTRL_BCM = _SPI_PIN_SETUPS[SPI_INTERFACE]
 SPI_BUS = _SPI_BUS
 SPI_DEV = _SPI_DEV
-SPI_MODE = 1
+# Must match STM32 spi.c: CLKPolarity=LOW, CLKPhase=1EDGE → CPOL=0, CPHA=0 = Mode 0. Same for SPI0 and SPI1.
+SPI_MODE = 0
 SPI_BITS = 8
 
-SPI_MAX_SPEED_HZ = 20_000_000  # 20 MHz; stable for full-frame. See utilities/debug/SPI_settings.md for 21.25/30 MHz notes.
+SPI_MAX_SPEED_HZ = 30_000_000
 SPI_XFER_CHUNK = 8192
 
-# Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces)
+# Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces).
+# Pi must only ever read this pin (input); never drive it. When Pi is unplugged, line may go to 3.3V if STM32 drives it (expected).
 FRAME_READY_BCM_PIN = _FRAME_READY_BCM
 FRAME_READY_PULL = "down"
 FRAME_READY_TIMEOUT_S = 0.25
@@ -279,9 +305,9 @@ CALIBRATION_NOTE = "Camera left, board right, same heading"
 
 # --- HW heatmap pipeline (gain, MUSIC, directivity, etc.) ---
 # Per-mic gain correction (length N_MICS): boost weak mics; 1.0 = no change. Use metrics_debug.py --live --write-config to tune.
-SPI_MIC_GAIN = (1.00, 3.03, 12.56, 5.18, 2.62, 9.78, 9.79, 12.94, 2.66, 10.76, 24.53, 10.12, 4.03, 9.67, 12.75, 11.90)
+SPI_MIC_GAIN = (8.33, 24.68, 100.00, 2.22, 2.20, 2.50, 2.07, 2.85, 2.33, 2.39, 1.09, 2.55, 1.00, 1.75, 1.71, 1.85)
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
-SPI_ARRAY_GAIN = 2.0
+SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
 SPI_TOP_K_BINS = 4
 # Only bins within this many dB of peak (in bandpass) are eligible for heatmap; lower = stricter, less noisy
@@ -322,3 +348,20 @@ pitch = (
     if N_MICS > 2
     else 0.0
 )
+
+# ===============================================================
+# 4. HW geometry (measured, payload order)
+# From utilities/calibration/array_geometry; payload 0=U3 .. 15=U14.
+# Used only for SRC:HW and LOOP; SIM keeps x_coords/y_coords above.
+# ===============================================================
+x_coords_hw = np.array([
+    -0.080650, -0.070150, -0.092050, -0.084250, -0.100750, -0.105550,
+    -0.112250, -0.096150, -0.110750, -0.086050, -0.097650, -0.092850,
+    -0.096950, -0.106750, -0.075650, -0.086450,
+])
+y_coords_hw = np.array([
+    -0.058400, -0.061200, -0.057100, -0.047700, -0.051100, -0.064000,
+    -0.055000, -0.041400, -0.073600, -0.075100, -0.070600, -0.066200,
+    -0.081500, -0.086000, -0.072400, -0.086600,
+])
+pitch_hw = 0.002933

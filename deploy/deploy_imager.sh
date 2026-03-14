@@ -2,23 +2,24 @@
 set -euo pipefail
 
 # ============================
-# Acoustic Imager Service Setup
-# Supports:
-#   -dev     Enable DEV mode
-#   -status  Show DEV mode status
+# Acoustic Imager: Full deploy (env setup + service)
+# - First run: system packages + Python/libcamera/git, then service
+# - Later runs: service only (same device)
+# Supports: -dev, -status, --clean
 # ============================
 
-# ---- CONFIG ----
-ACOUSTIC_USER="acousticlord"
-ACOUSTIC_GROUP="acousticlord"
-PROJECT_DIR="/home/acousticlord/Capstone_490_Software"
+# ---- CONFIG (device name and paths detected from current/sudo user) ----
+ACOUSTIC_USER="${SUDO_USER:-$(whoami)}"
+ACOUSTIC_GROUP="$ACOUSTIC_USER"
+PROJECT_DIR="/home/$ACOUSTIC_USER/Capstone_490_Software"
 PYTHON_BIN="/usr/bin/python3"
-APP_ENTRY="/home/acousticlord/Capstone_490_Software/testing/heatmap/heatmap_spi_testing_35FPS_v9_faster_menu.py"
-
 TMUX_SESSION="acoustic_ui"
 SERVICE_NAME="acoustic-ui.service"
-DEV_MODE_FILE="/home/acousticlord/DEV_MODE"
+DEV_MODE_FILE="/home/$ACOUSTIC_USER/DEV_MODE"
 RUN_WRAPPER="/usr/local/bin/acoustic-ui-run"
+ENV_SETUP_SENTINEL="/home/$ACOUSTIC_USER/.acoustic_imager_env_setup_done"
+CONFIG_DIR="/home/$ACOUSTIC_USER/.config/acoustic-imager"
+WIFI_GEO_API_KEY_FILE="$CONFIG_DIR/wifi_geo_api_key"
 
 ENABLE_DEV=0
 SHOW_STATUS=0
@@ -74,14 +75,109 @@ show_status() {
     exit 0
 }
 
-# If only asking for status, don't install anything
+# If only asking for status, don't install or run env setup
 if [[ "$SHOW_STATUS" -eq 1 ]]; then
     show_status
 fi
 
 # ----------------------------
+# Detect if env is already set up (e.g. manual install or older script never created sentinel)
+# ----------------------------
+env_already_set_up() {
+    command -v python3 &>/dev/null || return 1
+    python3 -c "import cv2" 2>/dev/null || return 1
+    dpkg -s python3-libcamera &>/dev/null && return 0
+    dpkg -s rpicam-apps &>/dev/null && return 0
+    dpkg -s libcamera0.7 &>/dev/null && return 0
+    dpkg -s libcamera0 &>/dev/null && return 0
+    return 1
+}
+
+# ----------------------------
+# First-time: environment setup (once per device)
+# ----------------------------
+if [[ ! -f "$ENV_SETUP_SENTINEL" ]]; then
+    if env_already_set_up; then
+        echo "Environment already set up (detected). Creating sentinel and skipping base setup."
+        if [[ -n "${SUDO_USER:-}" ]]; then
+            sudo -u "$ACOUSTIC_USER" touch "$ENV_SETUP_SENTINEL"
+        else
+            touch "$ENV_SETUP_SENTINEL"
+        fi
+    else
+        echo "First-time deploy: running environment setup for this device..."
+        echo "============================================"
+        echo " Acoustic Imager Base Setup (Raspberry Pi)"
+        echo "============================================"
+
+        echo "[1/5] Updating system packages..."
+        sudo apt update
+        sudo apt upgrade -y
+
+        echo "[2/5] Installing Python, pip, venv, and build tools..."
+        sudo apt install -y \
+            python3 \
+            python3-pip \
+            python3-venv \
+            python3-dev \
+            build-essential
+
+        echo "[3/5] Installing NumPy, SciPy, OpenCV..."
+        sudo apt install -y \
+            python3-numpy \
+            python3-scipy \
+            python3-opencv
+
+        echo "[4/5] Installing libcamera tools..."
+        if ! sudo apt install -y libcamera0.7 rpicam-apps python3-libcamera python3-kms++ 2>/dev/null; then
+            sudo apt install -y \
+                libcamera0 \
+                libcamera-tools \
+                libcamera-apps \
+                python3-libcamera \
+                python3-kms++
+        fi
+
+        echo "[5/5] Installing Git..."
+        sudo apt install -y git
+
+        if [[ -n "${SUDO_USER:-}" ]]; then
+            sudo -u "$ACOUSTIC_USER" touch "$ENV_SETUP_SENTINEL"
+        else
+            touch "$ENV_SETUP_SENTINEL"
+        fi
+        echo "Environment setup completed (sentinel: $ENV_SETUP_SENTINEL)."
+        echo "============================================"
+    fi
+else
+    echo "Environment already set up for this device. Skipping base setup."
+fi
+
+# ----------------------------
+# Google Geolocation API key (prompt if missing — used for Wi-Fi location on radar map)
+# ----------------------------
+if [[ ! -f "$WIFI_GEO_API_KEY_FILE" ]] || [[ ! -s "$WIFI_GEO_API_KEY_FILE" ]]; then
+    echo
+    echo "Google Geolocation API key not set (used for Wi-Fi location on the radar map)."
+    echo "Enter your API key (or press Enter to skip):"
+    read -r USER_API_KEY || true
+    if [[ -n "${USER_API_KEY:-}" ]]; then
+        if [[ "$EUID" -eq 0 ]] && [[ -n "${SUDO_USER:-}" ]]; then
+            sudo -u "$ACOUSTIC_USER" mkdir -p "$CONFIG_DIR"
+            echo -n "$USER_API_KEY" | sudo -u "$ACOUSTIC_USER" tee "$WIFI_GEO_API_KEY_FILE" > /dev/null
+        else
+            mkdir -p "$CONFIG_DIR"
+            echo -n "$USER_API_KEY" > "$WIFI_GEO_API_KEY_FILE"
+        fi
+        echo "API key saved to $WIFI_GEO_API_KEY_FILE"
+    else
+        echo "Skipped. You can add a key later to $WIFI_GEO_API_KEY_FILE"
+    fi
+fi
+
+# ----------------------------
 # If service exists already,
-# just toggle DEV mode
+# just toggle DEV mode (unless --clean)
 # ----------------------------
 if [[ -f "/etc/systemd/system/$SERVICE_NAME" ]]; then
     if [[ "$CLEAN_REINSTALL" -eq 1 ]]; then
@@ -112,10 +208,10 @@ if [[ -f "/etc/systemd/system/$SERVICE_NAME" ]]; then
 fi
 
 # ----------------------------
-# Otherwise full install
+# Full install: need root
 # ----------------------------
 if [[ "$EUID" -ne 0 ]]; then
-    echo "Please run with sudo for first-time install."
+    echo "Please run with sudo for first-time service install."
     exit 1
 fi
 
@@ -128,7 +224,6 @@ if ! command -v tmux >/dev/null 2>&1; then
 else
     echo "tmux already installed."
 fi
-
 
 # ----------------------------
 # Create runtime wrapper
@@ -144,15 +239,13 @@ if [[ -f "\$DEV_MODE_FILE" ]]; then
   exit 0
 fi
 
-cd "$PROJECT_DIR"
-
-LOGFILE="/tmp/acoustic_ui.log"
+cd "$PROJECT_DIR/src/software"
 
 if /usr/bin/tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
   echo "[acoustic-ui] Session already running."
 else
   exec /usr/bin/tmux new-session -d -s "$TMUX_SESSION" \
-  "$PYTHON_BIN -u $APP_ENTRY 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
+    "$PYTHON_BIN -u -m acoustic_imager.main 2>&1 | /usr/bin/systemd-cat -t acoustic-ui"
 fi
 EOF
 
@@ -166,7 +259,6 @@ cat > "/etc/systemd/system/$SERVICE_NAME" <<EOF
 Description=Acoustic Imager UI (tmux managed)
 After=display-manager.service
 Wants=display-manager.service
-WantedBy=graphical.target
 
 [Service]
 Type=oneshot

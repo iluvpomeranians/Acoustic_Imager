@@ -4,8 +4,8 @@ Print and optionally validate the camera–array calibration test setup.
 See calibration_test.md for layout (5 in distance, 7 in offset, camera left / board right).
 
 Usage (from repo root):
-  python3 utilities/debug/calibration_test.py
-  python3 utilities/debug/calibration_test.py --validate
+  python3 utilities/calibration/calibration_test.py
+  python3 utilities/calibration/calibration_test.py --validate
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def main() -> int:
     ap.add_argument("--validate", action="store_true", help="Assert config matches calibration_test.md values")
     args = ap.parse_args()
 
-    print("Calibration test setup (see utilities/debug/calibration_test.md):")
+    print("Calibration test setup (see utilities/calibration/calibration_test.md):")
     print(f"  distance_inches = {CALIBRATION_DISTANCE_INCHES}")
     print(f"  offset_inches   = {CALIBRATION_OFFSET_INCHES} (+ = array right of camera center)")
     print(f"  note            = {CALIBRATION_NOTE}")
@@ -45,6 +45,11 @@ def main() -> int:
         print(f"  CALIBRATION_DISTANCE_INCHES = {getattr(config, 'CALIBRATION_DISTANCE_INCHES', 'N/A')}")
         print(f"  CALIBRATION_OFFSET_INCHES   = {getattr(config, 'CALIBRATION_OFFSET_INCHES', 'N/A')}")
         print(f"  CALIBRATION_NOTE             = {getattr(config, 'CALIBRATION_NOTE', 'N/A')!r}")
+        x_hw = getattr(config, "x_coords_hw", None)
+        if x_hw is not None:
+            print(f"  HW geometry: x_coords_hw, y_coords_hw (from array_geometry), length {len(x_hw)}")
+        else:
+            print("  HW geometry: not set")
 
         if args.validate:
             if getattr(config, "CALIBRATION_DISTANCE_INCHES", None) != CALIBRATION_DISTANCE_INCHES:
@@ -52,6 +57,15 @@ def main() -> int:
                 return 1
             if getattr(config, "CALIBRATION_OFFSET_INCHES", None) != CALIBRATION_OFFSET_INCHES:
                 print(f"\nValidate FAILED: config.CALIBRATION_OFFSET_INCHES != {CALIBRATION_OFFSET_INCHES}")
+                return 1
+            x_hw = getattr(config, "x_coords_hw", None)
+            y_hw = getattr(config, "y_coords_hw", None)
+            n_mics = getattr(config, "N_MICS", 16)
+            if x_hw is None or y_hw is None:
+                print("\nValidate FAILED: config missing x_coords_hw or y_coords_hw (HW geometry)")
+                return 1
+            if len(x_hw) != n_mics or len(y_hw) != n_mics:
+                print(f"\nValidate FAILED: x_coords_hw/y_coords_hw length must be config.N_MICS ({n_mics}), got {len(x_hw)}, {len(y_hw)}")
                 return 1
             print("\nValidate OK: config matches calibration_test.md")
     else:
