@@ -1,16 +1,24 @@
 
 # Firmware TODO
-
-- [ ] APP unit testing
-- [/] DSP unit testing (core done, could add some functions)
-
+**Priority 0**
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
+   -> Yep — you’re thinking of the ARM DWT cycle counter, usually accessed through DWT->CYCCNT.
+**Priority 1**
+- [ ] **APP unit testing**
+- [ ] Test app_read_battery_millivolts(void) (when we have battery)
 - [ ] Investigate bug where sample_rate_hz is getting reset during app_loop()
 
-- [ ] Verify adc_scaler in dsp_pipeline.c that it is still 3.3/4096
+- [ ] Talk to Rob about the whole audio passthrough (WDYM?)
+
+**Priority 2**
+- [ ] Code base clean-up
+- [/] DSP unit testing (core done, could add some functions)
+- [ ] Verify adc_scaler in dsp_pipeline.c that it should still be 3.3/4096
 
 - [ ] Play with Gain Compensation setting in ADCs in CubeMX to see what it does. Research what we actually require for the beamforming to work
-- [ ] Address that ADCs are configured properly for channel scanning in CubeMX
+- [ ] Remember: ADC per-channel sampling time is 12.5 CCs, might want to set to 2.5 CCs for release.
+
+- [ ] (Optional/If beamforming is shit) Calculate and apply per channel phase compensation for mic sampling offset. Can in theory get the exact T(us) between mic samples and apply the phase shift so that each 4 mics per ADC don't have a phase offset from sequential sampling.
 
 - [ ] (QoL) Set up DSP library so it doesn't get removed after CubeMX code generation
 
