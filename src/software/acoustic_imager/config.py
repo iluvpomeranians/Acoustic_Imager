@@ -264,8 +264,8 @@ SPI_USE_FULL_FRAME = True  # HW: one read of 32801 bytes per frame; no per-mic a
 
 # --- SPI bus & GPIO (HW only) ---
 # Single switch: 0 = SPI0 (CE0, primary header), 1 = SPI1 (CE2, secondary header). Pinouts in branch_merge_preservation_checklist.md §10.
-SPI_INTERFACE = 1  # default SPI1 (current setup); set 0 for SPI0
-# (SPI_BUS, SPI_DEV, FRAME_READY_BCM_PIN, GAIN_CTRL_BCM_PIN) per interface
+SPI_INTERFACE = 1  # 0 = SPI0 (/dev/spidev0.0), 1 = SPI1 (/dev/spidev1.2). Pins below are remapped automatically.
+# (SPI_BUS, SPI_DEV, FRAME_READY_BCM_PIN, GAIN_CTRL_BCM_PIN) per interface — single source of truth; no other config file.
 _SPI_PIN_SETUPS = {
     0: (0, 0, 7, 25),   # SPI0: /dev/spidev0.0, frame-ready BCM7, gain BCM25
     1: (1, 2, 7, 25),   # SPI1: /dev/spidev1.2, frame-ready BCM7, gain BCM25
@@ -273,13 +273,15 @@ _SPI_PIN_SETUPS = {
 _SPI_BUS, _SPI_DEV, _FRAME_READY_BCM, _GAIN_CTRL_BCM = _SPI_PIN_SETUPS[SPI_INTERFACE]
 SPI_BUS = _SPI_BUS
 SPI_DEV = _SPI_DEV
-SPI_MODE = 1
+# Must match STM32 spi.c: CLKPolarity=LOW, CLKPhase=1EDGE → CPOL=0, CPHA=0 = Mode 0. Same for SPI0 and SPI1.
+SPI_MODE = 0
 SPI_BITS = 8
 
 SPI_MAX_SPEED_HZ = 30_000_000
 SPI_XFER_CHUNK = 8192
 
-# Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces)
+# Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces).
+# Pi must only ever read this pin (input); never drive it. When Pi is unplugged, line may go to 3.3V if STM32 drives it (expected).
 FRAME_READY_BCM_PIN = _FRAME_READY_BCM
 FRAME_READY_PULL = "down"
 FRAME_READY_TIMEOUT_S = 0.25

@@ -237,7 +237,12 @@ class SPIManager:
             return True
         except Exception as e:
             self._spi = None
-            self._set_err(f"SPI open failed: {e}")
+            path = f"/dev/spidev{self.SPI_BUS}.{self.SPI_DEV}"
+            self._set_err(
+                f"SPI open failed: {e}. "
+                f"Device {path} missing? Enable SPI: raspi-config → Interface Options → SPI. "
+                f"For SPI1 add dtoverlay=spi1-3cs to /boot/config.txt and reboot. Check: ls /dev/spidev*"
+            )
             return False
 
     def _close_spi(self) -> None:
