@@ -53,6 +53,7 @@ class HudState:
     wifi_modal_screen: str = "list"   # "list" | "password"
     wifi_networks: List[dict] = field(default_factory=list)  # [{"ssid", "signal", "security"}, ...]
     wifi_connect_ssid: str = ""
+    wifi_connect_bssid: str = ""   # optional BSSID of selected AP for more reliable connect
     wifi_password: str = ""
     wifi_keyboard_mode: str = "alpha"   # "alpha" | "symbol"
     wifi_shift_next: bool = False
@@ -62,6 +63,16 @@ class HudState:
     wifi_current_expanded: bool = False  # when True, show expanded network info
     wifi_scanning: bool = False   # True while scan is in progress (background thread)
     wifi_password_visible: bool = False  # show password characters (eye toggle)
+    wifi_list_scroll_offset: int = 0   # vertical scroll (px) for "Other Networks" list
+    wifi_list_content_dragging: bool = False
+    wifi_list_content_drag_start_y: int = 0
+    wifi_list_content_drag_start_scroll: int = 0
+    wifi_list_touch_started: bool = False   # tap in list: only start drag after move past threshold
+    wifi_list_touch_start_x: int = 0
+    wifi_list_touch_start_y: int = 0
+    wifi_list_scroll_dragging: bool = False   # scrollbar thumb drag
+    wifi_list_scrollbar_drag_start_y: int = 0
+    wifi_list_scrollbar_drag_start_scroll: int = 0
     settings_modal_scroll_offset: int = 0   # vertical scroll (px) for settings modal content
     settings_modal_scroll_dragging: bool = False  # True while dragging scrollbar
     settings_modal_drag_start_y: int = 0   # y at drag start

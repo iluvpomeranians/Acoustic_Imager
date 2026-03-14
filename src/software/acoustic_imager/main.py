@@ -98,7 +98,7 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_viewer_mouse,
     handle_email_modal_click,
 )
-from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click
+from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click, handle_wifi_modal_touch_drag
 from acoustic_imager.io.magnetometer import MagnetometerReader, probe_i2c_magnetometer
 from acoustic_imager.io.gps_reader import GPSReader
 from acoustic_imager.io.position_manager import PositionManager
@@ -241,9 +241,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
 
-        # WiFi modal (when open, handle first)
+        # WiFi modal (when open, handle first). Touch-drag scroll starts here.
         if HUD.wifi_modal_open:
-            if handle_wifi_modal_click(mx, my):
+            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
+                state.ui_click_was_on_ui = True
+                return
+            if handle_wifi_modal_click(mx, my, config.WIDTH, config.HEIGHT):
                 state.ui_click_was_on_ui = True
                 return
 
@@ -706,8 +709,13 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 state.ui_last_tap_x = mx
                 state.ui_last_tap_y = my
 
-    # Handle mouse move (dragging)
+    # Handle mouse move (dragging) — also used for touch-drag on touchscreens
     elif event == cv2.EVENT_MOUSEMOVE:
+
+        # WiFi modal list touch-drag scroll
+        if HUD.wifi_modal_open:
+            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
+                return
 
         # Settings modal touch/drag scroll
         if HUD.settings_modal_open:
@@ -772,8 +780,13 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             if handle_settings_modal_scroll(delta):
                 return
 
-    # Handle left button up
+    # Handle left button up — also touch release on touchscreens
     elif event == cv2.EVENT_LBUTTONUP:
+
+        # WiFi modal list touch-drag scroll end
+        if HUD.wifi_modal_open:
+            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
+                pass  # consumed
 
         # Settings modal touch/drag scroll end
         if HUD.settings_modal_open:
