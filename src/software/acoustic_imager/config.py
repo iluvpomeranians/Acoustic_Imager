@@ -264,7 +264,7 @@ SPI_USE_FULL_FRAME = True  # HW: one read of 32801 bytes per frame; no per-mic a
 
 # --- SPI bus & GPIO (HW only) ---
 # Single switch: 0 = SPI0 (CE0, primary header), 1 = SPI1 (CE2, secondary header). Pinouts in branch_merge_preservation_checklist.md §10.
-SPI_INTERFACE = 1  # 0 = SPI0 (/dev/spidev0.0), 1 = SPI1 (/dev/spidev1.2). Pins below are remapped automatically.
+SPI_INTERFACE = 0  # 0 = SPI0 (/dev/spidev0.0), 1 = SPI1 (/dev/spidev1.2). Pins below are remapped automatically.
 # (SPI_BUS, SPI_DEV, FRAME_READY_BCM_PIN, GAIN_CTRL_BCM_PIN) per interface — single source of truth; no other config file.
 _SPI_PIN_SETUPS = {
     0: (0, 0, 7, 25),   # SPI0: /dev/spidev0.0, frame-ready BCM7, gain BCM25
