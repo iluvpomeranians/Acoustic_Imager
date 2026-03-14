@@ -28,6 +28,36 @@ SCROLLBAR_W = 12
 # Last-drawn scrollbar thumb (log_top, thumb_y, thumb_h, log_h, max_scroll) for click-to-page
 _cal_suite_scroll_thumb_geom: tuple = (0, 0, 0, 0, 0)
 
+# Log content area (text only, not scrollbar) for touch-drag scroll
+LOG_AREA_TOP = HEADER_H + START_BTN_H + PAD
+LOG_AREA_H = MODAL_H - LOG_AREA_TOP - 50
+LOG_AREA_W = MODAL_W - 2 * PAD - SCROLLBAR_W
+
+
+def _log_content_bounds(fw: int, fh: int) -> tuple[int, int, int, int]:
+    """Return (x, y, w, h) of log content area (text region, not scrollbar) in screen coords."""
+    modal_x = (fw - MODAL_W) // 2
+    modal_y = (fh - MODAL_H) // 2
+    x = modal_x + PAD
+    y = modal_y + LOG_AREA_TOP
+    return (x, y, LOG_AREA_W, LOG_AREA_H)
+
+
+def _is_in_log_content_area(x: int, y: int, fw: int, fh: int) -> bool:
+    """True if (x,y) is in the log text area (not scrollbar, not Start/Close)."""
+    lx, ly, lw, lh = _log_content_bounds(fw, fh)
+    return lx <= x < lx + lw and ly <= y < ly + lh
+
+
+def _hit_any_cal_suite_button(x: int, y: int) -> bool:
+    """True if (x,y) hits Start, Stop, Close, or scrollbar buttons/track."""
+    for k in ("cal_suite_start", "cal_suite_stop", "cal_suite_close", "cal_suite_scroll_up", "cal_suite_scroll_down", "cal_suite_scroll_track"):
+        if k in menu_buttons:
+            b = menu_buttons[k]
+            if b.w > 0 and b.h > 0 and b.contains(x, y):
+                return True
+    return False
+
 
 def _repo_root() -> Path:
     """Return repo root (parent of src). Modal is at .../src/software/acoustic_imager/ui/."""
@@ -39,97 +69,54 @@ def _append_log(line: str) -> None:
 
 
 def _run_calibration_suite() -> None:
-    """Run calibration checks in background; append lines to button_state.calibration_suite_log."""
+    """Run full calibration suite (0-6) in background; append lines to button_state.calibration_suite_log.
+    Uses Popen so the main thread can terminate the process when user clicks Stop calibrating."""
+    proc = None
     try:
         root = _repo_root()
-        _append_log("=== Calibration Suite ===")
-
-        # 1) Config / calibration_test validation
-        _append_log("[1/4] Config & calibration test setup...")
-        cal_script = root / "utilities" / "calibration" / "calibration_test.py"
-        if cal_script.exists():
-            r = subprocess.run(
-                [sys.executable, str(cal_script), "--validate"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                cwd=str(root),
-            )
-            for line in (r.stdout or "").strip().splitlines():
-                _append_log("  " + line)
-            for line in (r.stderr or "").strip().splitlines():
-                _append_log("  [stderr] " + line)
-            if r.returncode != 0:
-                _append_log("  FAILED (exit %d)" % r.returncode)
-            else:
-                _append_log("  OK")
-        else:
-            _append_log("  calibration_test.py not found")
-
-        # 2) Array geometry / mic mapping (in-process)
-        _append_log("[2/4] Mic array geometry (config)...")
+        run_suite_py = root / "utilities" / "calibration" / "run_suite.py"
+        if not run_suite_py.exists():
+            _append_log("run_suite.py not found at %s" % run_suite_py)
+            return
+        gain = (button_state.gain_mode or "HIGH").lower()
+        if gain not in ("high", "low"):
+            gain = "high"
+        cmd = [sys.executable, str(run_suite_py), "--gain", gain]
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            cwd=str(root),
+        )
+        button_state.calibration_suite_process = proc
+        while True:
+            line = proc.stdout.readline()
+            if not line and proc.poll() is not None:
+                break
+            if line:
+                _append_log(line[:90].rstrip())
         try:
-            from acoustic_imager import config
-            n = getattr(config, "N_MICS", 16)
-            x = getattr(config, "x_coords_hw", None)
-            y = getattr(config, "y_coords_hw", None)
-            if x is None or y is None:
-                _append_log("  Missing x_coords_hw or y_coords_hw")
-            elif len(x) != n or len(y) != n:
-                _append_log("  Length mismatch: expected %d, got %d / %d" % (n, len(x), len(y)))
-            else:
-                _append_log("  OK (%d mics)" % n)
-        except Exception as e:
-            _append_log("  Error: %s" % e)
-
-        # 3) SPI device nodes
-        _append_log("[3/4] SPI devices...")
-        spi_script = root / "utilities" / "calibration" / "check_spi_devices.sh"
-        if spi_script.exists():
-            r = subprocess.run(
-                ["bash", str(spi_script)],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                cwd=str(root),
-            )
-            for line in (r.stdout or "").strip().splitlines():
-                _append_log("  " + line[:80])
-            if r.returncode != 0 and (r.stderr or "").strip():
-                for line in (r.stderr or "").strip().splitlines():
-                    _append_log("  " + line[:80])
-        else:
-            # Fallback: check /dev/spidev* exists
-            import glob
-            devs = glob.glob("/dev/spidev*")
-            if devs:
-                _append_log("  Found: %s" % " ".join(devs))
-            else:
-                _append_log("  No /dev/spidev* found")
-
-        # 4) SPI data (magic probe) - optional; may fail if SPI in use by app
-        _append_log("[4/4] SPI data (magic probe, may skip if bus in use)...")
-        probe_script = root / "utilities" / "calibration" / "spi_magic_probe.py"
-        if probe_script.exists():
-            r = subprocess.run(
-                [sys.executable, str(probe_script), "--no-sync"],
-                capture_output=True,
-                text=True,
-                timeout=8,
-                cwd=str(root),
-            )
-            for line in (r.stdout or "").strip().splitlines():
-                _append_log("  " + line[:80])
-            if r.returncode != 0 and (r.stderr or "").strip():
-                _append_log("  (probe returned %d)" % r.returncode)
-        else:
-            _append_log("  spi_magic_probe.py not found")
-
-        _append_log("=== Done ===")
+            err = proc.stderr.read()
+        except Exception:
+            err = ""
+        for line in (err or "").splitlines():
+            _append_log("[stderr] " + line[:85].rstrip())
+        if proc.returncode != 0 and proc.returncode is not None:
+            _append_log("Suite exited with code %d" % proc.returncode)
     except Exception as e:
         _append_log("Suite error: %s" % e)
     finally:
+        button_state.calibration_suite_process = None
         button_state.calibration_suite_running = False
+        # Write log to fixed dump file (matches what the user saw in the modal)
+        dump_path = _repo_root() / "utilities" / "calibration" / "calibration_suite_cal_dump.txt"
+        try:
+            dump_path.parent.mkdir(parents=True, exist_ok=True)
+            dump_path.write_text("\n".join(button_state.calibration_suite_log), encoding="utf-8")
+        except Exception:
+            pass
 
 
 def _start_suite() -> None:
@@ -153,7 +140,8 @@ def draw_calibration_suite_modal(frame: np.ndarray) -> None:
     border_color = (100, 100, 100)
     dim_color = (180, 180, 180)
 
-    ui_cache.apply_modal_dim(frame, 0.5)
+    # Lighter dim so the cached last frame remains visible behind the modal
+    ui_cache.apply_modal_dim(frame, 0.15)
 
     modal_x = (fw - MODAL_W) // 2
     modal_y = (fh - MODAL_H) // 2
@@ -240,7 +228,24 @@ def draw_calibration_suite_modal(frame: np.ndarray) -> None:
         if "cal_suite_scroll_track" in menu_buttons:
             menu_buttons["cal_suite_scroll_track"].w = menu_buttons["cal_suite_scroll_track"].h = 0
 
-    # Close button
+    # Stop calibrating (red, bottom left) – only when running
+    stop_btn_w, stop_btn_h = 140, 36
+    stop_btn_x = modal_x + PAD
+    stop_btn_y = modal_y + MODAL_H - stop_btn_h - PAD
+    STOP_RED = (0, 0, 255)
+    STOP_RED_LIGHT = (100, 100, 255)
+    if running:
+        cv2.rectangle(frame, (stop_btn_x, stop_btn_y), (stop_btn_x + stop_btn_w, stop_btn_y + stop_btn_h), STOP_RED, -1, cv2.LINE_AA)
+        cv2.rectangle(frame, (stop_btn_x, stop_btn_y), (stop_btn_x + stop_btn_w, stop_btn_y + stop_btn_h), STOP_RED_LIGHT, 1, cv2.LINE_AA)
+        (tw_stop, _), _ = cv2.getTextSize("Stop calibrating", font, 0.48, 1)
+        cv2.putText(frame, "Stop calibrating", (stop_btn_x + (stop_btn_w - tw_stop) // 2, stop_btn_y + stop_btn_h // 2 + 6), font, 0.48, text_color, 1, cv2.LINE_AA)
+    if "cal_suite_stop" not in menu_buttons:
+        menu_buttons["cal_suite_stop"] = Button(stop_btn_x, stop_btn_y, stop_btn_w, stop_btn_h, "")
+    menu_buttons["cal_suite_stop"].x, menu_buttons["cal_suite_stop"].y = stop_btn_x, stop_btn_y
+    menu_buttons["cal_suite_stop"].w = stop_btn_w if running else 0
+    menu_buttons["cal_suite_stop"].h = stop_btn_h if running else 0
+
+    # Close button (bottom right)
     close_w, close_h = 72, 28
     close_x = modal_x + MODAL_W - close_w - PAD
     close_y = modal_y + MODAL_H - close_h - PAD
@@ -265,6 +270,17 @@ def handle_calibration_suite_modal_click(x: int, y: int) -> bool:
 
     if "cal_suite_close" in menu_buttons and menu_buttons["cal_suite_close"].contains(x, y):
         button_state.calibration_suite_modal_open = False
+        return True
+
+    # Stop calibrating (terminate subprocess)
+    if button_state.calibration_suite_running and "cal_suite_stop" in menu_buttons and menu_buttons["cal_suite_stop"].w > 0 and menu_buttons["cal_suite_stop"].contains(x, y):
+        proc = getattr(button_state, "calibration_suite_process", None)
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        _append_log("Stopped by user")
         return True
 
     if not button_state.calibration_suite_running and "cal_suite_start" in menu_buttons and menu_buttons["cal_suite_start"].contains(x, y):
@@ -314,3 +330,37 @@ def handle_calibration_suite_modal_scroll(delta: int) -> bool:
     new_offset = button_state.calibration_suite_scroll_offset + delta
     button_state.calibration_suite_scroll_offset = max(0, min(max_scroll, new_offset))
     return True
+
+
+def handle_calibration_suite_modal_mouse(event: int, x: int, y: int, fw: int, fh: int) -> bool:
+    """Handle mouse/touch events for log area drag-to-scroll. Returns True if consumed."""
+    if not button_state.calibration_suite_modal_open:
+        return False
+
+    total_log_h = len(button_state.calibration_suite_log) * LOG_LINE_H
+    max_scroll = max(0, total_log_h - LOG_AREA_H)
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        if _is_in_log_content_area(x, y, fw, fh) and not _hit_any_cal_suite_button(x, y):
+            button_state.calibration_suite_log_dragging = True
+            button_state.calibration_suite_log_drag_start_y = y
+            button_state.calibration_suite_log_drag_start_scroll = button_state.calibration_suite_scroll_offset
+            return True
+        return False
+
+    if event == cv2.EVENT_MOUSEMOVE:
+        if button_state.calibration_suite_log_dragging:
+            dy = y - button_state.calibration_suite_log_drag_start_y
+            if abs(dy) > ui_cache.DRAG_PX:
+                new_scroll = button_state.calibration_suite_log_drag_start_scroll - dy
+                button_state.calibration_suite_scroll_offset = max(0, min(int(new_scroll), max_scroll))
+            return True
+        return False
+
+    if event == cv2.EVENT_LBUTTONUP:
+        if button_state.calibration_suite_log_dragging:
+            button_state.calibration_suite_log_dragging = False
+            return True
+        return False
+
+    return False

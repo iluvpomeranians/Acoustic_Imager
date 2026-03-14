@@ -166,6 +166,10 @@ class ButtonState:
     calibration_suite_log: List[str] = field(default_factory=list)  # lines from calibration runner
     calibration_suite_running: bool = False
     calibration_suite_scroll_offset: int = 0  # scroll for log area in modal
+    calibration_suite_log_dragging: bool = False
+    calibration_suite_log_drag_start_y: int = 0
+    calibration_suite_log_drag_start_scroll: int = 0
+    calibration_suite_process: Optional[Any] = None  # subprocess.Popen when running, so Stop can terminate
     gain_mode: str = "HIGH"    # LOW or HIGH; drives GAIN_CONTROL
     debug_enabled: bool = True
     radar_ui_enabled: bool = RADAR_UI_DEFAULT
