@@ -52,7 +52,7 @@ void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GAIN_CNTL_GPIO_Port, GAIN_CNTL_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GAIN_CNTL_GPIO_Port, GAIN_CNTL_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, MCU_STATUS_Pin|RPI_STATUS_Pin, GPIO_PIN_RESET);
@@ -64,7 +64,7 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GAIN_CNTL_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : AUTO_GAIN_CNTL_Pin (input: Pi drives this line for gain control; pull-down = default LOW gain) */
+  /*Configure GPIO pin : AUTO_GAIN_CNTL_Pin */
   GPIO_InitStruct.Pin = AUTO_GAIN_CNTL_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;

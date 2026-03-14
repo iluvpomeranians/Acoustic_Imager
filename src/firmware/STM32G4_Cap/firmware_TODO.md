@@ -3,6 +3,9 @@
 **Priority 0**
 - [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
    -> Yep — you’re thinking of the ARM DWT cycle counter, usually accessed through DWT->CYCCNT.
+- [ ] Fix USB CDC freeze issue (change usb_printf to non-blocking)
+
+- [ ] (Optional/If beamforming is shit) Calculate and apply per channel phase compensation for mic sampling offset. Can in theory get the exact T(us) between mic samples and apply the phase shift so that each 4 mics per ADC don't have a phase offset from sequential sampling.
 **Priority 1**
 - [ ] **APP unit testing**
 - [ ] Test app_read_battery_millivolts(void) (when we have battery)
@@ -18,7 +21,7 @@
 - [ ] Play with Gain Compensation setting in ADCs in CubeMX to see what it does. Research what we actually require for the beamforming to work
 - [ ] Remember: ADC per-channel sampling time is 12.5 CCs, might want to set to 2.5 CCs for release.
 
-- [ ] (Optional/If beamforming is shit) Calculate and apply per channel phase compensation for mic sampling offset. Can in theory get the exact T(us) between mic samples and apply the phase shift so that each 4 mics per ADC don't have a phase offset from sequential sampling.
+
 
 - [ ] (QoL) Set up DSP library so it doesn't get removed after CubeMX code generation
 
