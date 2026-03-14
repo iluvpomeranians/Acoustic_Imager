@@ -113,6 +113,11 @@ from acoustic_imager.ui.firmware_flash_modal import (
     draw_firmware_flash_modal,
     handle_firmware_flash_modal_click,
 )
+from acoustic_imager.ui.calibration_suite_modal import (
+    draw_calibration_suite_modal,
+    handle_calibration_suite_modal_click,
+    handle_calibration_suite_modal_scroll,
+)
 from acoustic_imager.ui.acoustic_radar_map import draw_radar_map_widget, update_detection_history
 from acoustic_imager.ui.video_recorder import VideoRecorder
 from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
@@ -260,6 +265,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Firmware Flash modal (when open, handle first)
         if button_state.firmware_flash_modal_open:
             if handle_firmware_flash_modal_click(mx, my):
+                state.ui_click_was_on_ui = True
+                return
+
+        # Calibration Suite modal
+        if button_state.calibration_suite_modal_open:
+            if handle_calibration_suite_modal_click(mx, my):
                 state.ui_click_was_on_ui = True
                 return
 
@@ -756,6 +767,8 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if HUD.settings_modal_open:
             # flags: positive = scroll up, negative = scroll down (platform-dependent)
             delta = -80 if flags > 0 else 80
+            if button_state.calibration_suite_modal_open and handle_calibration_suite_modal_scroll(delta):
+                return
             if handle_settings_modal_scroll(delta):
                 return
 
@@ -1635,6 +1648,10 @@ def main() -> None:
             if button_state.firmware_flash_modal_open:
                 draw_firmware_flash_modal(output_frame)
 
+            # Calibration Suite modal
+            if button_state.calibration_suite_modal_open:
+                draw_calibration_suite_modal(output_frame)
+
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:
                 draw_gallery_view(output_frame, state.OUTPUT_DIR)
@@ -1700,6 +1717,8 @@ def main() -> None:
             elif key == 27 and button_state.firmware_flash_modal_open:
                 button_state.firmware_flash_modal_open = False
                 button_state.firmware_flash_status = ""
+            elif key == 27 and button_state.calibration_suite_modal_open:
+                button_state.calibration_suite_modal_open = False
             elif key == ord("c"):
                 # Reset magnetometer calibration extrema (use during heading tests)
                 HUD.mag_x_min = HUD.mag_x_max = None

@@ -151,6 +151,10 @@ class ButtonState:
     firmware_flash_modal_open: bool = False
     firmware_flash_version: str = "v1.0.0"   # placeholder; set when flashing starts
     firmware_flash_status: str = ""   # "" | "flashing" | "success" | "error"
+    calibration_suite_modal_open: bool = False
+    calibration_suite_log: List[str] = field(default_factory=list)  # lines from calibration runner
+    calibration_suite_running: bool = False
+    calibration_suite_scroll_offset: int = 0  # scroll for log area in modal
     gain_mode: str = "HIGH"    # LOW or HIGH; drives GAIN_CONTROL
     debug_enabled: bool = True
     radar_ui_enabled: bool = RADAR_UI_DEFAULT
