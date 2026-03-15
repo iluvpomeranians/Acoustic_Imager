@@ -26,6 +26,7 @@ extern "C" {
 #define SPI_FRAME_FLAG_PAYLOAD_TIME      (1u << 2)
 #define SPI_FRAME_FLAG_BATTERY_VALID     (1u << 3)
 #define SPI_FRAME_FLAG_SECOND_HALF       (1u << 4)
+#define SPI_FRAME_FLAG_TIME_CLIPPING     (1u << 5)
 
 /* =========================================================================
  * TYPE DEFINITIONS
