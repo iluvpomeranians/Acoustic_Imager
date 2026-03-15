@@ -16,15 +16,12 @@ extern "C" {
  * ========================================================================= */
 #define APP_VERSION "1.0.0"
 
-#define SAMPLE_RATE 1000
 #define FRAME_SIZE 512
 #define N_ADCS 4
 #define N_CH_PER_ADC 4
 #define N_MICS 16
 
-#define SPI_SINGLE_MIC 0
-#define SPI_FULL_FRAME 1
-#define SPI_MODE SPI_FULL_FRAME
+
 
 // TODO: Consider discarding Nyquist bin (bin 512)
 #define N_BINS ((FRAME_SIZE >> 1) + 1) // For real FFT: N_BINS = (N/2)+1 = 513 
@@ -35,6 +32,18 @@ extern "C" {
 #define BATT_ADC_VREF_MV 2900u
 #define BATT_DIVIDER_NUMERATOR 1u
 #define BATT_DIVIDER_DENOMINATOR 1u
+
+// Configuration defines
+#define SPI_SINGLE_MIC 0
+#define SPI_FULL_FRAME 1
+#define SPI_MODE SPI_FULL_FRAME
+
+#define RELEASE 0
+#define TEST_SPI_STREAM 1
+#define TEST_DSP_PIPELINE 2
+#define DEBUG 3
+
+#define MODE RELEASE
 
 // Float print helper macros
 #define PRINT_F1(x) ((int)((x) * 10.0f) / 10),  ((int)((x) * 10.0f) % 10)

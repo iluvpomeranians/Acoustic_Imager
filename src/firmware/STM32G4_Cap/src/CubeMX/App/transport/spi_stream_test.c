@@ -79,6 +79,7 @@ static uint16_t checksum16_sum_bytes_ref(const uint8_t *data, size_t length)
   return sum;
 }
 
+#if SPI_MODE == SPI_SINGLE_MIC
 void spi_stream_unit_test_build_packet(void)
 {
     usb_printf("\r\n=== spi_stream_build_mic_packet UNIT TEST ===\r\n");
@@ -160,40 +161,39 @@ void spi_stream_unit_test_build_packet(void)
   const size_t payload_len = 2u * (size_t)bin_count * sizeof(float);
   const uint8_t *payload   = pkt.bytes + header_len;
 
-usb_printf("Payload check (first %u complex bins):\r\n", (unsigned)bin_count);
+  usb_printf("Payload check (first %u complex bins):\r\n", (unsigned)bin_count);
 
-int payload_ok = 1;
-for (uint16_t k = 0; k < bin_count; k++) {
+  int payload_ok = 1;
+  for (uint16_t k = 0; k < bin_count; k++) {
 
-  // Read back from packet payload (byte-safe)
-  float re = read_f32_le(payload + (size_t)(2u*k + 0u) * sizeof(float));
-  float im = read_f32_le(payload + (size_t)(2u*k + 1u) * sizeof(float));
+    // Read back from packet payload (byte-safe)
+    float re = read_f32_le(payload + (size_t)(2u*k + 0u) * sizeof(float));
+    float im = read_f32_le(payload + (size_t)(2u*k + 1u) * sizeof(float));
 
-  // Expected from source array
-  float re_exp = fft_bins[2u*k + 0u];
-  float im_exp = fft_bins[2u*k + 1u];
+    // Expected from source array
+    float re_exp = fft_bins[2u*k + 0u];
+    float im_exp = fft_bins[2u*k + 1u];
 
-  // Convert floats to raw IEEE-754 bit patterns for printing
-  uint32_t re_u, im_u, re_exp_u, im_exp_u;
-  memcpy(&re_u,     &re,     sizeof(re_u));
-  memcpy(&im_u,     &im,     sizeof(im_u));
-  memcpy(&re_exp_u, &re_exp, sizeof(re_exp_u));
-  memcpy(&im_exp_u, &im_exp, sizeof(im_exp_u));
+    // Convert floats to raw IEEE-754 bit patterns for printing
+    uint32_t re_u, im_u, re_exp_u, im_exp_u;
+    memcpy(&re_u,     &re,     sizeof(re_u));
+    memcpy(&im_u,     &im,     sizeof(im_u));
+    memcpy(&re_exp_u, &re_exp, sizeof(re_exp_u));
+    memcpy(&im_exp_u, &im_exp, sizeof(im_exp_u));
 
-  // Print as hex
-  usb_printf("  k=%u: re=0x%08lX (exp 0x%08lX), im=0x%08lX (exp 0x%08lX)%s\r\n",
-              (unsigned)k,
-              (unsigned long)re_u,     (unsigned long)re_exp_u,
-              (unsigned long)im_u,     (unsigned long)im_exp_u,
-              (re_u == re_exp_u && im_u == im_exp_u) ? "" : "  <-- MISMATCH");
+    // Print as hex
+    usb_printf("  k=%u: re=0x%08lX (exp 0x%08lX), im=0x%08lX (exp 0x%08lX)%s\r\n",
+                (unsigned)k,
+                (unsigned long)re_u,     (unsigned long)re_exp_u,
+                (unsigned long)im_u,     (unsigned long)im_exp_u,
+                (re_u == re_exp_u && im_u == im_exp_u) ? "" : "  <-- MISMATCH");
 
-  // Bitwise compare (exact)
-  if (re_u != re_exp_u || im_u != im_exp_u) {
-      payload_ok = 0;
+    // Bitwise compare (exact)
+    if (re_u != re_exp_u || im_u != im_exp_u) {
+        payload_ok = 0;
+    }
   }
-}
-
-usb_printf("Payload: %s\r\n", payload_ok ? "PASS" : "FAIL");
+  usb_printf("Payload: %s\r\n", payload_ok ? "PASS" : "FAIL");
 
   // 3) Verify checksum stored matches recomputed
   const uint8_t *cs_ptr = payload + payload_len;
@@ -219,6 +219,7 @@ usb_printf("Payload: %s\r\n", payload_ok ? "PASS" : "FAIL");
 
   usb_printf("=== END UNIT TEST ===\r\n");
 }
+
 
 void spi_stream_unit_test_nulls(void)
 {
@@ -371,6 +372,7 @@ void spi_loopback_unit_test(void)
 
     usb_printf("=== END LOOPBACK TEST ===\r\n");
 }
+#endif
 
 void spi_loopback_unit_test2(void)
 {
@@ -384,8 +386,6 @@ void spi_loopback_unit_test2(void)
   const uint16_t battery_mv  = 0u;
 
   const size_t payload_len   = N_MICS * fft_size * sizeof(float);
-  const size_t test_packet_size =
-    sizeof(SPI_FrameHeader_t) + payload_len + SPI_CHECKSUM_SIZE_BYTES;
 
   size_t offset    = 0u;
   size_t final_len = 0u;

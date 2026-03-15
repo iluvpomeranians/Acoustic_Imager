@@ -69,16 +69,19 @@ int usb_printf(const char *fmt, ...)
         // Output was truncated
         len = sizeof(buffer) - 1; // Adjust to actual buffer size
     }
-    // Best-effort send; drop if USB busy
-    // if (CDC_Transmit_FS((uint8_t*)buffer, (uint16_t)len) == USBD_OK) {
-    //     return len;
-    // }
 
+#if MODE == RELEASE
+    // Best-effort send; drop if USB busy
+    if (CDC_Transmit_FS((uint8_t*)buffer, (uint16_t)len) == USBD_OK) {
+        return len;
+    }
+#else
     // Wait until USB ready
     while (CDC_Transmit_FS((uint8_t*)buffer, (uint16_t)len) == USBD_BUSY)
     {
         HAL_Delay(1);  // small wait
     }
+#endif
 
     return len;
 }

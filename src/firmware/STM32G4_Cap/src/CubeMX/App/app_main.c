@@ -53,8 +53,9 @@ static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
 static float mic_fft_buffer[FRAME_SIZE];
 
+
 // TODO: Test buffer for raw FFT output magnitude calcs, delete or pre-processor guard
-static float mag_buffer[FRAME_SIZE/2 + 1];
+// static float mag_buffer[FRAME_SIZE/2 + 1];
 
 static arm_rfft_fast_instance_f32 fft_instance;
 
@@ -114,11 +115,6 @@ typedef struct {
     uint16_t checksum;
 } __attribute__((packed)) SPI_Packet_t;
 
-void usb_cdc_smoke_test() {
-  const char *test_str = "Hello from USB CDC!\r\n";
-  usb_printf("%s", test_str);
-}
-
 void app_init(void) {
   // Initialize FFT instance (precompute twiddle factors, etc.)
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
@@ -168,10 +164,13 @@ void app_loop(void) {
   HAL_GPIO_WritePin(GAIN_CNTL_GPIO_Port, GAIN_CNTL_Pin, (auto_gain == GPIO_PIN_SET) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
   // Main application loop - check for ADC data ready and process
+#if MODE == DEBUG
   if (_print_counter++ >= 1000) {
     _print_counter = 0;
     usb_printf("Main loop heartbeat\r\n");
   }
+#endif
+
   __disable_irq();
   adc_pending_mask |= adc_ready_mask;
   adc_ready_mask = 0;

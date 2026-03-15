@@ -38,11 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define RELEASE 0
-#define TEST_SPI_STREAM 1
-#define TEST_DSP_PIPELINE 2
 
-#define MODE RELEASE
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
