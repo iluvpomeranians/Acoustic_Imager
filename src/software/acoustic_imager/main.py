@@ -64,6 +64,7 @@ from acoustic_imager.dsp.heatmap import (
     blend_heatmap_left,
     draw_crosshairs,
     find_local_max,
+    percentile_uint8_fast,
     CROSSHAIR_TRACK_RADIUS,
     CROSSHAIR_DISMISS_RADIUS_PX,
 )
@@ -1432,13 +1433,18 @@ def main() -> None:
                     config.HEATMAP_LEVEL_FLOOR,
                     min(1.0, total_bandpass_power / config.HEATMAP_LEVEL_REFERENCE),
                 )
-                heatmap_left = (heatmap_left.astype(np.float32) * level).astype(np.uint8)
-                # Per-frame contrast stretch so bright blobs use full range (better differentiation)
+                # Per-frame contrast stretch: percentile from level-scaled subsample so stretch matches original visibility
                 pct = config.HEATMAP_CONTRAST_STRETCH_PERCENTILE
+                p_val = 0.0
                 if pct > 0 and heatmap_left.size > 0:
-                    p_val = float(np.percentile(heatmap_left, pct))
-                    if p_val > 1e-6:
-                        heatmap_left = (heatmap_left.astype(np.float32) * (255.0 / p_val)).clip(0, 255).astype(np.uint8)
+                    k = max(1, int(getattr(config, "HEATMAP_STRETCH_SUBSAMPLE", 1)))
+                    sub = heatmap_left[::k, ::k]
+                    sub_scaled = (sub.astype(np.float32) * level).clip(0, 255).astype(np.uint8)
+                    p_val = percentile_uint8_fast(sub_scaled, pct)
+                if pct > 0 and p_val > 1e-6:
+                    heatmap_left = (heatmap_left.astype(np.float32) * level * (255.0 / p_val)).clip(0, 255).astype(np.uint8)
+                else:
+                    heatmap_left = (heatmap_left.astype(np.float32) * level).astype(np.uint8)
                 prof.mark("heat_scale")
                 # Temporal smoothing for SPI: blend with previous frame
                 if source_label in ("HW", "LOOP") and heatmap_prev is not None and heatmap_prev.shape == heatmap_left.shape:

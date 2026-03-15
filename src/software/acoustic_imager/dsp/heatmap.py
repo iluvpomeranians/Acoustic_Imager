@@ -37,6 +37,35 @@ def _nearest_sigma_idx(sigma: float, cache: list[tuple[float, np.ndarray]]) -> i
     return best
 
 
+def percentile_uint8_fast(arr: np.ndarray, pct: float) -> float:
+    """
+    Approximate percentile for uint8 array (0-255) using 256-bin histogram.
+    Single pass, O(256) after; faster than np.percentile on large arrays.
+    Returns value in [0, 255] (interpolated between bins).
+    """
+    arr = np.asarray(arr, dtype=np.uint8)
+    if arr.size == 0:
+        return 0.0
+    hist = np.bincount(arr.ravel(), minlength=256)
+    total = float(hist.sum())
+    if total <= 0:
+        return 0.0
+    target = (pct / 100.0) * total
+    cum = np.cumsum(hist)
+    bin_idx = int(np.searchsorted(cum, target, side="left"))
+    bin_idx = min(bin_idx, 255)
+    if bin_idx <= 0:
+        return 0.0
+    lo = cum[bin_idx - 1]
+    hi = cum[bin_idx]
+    denom = hi - lo
+    if denom <= 0:
+        return float(bin_idx)
+    frac = (target - lo) / denom
+    frac = np.clip(frac, 0.0, 1.0)
+    return float(bin_idx) + frac
+
+
 # Colormap mapping
 COLORMAP_DICT = {
     "MAGMA": cv2.COLORMAP_MAGMA,

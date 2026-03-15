@@ -187,6 +187,8 @@ HEATMAP_LEVEL_REFERENCE = 1e6
 HEATMAP_LEVEL_FLOOR = 0.18
 # Per-frame contrast stretch: map this percentile to 255 (0=disable, saves ~20+ ms on Pi). Improves differentiation when enabled.
 HEATMAP_CONTRAST_STRETCH_PERCENTILE = 98.0
+# Subsample heatmap for percentile (1=full res, 4=every 4th pixel each axis); stretch still applied to full image.
+HEATMAP_STRETCH_SUBSAMPLE = 4
 HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
 # Heatmap dimensions (default: full content strip between DB bar and freq bar)
 HEATMAP_WIDTH = WIDTH - DB_BAR_WIDTH - FREQ_BAR_WIDTH
@@ -328,7 +330,7 @@ CALIBRATION_NOTE = "Camera left, board right, same heading"
 
 # --- HW heatmap pipeline (gain, MUSIC, directivity, etc.) ---
 # Per-mic gain correction (length N_MICS): boost weak mics; 1.0 = no change. Use metrics_debug.py --live --write-config to tune.
-SPI_MIC_GAIN = (1.66, 2.00, 2.84, 3.04, 1.80, 3.15, 2.64, 2.59, 1.57, 1.00, 3.52, 2.89, 1.15, 3.48, 100.00, 2.63)
+SPI_MIC_GAIN = (5.04, 22.40, 8.93, 14.02, 6.61, 14.29, 8.31, 9.10, 5.52, 8.67, 2.33, 1.78, 1.00, 2.57, 1.84, 1.18)
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
 SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
