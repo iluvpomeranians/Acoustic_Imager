@@ -2,10 +2,8 @@
 """
 Monitor GPIO pins used by the acoustic imager. Prints a table in a loop.
 Uses pinctrl so pin state is visible even when lines are in use by the kernel (SPI, I2C).
-Run from repo root: python3 utilities/calibration/pin_monitor.py
-  python3 utilities/calibration/pin_monitor.py --runs 5  # for calibration suite: exit 0 if all non-GND pins read 0/1
+Run from repo root: python3 utilities/debug/pin_monitor.py
 """
-import argparse
 import os
 import subprocess
 import sys
@@ -76,57 +74,27 @@ def read_one(bcm):
     return "?"
 
 
-def run_once():
-    """One pass over all pins. Returns dict bcm -> value ('0', '1', '?') and SPI status."""
-    results = {}
-    for _physical, bcm, _usage in PINS_USED:
-        if bcm is None:
-            continue
-        results[bcm] = read_one(bcm)
-    return results
-
-
 def main():
-    ap = argparse.ArgumentParser(description="Monitor GPIO pins (pinctrl)")
-    ap.add_argument("--runs", type=int, default=0, help="Run N times and exit; 0 = loop forever. For suite: 5")
-    args = ap.parse_args()
-
     width = 58
     header = f"{'Physical':<10} {'BCM':<6} {'Usage':<26} {'Value':<6}"
     print(header)
     print("-" * width)
-
-    runs_left = args.runs if args.runs > 0 else None
-    bcms_with_valid_reading = set()  # non-GND bcms that got "0" or "1" at least once
-
     try:
-        while runs_left is None or runs_left > 0:
+        while True:
             for physical, bcm, usage in PINS_USED:
                 bcm_str = str(bcm) if bcm is not None else "-"
                 if bcm is None:
                     val = "-"
                 else:
                     val = read_one(bcm)
-                    if val in ("0", "1"):
-                        bcms_with_valid_reading.add(bcm)
                 print(f"{physical:<10} {bcm_str:<6} {usage:<26} {val:<6}")
             spi_path = get_spi_path()
             exists, in_use = spi_status(spi_path)
             print(f"SPI: {spi_path}  exists={'yes' if exists else 'no'}  in_use={'yes' if in_use else 'no'}")
             print()
-
-            if runs_left is not None:
-                runs_left -= 1
-                if runs_left <= 0:
-                    break
             time.sleep(0.2)
     except KeyboardInterrupt:
         pass
-
-    if args.runs > 0:
-        non_gnd_bcms = {bcm for _p, bcm, _u in PINS_USED if bcm is not None}
-        all_ok = non_gnd_bcms <= bcms_with_valid_reading
-        sys.exit(0 if all_ok else 1)
 
 
 if __name__ == "__main__":

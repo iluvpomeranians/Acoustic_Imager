@@ -269,97 +269,35 @@ def _scan_nmcli_iface() -> List[Dict[str, str]]:
         return []
 
 
-def _sanitize_connection_name(ssid: str) -> str:
-    """NetworkManager con-name must be safe for config files (no quotes, slashes, etc.)."""
-    s = (ssid or "").strip()
-    # Include Unicode apostrophe/quotes (e.g. in "Basem's iPhone")
-    s = re.sub(r"[\s'\"\u2018\u2019\u201c\u201d\\/:*?<>|]+", "_", s)
-    s = s.strip("_")
-    return s or "wifi"
-
-
-def connect_wifi(
-    ssid: str,
-    password: str,
-    *,
-    bssid: str | None = None,
-    ifname: str | None = "wlan0",
-) -> tuple[bool, str]:
+def connect_wifi(ssid: str, password: str) -> tuple[bool, str]:
     """
     Connect to WiFi network. Returns (success, message).
-
-    Tries single-command 'device wifi connect' first so the password is passed
-    directly to nmcli. Fallback: add profile, set PSK + psk-flags, then up.
     """
-    ssid = (ssid or "").strip()
-    password = (password or "").strip()
-    if not ssid:
-        return False, "No network selected"
-    con_name = _sanitize_connection_name(ssid)
-    iface = ifname or "wlan0"
-
-    def run(args: list, timeout_sec: int = 10) -> tuple[int, str]:
-        out = subprocess.run(args, capture_output=True, text=True, timeout=timeout_sec)
-        err = (out.stderr or out.stdout or "").strip()
-        if not err and out.returncode != 0:
-            err = "Connection failed"
-        return out.returncode, err[:120] if err else ""
-
     try:
-        subprocess.run(
-            ["nmcli", "connection", "delete", con_name],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-        pass
-
-    # 1) Single command: password passed straight to nmcli (recommended on Pi)
-    connect_args = ["nmcli", "-w", "15", "device", "wifi", "connect", ssid, "ifname", iface]
-    if password:
-        connect_args.extend(["password", password])
-    if bssid and len((bssid or "").strip()) == 17:
-        connect_args.extend(["bssid", (bssid or "").strip().upper()])
-    code, err = run(connect_args, timeout_sec=20)
-    if code == 0:
-        return True, "Connected"
-
-    # 2) Fallback: add profile (sanitized con-name), set PSK and psk-flags, then up
-    add_args = [
-        "nmcli", "connection", "add",
-        "type", "wifi",
-        "con-name", con_name,
-        "ifname", iface,
-        "ssid", ssid,
-    ]
-    code, err = run(add_args)
-    if code != 0:
-        if "already exists" in (err or "").lower():
-            subprocess.run(
-                ["nmcli", "connection", "delete", con_name],
-                capture_output=True, text=True, timeout=5,
+        if password:
+            out = subprocess.run(
+                ["nmcli", "device", "wifi", "connect", ssid, "password", password],
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
-            code, err = run(add_args)
-        if code != 0:
-            return False, err or "Failed to add connection"
-
-    if password:
-        code, err = run(["nmcli", "connection", "modify", con_name, "wifi-sec.key-mgmt", "wpa-psk"])
-        if code != 0:
-            return False, err or "Failed to set security"
-        code, err = run(["nmcli", "connection", "modify", con_name, "wifi-sec.psk", password])
-        if code != 0:
-            return False, err or "Failed to set password"
-        run(["nmcli", "connection", "modify", con_name, "wifi-sec.psk-flags", "0"])
-
-    up_args = ["nmcli", "-w", "15", "connection", "up", con_name]
-    if bssid and len((bssid or "").strip()) == 17:
-        up_args.extend(["bssid", (bssid or "").strip().upper()])
-    code, err = run(up_args, timeout_sec=20)
-    if code == 0:
-        return True, "Connected"
-    return False, err or "Connection failed"
+        else:
+            out = subprocess.run(
+                ["nmcli", "device", "wifi", "connect", ssid],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        if out.returncode == 0:
+            return True, "Connected"
+        err = (out.stderr or out.stdout or "").strip()
+        return False, err[:80] if err else "Connection failed"
+    except subprocess.TimeoutExpired:
+        return False, "Connection timed out"
+    except FileNotFoundError:
+        return False, "nmcli not found"
+    except Exception as e:
+        return False, str(e)[:80]
 
 
 def disconnect_wifi() -> tuple[bool, str]:

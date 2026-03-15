@@ -26,16 +26,12 @@ from .email_modal import _draw_eye_icon
 MODAL_W = 520
 MODAL_H_LIST = 380
 MODAL_H_PASSWORD = 420
-SCROLLBAR_W = 24
-SCROLL_BTN_H = 28
-ROW_H = 36
-DRAG_THRESHOLD_PX = 10   # only start list scroll drag after finger moves this many px
 
 
-def _run_connect(ssid: str, password: str, bssid: str = "") -> None:
+def _run_connect(ssid: str, password: str) -> None:
     """Background thread: connect and set status."""
     HUD.wifi_connect_status = "connecting"
-    ok, msg = connect_wifi(ssid, password, bssid=bssid or None)
+    ok, msg = connect_wifi(ssid, password)
     HUD.wifi_connect_status = "ok" if ok else "error"
     HUD.wifi_connect_message = msg
 
@@ -47,51 +43,6 @@ def _run_scan() -> None:
         HUD.wifi_networks = scan_wifi_networks()
     finally:
         HUD.wifi_scanning = False
-
-
-def _get_wifi_list_layout(fw: int, fh: int) -> dict:
-    """Return layout for list screen: list rect, scrollbar rect, row_h, max_scroll, other_networks."""
-    modal_w = MODAL_W
-    modal_h = MODAL_H_LIST
-    modal_x = (fw - modal_w) // 2
-    modal_y = (fh - modal_h) // 2
-    pad = 16
-    row_h = ROW_H
-    section_gap = 8
-    current_y = modal_y + 52
-    row_x = modal_x + pad
-    row_w = modal_w - 2 * pad
-    list_content_w = row_w - SCROLLBAR_W
-    expanded = HUD.wifi_current_expanded
-    box_h = (row_h - 4) + (72 if expanded else 0)
-    current_row_y = current_y + 6
-    list_y0 = current_row_y + box_h + section_gap + 16 + 6
-    list_visible_h = modal_y + modal_h - pad - list_y0
-    list_visible_h = max(0, list_visible_h)
-    connected_ssid, _, _ = get_system_network_info(0)
-    networks = HUD.wifi_networks or []
-    other_networks = [n for n in networks if (n.get("ssid") or "").strip() != connected_ssid]
-    total_content_h = len(other_networks) * row_h
-    max_scroll = max(0, total_content_h - list_visible_h)
-    scroll_offset = min(HUD.wifi_list_scroll_offset, max_scroll) if max_scroll > 0 else 0
-    HUD.wifi_list_scroll_offset = scroll_offset
-    sb_x = row_x + list_content_w
-    sb_y = list_y0
-    sb_h = list_visible_h
-    return {
-        "row_x": row_x,
-        "list_y0": list_y0,
-        "list_content_w": list_content_w,
-        "list_visible_h": list_visible_h,
-        "row_h": row_h,
-        "total_content_h": total_content_h,
-        "max_scroll": max_scroll,
-        "scroll_offset": scroll_offset,
-        "sb_x": sb_x,
-        "sb_y": sb_y,
-        "sb_h": sb_h,
-        "other_networks": other_networks,
-    }
 
 
 def draw_wifi_modal(frame: np.ndarray) -> None:
@@ -199,79 +150,31 @@ def _draw_list_screen(
         menu_buttons["wifi_disconnect"].w = 0
         menu_buttons["wifi_disconnect"].h = 0
 
-    # "Other Networks" section (scrollable list)
+    # "Other Networks" section (below expanded or collapsed current box)
     other_y0 = current_row_y + box_h + section_gap + 16
     other_label = "Other Networks"
     if HUD.wifi_scanning:
         other_label += "  Scanning..."
     cv2.putText(frame, other_label, (row_x, other_y0 - 4), font, 0.44, (180, 180, 180), 1, cv2.LINE_AA)
-
-    layout = _get_wifi_list_layout(fw, fh)
-    list_y0 = layout["list_y0"]
-    list_content_w = layout["list_content_w"]
-    list_visible_h = layout["list_visible_h"]
-    row_h = layout["row_h"]
-    scroll_offset = layout["scroll_offset"]
-    other_networks = layout["other_networks"]
-    max_scroll = layout["max_scroll"]
-    sb_x, sb_y, sb_h = layout["sb_x"], layout["sb_y"], layout["sb_h"]
-
-    # List content region (for hit-testing row clicks)
-    if "wifi_list_region" not in menu_buttons:
-        menu_buttons["wifi_list_region"] = Button(row_x, list_y0, list_content_w, list_visible_h, "")
-    else:
-        menu_buttons["wifi_list_region"].x, menu_buttons["wifi_list_region"].y = row_x, list_y0
-        menu_buttons["wifi_list_region"].w, menu_buttons["wifi_list_region"].h = list_content_w, list_visible_h
-
-    for i, net in enumerate(other_networks):
-        row_y = list_y0 + i * row_h - scroll_offset
-        if row_y + row_h - 4 < list_y0 or row_y > list_y0 + list_visible_h:
-            continue
+    list_y0 = other_y0 + 6
+    max_rows = max(0, (modal_h - list_y0 + modal_y - pad) // row_h)
+    networks = HUD.wifi_networks or []
+    other_networks = [n for n in networks if (n.get("ssid") or "").strip() != connected_ssid]
+    for i, net in enumerate(other_networks[:max_rows]):
         ssid = net.get("ssid", "")
         signal = net.get("signal", "")
         security = net.get("security", "Open")
-        cv2.rectangle(frame, (row_x, row_y), (row_x + list_content_w, row_y + row_h - 4), (50, 50, 50), -1)
-        cv2.rectangle(frame, (row_x, row_y), (row_x + list_content_w, row_y + row_h - 4), (80, 80, 80), 1, cv2.LINE_AA)
-        label = f"{ssid[:22]}  {signal}%  {security}" if signal else f"{ssid[:26]}  {security}"
+        row_y = list_y0 + i * row_h
+        key = f"wifi_net_{i}"
+        if key not in menu_buttons:
+            menu_buttons[key] = Button(row_x, row_y, row_w, row_h - 4, "")
+        else:
+            menu_buttons[key].x, menu_buttons[key].y = row_x, row_y
+            menu_buttons[key].w, menu_buttons[key].h = row_w, row_h - 4
+        cv2.rectangle(frame, (row_x, row_y), (row_x + row_w, row_y + row_h - 4), (50, 50, 50), -1)
+        cv2.rectangle(frame, (row_x, row_y), (row_x + row_w, row_y + row_h - 4), (80, 80, 80), 1, cv2.LINE_AA)
+        label = f"{ssid[:24]}  {signal}%  {security}" if signal else f"{ssid[:28]}  {security}"
         cv2.putText(frame, label, (row_x + 8, row_y + (row_h - 4) // 2 + 6), font, 0.48, text_color, 1, cv2.LINE_AA)
-
-    # Scrollbar
-    cv2.rectangle(frame, (sb_x, sb_y), (sb_x + SCROLLBAR_W, sb_y + sb_h), (60, 60, 60), -1, cv2.LINE_AA)
-    cv2.rectangle(frame, (sb_x, sb_y), (sb_x + SCROLLBAR_W, sb_y + sb_h), (90, 90, 90), 1, cv2.LINE_AA)
-    if max_scroll > 0:
-        total_content_h = layout["total_content_h"]
-        thumb_ratio = list_visible_h / max(total_content_h, 1)
-        thumb_h = max(28, int(sb_h * thumb_ratio))
-        thumb_range = sb_h - thumb_h
-        thumb_y = sb_y + int(thumb_range * scroll_offset / max_scroll)
-        cv2.rectangle(frame, (sb_x + 2, thumb_y), (sb_x + SCROLLBAR_W - 2, thumb_y + thumb_h), (120, 120, 120), -1, cv2.LINE_AA)
-        cv2.rectangle(frame, (sb_x + 2, thumb_y), (sb_x + SCROLLBAR_W - 2, thumb_y + thumb_h), (160, 160, 160), 1, cv2.LINE_AA)
-        if "wifi_scroll_up" not in menu_buttons:
-            menu_buttons["wifi_scroll_up"] = Button(sb_x, sb_y, SCROLLBAR_W, SCROLL_BTN_H, "")
-        else:
-            menu_buttons["wifi_scroll_up"].x, menu_buttons["wifi_scroll_up"].y = sb_x, sb_y
-            menu_buttons["wifi_scroll_up"].w, menu_buttons["wifi_scroll_up"].h = SCROLLBAR_W, SCROLL_BTN_H
-        cv2.putText(frame, "^", (sb_x + 4, sb_y + SCROLL_BTN_H - 8), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
-        if "wifi_scroll_down" not in menu_buttons:
-            menu_buttons["wifi_scroll_down"] = Button(sb_x, sb_y + sb_h - SCROLL_BTN_H, SCROLLBAR_W, SCROLL_BTN_H, "")
-        else:
-            menu_buttons["wifi_scroll_down"].x, menu_buttons["wifi_scroll_down"].y = sb_x, sb_y + sb_h - SCROLL_BTN_H
-            menu_buttons["wifi_scroll_down"].w, menu_buttons["wifi_scroll_down"].h = SCROLLBAR_W, SCROLL_BTN_H
-        cv2.putText(frame, "v", (sb_x + 6, sb_y + sb_h - 10), font, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
-        if "wifi_scrollbar" not in menu_buttons:
-            menu_buttons["wifi_scrollbar"] = Button(sb_x, sb_y, SCROLLBAR_W, sb_h, "")
-        else:
-            menu_buttons["wifi_scrollbar"].x, menu_buttons["wifi_scrollbar"].y = sb_x, sb_y
-            menu_buttons["wifi_scrollbar"].w, menu_buttons["wifi_scrollbar"].h = SCROLLBAR_W, sb_h
-    else:
-        for k in ("wifi_scroll_up", "wifi_scroll_down", "wifi_scrollbar"):
-            if k in menu_buttons:
-                menu_buttons[k].w, menu_buttons[k].h = 0, 0
-
-    # Hide old per-row buttons (no longer used)
-    for key in list(menu_buttons.keys()):
-        if key.startswith("wifi_net_"):
-            menu_buttons[key].w, menu_buttons[key].h = 0, 0
 
     if "wifi_modal_panel" not in menu_buttons:
         menu_buttons["wifi_modal_panel"] = Button(modal_x, modal_y, modal_w, modal_h, "")
@@ -393,133 +296,17 @@ def _draw_password_screen(
         menu_buttons["wifi_keyboard_region"].h = keyboard_h
 
 
-def _is_in_wifi_list_content(x: int, y: int, fw: int, fh: int) -> bool:
-    """True if (x,y) is in the list content area (not scrollbar)."""
-    if fw <= 0 or fh <= 0 or HUD.wifi_modal_screen != "list":
-        return False
-    layout = _get_wifi_list_layout(fw, fh)
-    rx, ly0, lw, lh = layout["row_x"], layout["list_y0"], layout["list_content_w"], layout["list_visible_h"]
-    if not (rx <= x < rx + lw and ly0 <= y < ly0 + lh):
-        return False
-    return True
-
-
-def _is_in_wifi_scrollbar(x: int, y: int, fw: int, fh: int) -> bool:
-    """True if (x,y) is in the scrollbar track/thumb area."""
-    if fw <= 0 or fh <= 0 or HUD.wifi_modal_screen != "list":
-        return False
-    layout = _get_wifi_list_layout(fw, fh)
-    sx, sy, sh = layout["sb_x"], layout["sb_y"], layout["sb_h"]
-    return sx <= x < sx + SCROLLBAR_W and sy <= y < sy + sh
-
-
-def _wifi_select_network_at_position(x: int, y: int, fw: int, fh: int) -> bool:
-    """If (x,y) is on a network row, select it (open password or connect). Returns True if selected."""
-    if fw <= 0 or fh <= 0:
-        return False
-    layout = _get_wifi_list_layout(fw, fh)
-    row_x = layout["row_x"]
-    list_y0 = layout["list_y0"]
-    list_content_w = layout["list_content_w"]
-    list_visible_h = layout["list_visible_h"]
-    if not (row_x <= x < row_x + list_content_w and list_y0 <= y < list_y0 + list_visible_h):
-        return False
-    row_h = layout["row_h"]
-    scroll_offset = layout["scroll_offset"]
-    other_networks = layout["other_networks"]
-    row_i = (y - list_y0 + scroll_offset) // row_h
-    if row_i < 0 or row_i >= len(other_networks):
-        return False
-    net = other_networks[row_i]
-    ssid = net.get("ssid", "")
-    security = net.get("security", "Open")
-    if security == "Open":
-        HUD.wifi_connect_ssid = ssid
-        HUD.wifi_password = ""
-        HUD.wifi_connect_status = ""
-        HUD.wifi_connect_message = ""
-        thread = threading.Thread(target=_run_connect, args=(ssid, ""), daemon=True)
-        thread.start()
-        return True
-    HUD.wifi_connect_ssid = ssid
-    HUD.wifi_connect_bssid = (net.get("bssid") or "").strip()
-    HUD.wifi_password = ""
-    HUD.wifi_modal_screen = "password"
-    HUD.wifi_keyboard_mode = "alpha"
-    HUD.wifi_shift_next = False
-    HUD.wifi_password_visible = False
-    HUD.wifi_connect_status = ""
-    HUD.wifi_connect_message = ""
-    return True
-
-
-def handle_wifi_modal_touch_drag(event: int, x: int, y: int, fw: int, fh: int) -> bool:
-    """Handle touch-drag for list scroll. Tap = select network; drag = scroll. Returns True if consumed."""
-    if not HUD.wifi_modal_open or HUD.wifi_modal_screen != "list" or fw <= 0 or fh <= 0:
-        return False
-    layout = _get_wifi_list_layout(fw, fh)
-    max_scroll = layout["max_scroll"]
-    list_visible_h = layout["list_visible_h"]
-    sb_y, sb_h = layout["sb_y"], layout["sb_h"]
-
-    if event == cv2.EVENT_LBUTTONDOWN:
-        if _is_in_wifi_list_content(x, y, fw, fh) and not _is_in_wifi_scrollbar(x, y, fw, fh):
-            HUD.wifi_list_touch_started = True
-            HUD.wifi_list_touch_start_x = x
-            HUD.wifi_list_touch_start_y = y
-            return True
-        return False
-
-    if event == cv2.EVENT_MOUSEMOVE:
-        if HUD.wifi_list_touch_started:
-            if abs(y - HUD.wifi_list_touch_start_y) > DRAG_THRESHOLD_PX:
-                HUD.wifi_list_content_dragging = True
-                HUD.wifi_list_content_drag_start_y = y
-                HUD.wifi_list_content_drag_start_scroll = HUD.wifi_list_scroll_offset
-                HUD.wifi_list_touch_started = False
-        if HUD.wifi_list_content_dragging:
-            dy = y - HUD.wifi_list_content_drag_start_y
-            new_scroll = HUD.wifi_list_content_drag_start_scroll - dy
-            HUD.wifi_list_scroll_offset = max(0, min(max_scroll, int(new_scroll)))
-            return True
-        if HUD.wifi_list_scroll_dragging:
-            thumb_range = sb_h - max(28, int(sb_h * list_visible_h / max(layout["total_content_h"], 1)))
-            if thumb_range > 0:
-                dy = y - HUD.wifi_list_scrollbar_drag_start_y
-                scroll_delta = int(dy * max_scroll / thumb_range)
-                HUD.wifi_list_scroll_offset = max(0, min(max_scroll, HUD.wifi_list_scrollbar_drag_start_scroll + scroll_delta))
-            return True
-        return False
-
-    if event == cv2.EVENT_LBUTTONUP:
-        if HUD.wifi_list_touch_started:
-            _wifi_select_network_at_position(
-                HUD.wifi_list_touch_start_x, HUD.wifi_list_touch_start_y, fw, fh
-            )
-            HUD.wifi_list_touch_started = False
-            return True
-        if HUD.wifi_list_content_dragging:
-            HUD.wifi_list_content_dragging = False
-            return True
-        if HUD.wifi_list_scroll_dragging:
-            HUD.wifi_list_scroll_dragging = False
-            return True
-        return False
-
-    return False
-
-
-def handle_wifi_modal_click(x: int, y: int, fw: int = 0, fh: int = 0) -> bool:
-    """Handle click. Returns True if handled. Pass fw, fh for list scroll/row hit-test."""
+def handle_wifi_modal_click(x: int, y: int) -> bool:
+    """Handle click. Returns True if handled."""
     if not HUD.wifi_modal_open:
         return False
 
     if HUD.wifi_modal_screen == "list":
-        return _handle_list_click(x, y, fw, fh)
+        return _handle_list_click(x, y)
     return _handle_password_click(x, y)
 
 
-def _handle_list_click(x: int, y: int, fw: int, fh: int) -> bool:
+def _handle_list_click(x: int, y: int) -> bool:
     if "wifi_scan" in menu_buttons and menu_buttons["wifi_scan"].contains(x, y):
         if not HUD.wifi_scanning:
             thread = threading.Thread(target=_run_scan, daemon=True)
@@ -534,50 +321,30 @@ def _handle_list_click(x: int, y: int, fw: int, fh: int) -> bool:
     if "wifi_current" in menu_buttons and menu_buttons["wifi_current"].contains(x, y):
         HUD.wifi_current_expanded = not HUD.wifi_current_expanded
         return True
-    if fw > 0 and fh > 0:
-        layout = _get_wifi_list_layout(fw, fh)
-        max_scroll = layout["max_scroll"]
-        sb_x, sb_y, sb_h = layout["sb_x"], layout["sb_y"], layout["sb_h"]
-        if max_scroll > 0:
-            if "wifi_scroll_up" in menu_buttons and menu_buttons["wifi_scroll_up"].w > 0 and menu_buttons["wifi_scroll_up"].contains(x, y):
-                HUD.wifi_list_scroll_offset = max(0, HUD.wifi_list_scroll_offset - 50)
-                return True
-            if "wifi_scroll_down" in menu_buttons and menu_buttons["wifi_scroll_down"].w > 0 and menu_buttons["wifi_scroll_down"].contains(x, y):
-                HUD.wifi_list_scroll_offset = min(max_scroll, HUD.wifi_list_scroll_offset + 50)
-                return True
-            if "wifi_scrollbar" in menu_buttons and menu_buttons["wifi_scrollbar"].contains(x, y):
-                HUD.wifi_list_scroll_dragging = True
-                HUD.wifi_list_scrollbar_drag_start_y = y
-                HUD.wifi_list_scrollbar_drag_start_scroll = HUD.wifi_list_scroll_offset
-                return True
-        if "wifi_list_region" in menu_buttons and menu_buttons["wifi_list_region"].contains(x, y):
-            row_h = layout["row_h"]
-            list_y0 = layout["list_y0"]
-            scroll_offset = layout["scroll_offset"]
-            other_networks = layout["other_networks"]
-            row_i = (y - list_y0 + scroll_offset) // row_h
-            if 0 <= row_i < len(other_networks):
-                net = other_networks[row_i]
-                ssid = net.get("ssid", "")
-                security = net.get("security", "Open")
-                if security == "Open":
-                    HUD.wifi_connect_ssid = ssid
-                    HUD.wifi_password = ""
-                    HUD.wifi_connect_status = ""
-                    HUD.wifi_connect_message = ""
-                    thread = threading.Thread(target=_run_connect, args=(ssid, ""), daemon=True)
-                    thread.start()
-                    return True
+    connected_ssid, _, _ = get_system_network_info(0)
+    other_networks = [n for n in (HUD.wifi_networks or []) if (n.get("ssid") or "").strip() != connected_ssid]
+    for i, net in enumerate(other_networks):
+        key = f"wifi_net_{i}"
+        if key in menu_buttons and menu_buttons[key].contains(x, y):
+            ssid = net.get("ssid", "")
+            security = net.get("security", "Open")
+            if security == "Open":
                 HUD.wifi_connect_ssid = ssid
-                HUD.wifi_connect_bssid = (net.get("bssid") or "").strip()
                 HUD.wifi_password = ""
-                HUD.wifi_modal_screen = "password"
-                HUD.wifi_keyboard_mode = "alpha"
-                HUD.wifi_shift_next = False
-                HUD.wifi_password_visible = False
                 HUD.wifi_connect_status = ""
                 HUD.wifi_connect_message = ""
+                thread = threading.Thread(target=_run_connect, args=(ssid, ""), daemon=True)
+                thread.start()
                 return True
+            HUD.wifi_connect_ssid = ssid
+            HUD.wifi_password = ""
+            HUD.wifi_modal_screen = "password"
+            HUD.wifi_keyboard_mode = "alpha"
+            HUD.wifi_shift_next = False
+            HUD.wifi_password_visible = False
+            HUD.wifi_connect_status = ""
+            HUD.wifi_connect_message = ""
+            return True
     if "wifi_modal_panel" in menu_buttons and menu_buttons["wifi_modal_panel"].contains(x, y):
         return True
     HUD.wifi_modal_open = False
@@ -604,7 +371,6 @@ def _handle_password_click(x: int, y: int) -> bool:
             else:
                 HUD.wifi_modal_screen = "list"
                 HUD.wifi_connect_ssid = ""
-                HUD.wifi_connect_bssid = ""
                 HUD.wifi_password = ""
                 HUD.wifi_password_visible = False
             return True
@@ -615,7 +381,7 @@ def _handle_password_click(x: int, y: int) -> bool:
             HUD.wifi_connect_message = ""
             thread = threading.Thread(
                 target=_run_connect,
-                args=(HUD.wifi_connect_ssid, HUD.wifi_password, HUD.wifi_connect_bssid),
+                args=(HUD.wifi_connect_ssid, HUD.wifi_password),
                 daemon=True,
             )
             thread.start()
@@ -632,7 +398,6 @@ def _handle_password_click(x: int, y: int) -> bool:
     # Click outside: go back to list
     HUD.wifi_modal_screen = "list"
     HUD.wifi_connect_ssid = ""
-    HUD.wifi_connect_bssid = ""
     HUD.wifi_password = ""
     HUD.wifi_password_visible = False
     return True
@@ -671,7 +436,6 @@ def _handle_wifi_keyboard_click(x: int, y: int) -> None:
                 else:
                     HUD.wifi_modal_screen = "list"
                     HUD.wifi_connect_ssid = ""
-                    HUD.wifi_connect_bssid = ""
                     HUD.wifi_password = ""
                 return
 

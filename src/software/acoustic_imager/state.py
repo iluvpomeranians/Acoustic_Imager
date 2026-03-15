@@ -53,7 +53,6 @@ class HudState:
     wifi_modal_screen: str = "list"   # "list" | "password"
     wifi_networks: List[dict] = field(default_factory=list)  # [{"ssid", "signal", "security"}, ...]
     wifi_connect_ssid: str = ""
-    wifi_connect_bssid: str = ""   # optional BSSID of selected AP for more reliable connect
     wifi_password: str = ""
     wifi_keyboard_mode: str = "alpha"   # "alpha" | "symbol"
     wifi_shift_next: bool = False
@@ -63,16 +62,6 @@ class HudState:
     wifi_current_expanded: bool = False  # when True, show expanded network info
     wifi_scanning: bool = False   # True while scan is in progress (background thread)
     wifi_password_visible: bool = False  # show password characters (eye toggle)
-    wifi_list_scroll_offset: int = 0   # vertical scroll (px) for "Other Networks" list
-    wifi_list_content_dragging: bool = False
-    wifi_list_content_drag_start_y: int = 0
-    wifi_list_content_drag_start_scroll: int = 0
-    wifi_list_touch_started: bool = False   # tap in list: only start drag after move past threshold
-    wifi_list_touch_start_x: int = 0
-    wifi_list_touch_start_y: int = 0
-    wifi_list_scroll_dragging: bool = False   # scrollbar thumb drag
-    wifi_list_scrollbar_drag_start_y: int = 0
-    wifi_list_scrollbar_drag_start_scroll: int = 0
     settings_modal_scroll_offset: int = 0   # vertical scroll (px) for settings modal content
     settings_modal_scroll_dragging: bool = False  # True while dragging scrollbar
     settings_modal_drag_start_y: int = 0   # y at drag start
@@ -162,19 +151,6 @@ class ButtonState:
     firmware_flash_modal_open: bool = False
     firmware_flash_version: str = "v1.0.0"   # placeholder; set when flashing starts
     firmware_flash_status: str = ""   # "" | "flashing" | "success" | "error"
-    calibration_suite_modal_open: bool = False
-    calibration_suite_log: List[str] = field(default_factory=list)  # lines from calibration runner
-    calibration_suite_running: bool = False
-    calibration_suite_scroll_offset: int = 0  # scroll for log area in modal
-    calibration_suite_log_dragging: bool = False
-    calibration_suite_log_drag_start_y: int = 0
-    calibration_suite_log_drag_start_scroll: int = 0
-    calibration_suite_process: Optional[Any] = None  # subprocess.Popen when running, so Stop can terminate
-    calibration_suite_show_result_modal: bool = False  # show PASSED/FAILED overlay when suite finishes
-    calibration_suite_result_passed: bool = False
-    calibration_suite_result_passed_count: int = 0
-    calibration_suite_result_total: int = 0
-    calibration_suite_result_stopped: bool = False  # True if user clicked Stop (no Done line)
     gain_mode: str = "HIGH"    # LOW or HIGH; drives GAIN_CONTROL
     debug_enabled: bool = True
     radar_ui_enabled: bool = RADAR_UI_DEFAULT
@@ -365,8 +341,6 @@ CURSOR_POS: Tuple[int, int] = (0, 0)
 HUD_RECTS: Optional[Any] = None  # HudRects from top_hud.draw_hud; set each frame when drawing
 
 CURRENT_FRAME: Optional[Any] = None  # typically a numpy ndarray (H,W,3) uint8
-# Frozen frame shown behind Calibration Suite modal (last main view before opening; avoids black)
-CALIBRATION_SUITE_BACKGROUND_FRAME: Optional[Any] = None  # (H,W,3) uint8
 OUTPUT_DIR: Optional[Path] = None
 
 CAMERA_AVAILABLE: bool = False

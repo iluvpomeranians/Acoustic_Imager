@@ -103,7 +103,7 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_viewer_mouse,
     handle_email_modal_click,
 )
-from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click, handle_wifi_modal_touch_drag
+from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click
 from acoustic_imager.io.magnetometer import MagnetometerReader, probe_i2c_magnetometer
 from acoustic_imager.io.gps_reader import GPSReader
 from acoustic_imager.io.position_manager import PositionManager
@@ -117,12 +117,6 @@ from acoustic_imager.ui.settings_modal import (
 from acoustic_imager.ui.firmware_flash_modal import (
     draw_firmware_flash_modal,
     handle_firmware_flash_modal_click,
-)
-from acoustic_imager.ui.calibration_suite_modal import (
-    draw_calibration_suite_modal,
-    handle_calibration_suite_modal_click,
-    handle_calibration_suite_modal_mouse,
-    handle_calibration_suite_modal_scroll,
 )
 from acoustic_imager.ui.acoustic_radar_map import draw_radar_map_widget, update_detection_history
 from acoustic_imager.ui.video_recorder import VideoRecorder
@@ -247,12 +241,9 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
 
-        # WiFi modal (when open, handle first). Touch-drag scroll starts here.
+        # WiFi modal (when open, handle first)
         if HUD.wifi_modal_open:
-            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
-                state.ui_click_was_on_ui = True
-                return
-            if handle_wifi_modal_click(mx, my, config.WIDTH, config.HEIGHT):
+            if handle_wifi_modal_click(mx, my):
                 state.ui_click_was_on_ui = True
                 return
 
@@ -274,15 +265,6 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Firmware Flash modal (when open, handle first)
         if button_state.firmware_flash_modal_open:
             if handle_firmware_flash_modal_click(mx, my):
-                state.ui_click_was_on_ui = True
-                return
-
-        # Calibration Suite modal (mouse first for drag-to-scroll, then click)
-        if button_state.calibration_suite_modal_open:
-            if handle_calibration_suite_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
-                state.ui_click_was_on_ui = True
-                return
-            if handle_calibration_suite_modal_click(mx, my):
                 state.ui_click_was_on_ui = True
                 return
 
@@ -717,13 +699,8 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                 state.ui_last_tap_x = mx
                 state.ui_last_tap_y = my
 
-    # Handle mouse move (dragging) — also used for touch-drag on touchscreens
+    # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
-
-        # WiFi modal list touch-drag scroll
-        if HUD.wifi_modal_open:
-            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
-                return
 
         # Settings modal touch/drag scroll
         if HUD.settings_modal_open:
@@ -783,27 +760,15 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if HUD.settings_modal_open:
             # flags: positive = scroll up, negative = scroll down (platform-dependent)
             delta = -80 if flags > 0 else 80
-            if button_state.calibration_suite_modal_open and handle_calibration_suite_modal_scroll(delta):
-                return
             if handle_settings_modal_scroll(delta):
                 return
 
-    # Handle left button up — also touch release on touchscreens
+    # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
-
-        # WiFi modal list touch-drag scroll end
-        if HUD.wifi_modal_open:
-            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
-                pass  # consumed
 
         # Settings modal touch/drag scroll end
         if HUD.settings_modal_open:
             if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
-                pass  # consumed
-
-        # Calibration Suite modal touch/drag scroll end
-        if button_state.calibration_suite_modal_open:
-            if handle_calibration_suite_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
                 pass  # consumed
 
         # End dot drag (dot stays at last snapped position)
@@ -1087,22 +1052,8 @@ def main() -> None:
             f_min = state.F_MIN_HZ
             f_max = state.F_MAX_HZ
 
-            # When calibration suite modal is open, show cached last frame as frozen background (no black).
-            # Prefer CALIBRATION_SUITE_BACKGROUND_FRAME (last main view before opening); fall back to CURRENT_FRAME.
-            _cached = getattr(state, "CALIBRATION_SUITE_BACKGROUND_FRAME", None)
-            if _cached is None or not (hasattr(_cached, "shape") and _cached.shape == (config.HEIGHT, config.WIDTH, 3)):
-                _cached = state.CURRENT_FRAME
-            _valid_cache = (
-                _cached is not None
-                and hasattr(_cached, "shape")
-                and _cached.shape == (config.HEIGHT, config.WIDTH, 3)
-            )
-            _skip_render = button_state.calibration_suite_modal_open and _valid_cache
-            if _skip_render:
-                output_frame = _cached.copy()
-            if not _skip_render:
-                # ---- Read FFT data from source ----
-                mode = button_state.source_mode
+            # ---- Read FFT data from source ----
+            mode = button_state.source_mode
 
             if mode == "SIM":
                 latest_frame = sim_source.read_frame()
@@ -1517,97 +1468,20 @@ def main() -> None:
                 cam_frame = camera_mgr.get_latest_frame()
                 if cam_frame is not None and getattr(cam_frame, "size", 0) > 0:
                     try:
-                        t_now = time.time()
-                        _n_rows, n_ang = spec_matrix.shape
-                        detections: list[tuple[float, float]] = []  # (rel_angle_deg, db_value)
-                        row_max = np.max(spec_matrix, axis=1).astype(np.float64)
-                        row_ref = float(np.max(row_max)) if row_max.size > 0 else 0.0
-                        if row_ref <= 1e-12:
-                            row_ref = 1e-12
-    
-                        if str(source_label) == "SIM_2":
-                            min_rel = float(getattr(config, "SIM2_RADAR_MIN_ROW_REL", 0.30))
-                            sep_min = float(getattr(config, "SIM2_RADAR_MIN_SEPARATION_DEG", 12.0))
-                            order = np.argsort(-row_max)  # descending by row strength
-                            for ri in order.tolist():
-                                rel_strength = float(row_max[ri]) / row_ref
-                                if rel_strength < min_rel:
-                                    continue
-                                ci = int(np.argmax(spec_matrix[ri, :]))
-                                if len(config.ANGLES) == n_ang:
-                                    rel_angle = float(config.ANGLES[ci])
-                                else:
-                                    rel_angle = float(-90.0 + (180.0 * ci / max(1, n_ang - 1)))
-                                # Skip near-duplicate detections in same frame.
-                                if any(abs(rel_angle - det[0]) < sep_min for det in detections):
-                                    continue
-                                db_row = float(config.REL_DB_MIN + rel_strength * (config.REL_DB_MAX - config.REL_DB_MIN))
-                                detections.append((rel_angle, db_row))
+                        if camera_mgr.camera_type == "picamera2":
+                            # already BGR
+                            if cam_frame.shape[1] == config.WIDTH and cam_frame.shape[0] == config.HEIGHT:
+                                base_frame[:] = cam_frame
+                            else:
+                                cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT),
+                                        dst=base_frame, interpolation=cv2.INTER_LINEAR)
                         else:
-                            _ri, _ci = np.unravel_index(int(np.argmax(spec_matrix)), spec_matrix.shape)
-                            if len(config.ANGLES) == n_ang:
-                                rel_angle = float(config.ANGLES[_ci])
+                            # opencv backend already BGR
+                            if cam_frame.shape[:2] == (config.HEIGHT, config.WIDTH):
+                                base_frame[:] = cam_frame
                             else:
-                                rel_angle = float(-90.0 + (180.0 * _ci / max(1, n_ang - 1)))
-                            peak_u8 = int(np.max(heatmap_left))
-                            peak_db = float(
-                                config.REL_DB_MIN + (peak_u8 / 255.0) * (config.REL_DB_MAX - config.REL_DB_MIN)
-                            )
-                            detections.append((rel_angle, peak_db))
-    
-                        for rel_angle, peak_db in detections:
-                            world_bearing = (float(HUD.compass_heading_deg) + float(rel_angle)) % 360.0
-                            if bool(getattr(button_state, "record_compass_history", False)):
-                                directional_store.add_event(
-                                    {
-                                        "timestamp": t_now,
-                                        "source_mode": str(button_state.source_mode),
-                                        "bearing_world_deg": float(world_bearing),
-                                        "bearing_rel_deg": float(rel_angle),
-                                        "db_value": float(peak_db),
-                                        "heading_deg": float(HUD.compass_heading_deg),
-                                        "position_source": str(HUD.position.source),
-                                        "lat": HUD.position.lat,
-                                        "lon": HUD.position.lon,
-                                        "accuracy_m": HUD.position.accuracy_m,
-                                    }
-                                )
-                                HUD.directional_log_error = ""
-                                HUD.directional_log_last_write_s = t_now
-                                HUD.directional_log_date = str(getattr(directional_store, "_current_date", ""))
-                                _cur_file = getattr(directional_store, "_current_file", None)
-                                HUD.directional_log_file = str(_cur_file) if _cur_file else ""
-                            if peak_db >= float(getattr(config, "RADAR_MIN_DB", -45.0)):
-                                update_detection_history(
-                                    rel_angle_deg=rel_angle,
-                                    db_value=peak_db,
-                                    heading_deg=HUD.compass_heading_deg,
-                                    now_s=t_now,
-                                )
-                    except Exception as exc:
-                        HUD.directional_log_error = str(exc)
-    
-                # ---- Background (camera or static) ----
-                if button_state.camera_enabled and state.CAMERA_AVAILABLE:
-                    cam_frame = camera_mgr.get_latest_frame()
-                    if cam_frame is not None and getattr(cam_frame, "size", 0) > 0:
-                        try:
-                            if camera_mgr.camera_type == "picamera2":
-                                # already BGR
-                                if cam_frame.shape[1] == config.WIDTH and cam_frame.shape[0] == config.HEIGHT:
-                                    base_frame[:] = cam_frame
-                                else:
-                                    cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT),
-                                            dst=base_frame, interpolation=cv2.INTER_LINEAR)
-                            else:
-                                # opencv backend already BGR
-                                if cam_frame.shape[:2] == (config.HEIGHT, config.WIDTH):
-                                    base_frame[:] = cam_frame
-                                else:
-                                    cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT), dst=base_frame, interpolation=cv2.INTER_LINEAR)
-                        except Exception:
-                            base_frame[:] = background_full
-                    else:
+                                cv2.resize(cam_frame, (config.WIDTH, config.HEIGHT), dst=base_frame, interpolation=cv2.INTER_LINEAR)
+                    except Exception:
                         base_frame[:] = background_full
                 else:
                     base_frame[:] = background_full
@@ -1884,231 +1758,23 @@ def main() -> None:
                             ),
                         },
                     )
-                    curve_x, dot_freq = spectrum_closest_curve_point(
-                        cursor_x_for_snap,
-                        state.SPECTRUM_CURSOR_PENDING_TAP_Y,
-                        config.HEIGHT,
-                        config.F_DISPLAY_MAX,
-                        fft_data,
-                        config.f_axis,
-                        config.FREQ_BAR_WIDTH,
-                        use_db=use_db,
-                        mode=button_state.spectrum_analyzer_mode,
-                    )
-                    state.SPECTRUM_CURSOR_X = curve_x
-                    state.SPECTRUM_CURSOR_DOT_FREQ = dot_freq
-                    state.SPECTRUM_CURSOR_PENDING_TAP_X = None
-                    state.SPECTRUM_CURSOR_PENDING_TAP_Y = None
-    
-                # ---- Draw spectrum analyzer (dB scale + curve) and dB colorbar ----
-                spectrum_cursor_dot_bar_pos = []
-                draw_spectrum_analyzer(
-                    output_frame, fft_data, config.f_axis, f_min, f_max,
-                    config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX,
-                    mode=button_state.spectrum_analyzer_mode,
-                    spectrum_cursor_x=state.SPECTRUM_CURSOR_X,
-                    spectrum_cursor_dot_active=state.SPECTRUM_CURSOR_DOT_ACTIVE,
-                    spectrum_cursor_dot_freq=state.SPECTRUM_CURSOR_DOT_FREQ,
-                    spectrum_cursor_dot_dragging=state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE,
-                    spectrum_cursor_dot_bar_pos=spectrum_cursor_dot_bar_pos,
-                )
-                if len(spectrum_cursor_dot_bar_pos) == 2:
-                    state.SPECTRUM_CURSOR_DOT_BAR_X = spectrum_cursor_dot_bar_pos[0]
-                    state.SPECTRUM_CURSOR_DOT_BAR_Y = spectrum_cursor_dot_bar_pos[1]
-                else:
-                    state.SPECTRUM_CURSOR_DOT_BAR_X = None
-                    state.SPECTRUM_CURSOR_DOT_BAR_Y = None
-                draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
-                prof.mark("bars")
-    
-                # ---- Crosshairs on heatmap (5mm cross, local freq at this blob, click to show/dismiss, auto-tracking) ----
-                if button_state.crosshairs_enabled and button_state.crosshair_visible:
-                    # Auto-tracking: stick to local max in heatmap
-                    cx = int(button_state.crosshair_x)
-                    cy = int(button_state.crosshair_y)
-                    nx, ny = find_local_max(heatmap_left, cx, cy, CROSSHAIR_TRACK_RADIUS)
-                    # If blob left the screen (edge) or faded (very low intensity), hide crosshair until next click
-                    edge_margin = 3
-                    blob_gone = (
-                        nx < edge_margin or nx >= left_width - edge_margin
-                        or ny < edge_margin or ny >= config.HEIGHT - edge_margin
-                        or int(heatmap_left[ny, nx]) < 12
-                    )
-                    if blob_gone:
-                        button_state.crosshair_visible = False
-                    else:
-                        button_state.crosshair_x = float(nx)
-                        button_state.crosshair_y = float(ny)
-                        # Current dB at tracked pixel for trend
-                        val_at = int(heatmap_left[ny, nx])
-                        db_at = config.REL_DB_MIN + (val_at / 255.0) * (config.REL_DB_MAX - config.REL_DB_MIN)
-                        now_t = time.time()
-                        # Append to level history (keep 60 s)
-                        button_state.crosshair_level_history.append((now_t, db_at))
-                        max_history_t = 60.0
-                        button_state.crosshair_level_history = [
-                            (t, d) for t, d in button_state.crosshair_level_history if t >= now_t - max_history_t
-                        ]
-                        # 3 s trend: baseline = mean of [boundary-3, boundary], current = mean of last 3 s
-                        trend_db = None
-                        if button_state.crosshair_next_boundary_time <= 0:
-                            button_state.crosshair_next_boundary_time = now_t + 3.0
-                        elif now_t >= button_state.crosshair_next_boundary_time:
-                            boundary = button_state.crosshair_next_boundary_time
-                            prev_3 = [(t, d) for t, d in button_state.crosshair_level_history if boundary - 3 <= t < boundary]
-                            if prev_3:
-                                baseline = sum(d for _, d in prev_3) / len(prev_3)
-                                if button_state.crosshair_prev_baseline_db is not None:
-                                    trend_db = baseline - button_state.crosshair_prev_baseline_db
-                                    button_state.crosshair_trend_history.append(trend_db)
-                                    if len(button_state.crosshair_trend_history) > 4:
-                                        button_state.crosshair_trend_history = button_state.crosshair_trend_history[-4:]
-                                button_state.crosshair_prev_baseline_db = baseline
-                            button_state.crosshair_next_boundary_time = boundary + 3.0
-                        # Live trend: current 3 s mean vs previous 3 s mean
-                        if trend_db is None and button_state.crosshair_level_history:
-                            recent = [(t, d) for t, d in button_state.crosshair_level_history if t >= now_t - 3]
-                            if recent and button_state.crosshair_prev_baseline_db is not None:
-                                cur_mean = sum(d for _, d in recent) / len(recent)
-                                trend_db = cur_mean - button_state.crosshair_prev_baseline_db
-                        # 12 s acceleration: slope of trend over last 4 samples (4 × 3 s)
-                        accel_db = None
-                        if len(button_state.crosshair_trend_history) >= 2:
-                            th = button_state.crosshair_trend_history
-                            accel_db = (th[-1] - th[0]) / max(1, len(th) - 1)  # dB per 3 s period
-                        # Frequency dominant at this location; angle for protractor; SIM: distance from closest source
-                        distance_to_source_m = None
-                        angle_deg = None
-                        if spec_matrix is not None and band_freqs.size > 0:
-                            n_ang = spec_matrix.shape[1]
-                            angle_idx = int(np.clip(nx * (n_ang - 1) / max(1, left_width), 0, n_ang - 1))
-                            angle_deg = float(config.ANGLES[angle_idx])
-                            row = int(np.argmax(spec_matrix[:, angle_idx]))
-                            f_peak_hz = float(band_freqs[row])
-                            if source_label == "SIM":
-                                sim_dists = getattr(config, "SIM_SOURCE_DISTANCES_M", None)
-                                if sim_dists and len(sim_dists) == len(config.SIM_SOURCE_ANGLES):
-                                    closest = int(np.argmin(np.abs(np.array(config.SIM_SOURCE_ANGLES) - angle_deg)))
-                                    distance_to_source_m = float(sim_dists[closest])
-                        else:
-                            f_peak_hz = (f_min + f_max) / 2.0
-                        draw_crosshairs(
-                            output_frame, nx, ny, left_width, config.HEIGHT,
-                            heatmap_left, config.REL_DB_MIN, config.REL_DB_MAX, f_peak_hz,
-                            trend_db=trend_db, accel_db=accel_db,
-                            distance_to_source_m=distance_to_source_m,
-                            angle_deg=angle_deg,
-                        )
-    
-                # ---- Draw debug info ----
-                if button_state.debug_enabled:
-                    # Collect debug text lines (abbreviated to save space)
-                    debug_lines = [
-                        f"Frame: {frame_count}  t={elapsed:.2f}s",
-                        f"Source: {source_label}",
-                    ]
-    
-                    if source_label in ("HW", "LOOP"):
-                        mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
-                        # One frame = full 16-mic payload (header + payload + trailer)
-                        bytes_per_s = config.FRAME_BYTES * fps_ema
-                        mbps_bytes = bytes_per_s / 1e6
-                        mbps_bits = (bytes_per_s * 8) / 1e6
-    
-                        debug_lines.extend([
-                            f"SPI {mhz:.0f}MHz  FPS: {fps_ema:5.1f}",
-                            f"ok:{source_stats.frames_ok} badParse:{source_stats.bad_parse} badCRC:{source_stats.bad_crc}",
-                            f"Throughput: {mbps_bytes:.2f}MB/s ({mbps_bits:.1f}Mb/s)",
-                        ])
-                        if source_stats.last_err:
-                            debug_lines.append(f"Err: {source_stats.last_err[:40]}")
-    
-                    # Calculate box dimensions
-                    font = cv2.FONT_HERSHEY_SIMPLEX
-                    font_scale = 0.45
-                    font_thickness = 1
-                    line_height = 18
-                    padding = 12
-    
-                    # Calculate max available width (don't extend beyond menu button)
-                    # Menu is at: left_width - 100 - 15
-                    max_available_width = left_width - config.DB_BAR_WIDTH - 135
-    
-                    # Measure max text width
-                    max_text_width = 0
-                    for line in debug_lines:
-                        (text_w, text_h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
-                        max_text_width = max(max_text_width, text_w)
-    
-                    # Constrain to max available width
-                    box_w = min(max_text_width + 2 * padding, max_available_width)
-                    box_h = len(debug_lines) * line_height + 2 * padding
-    
-                    # Position above bottom HUD pills with clear gap (no overlap)
-                    box_x = config.DB_BAR_WIDTH + 10
-                    debug_above_bottom_gap = 18  # space between debug box bottom and top of bottom HUD pills
-                    box_y = (
-                        config.HEIGHT
-                        - box_h
-                        - BOTTOM_HUD_HEIGHT
-                        - debug_above_bottom_gap
-                        + int(state.ui_bottom_hud_offset)
-                    )
-                    # If bottom HUD is in hide mode, add proportional extra shift so
-                    # the full debug panel exits the frame at full hide progress.
-                    if state.ui_bottom_hud_offset_target > 0:
-                        base_hide = float(getattr(config, "UI_BOTTOM_HUD_HIDE_OFFSET", 60))
-                        needed_hide = float(box_h + BOTTOM_HUD_HEIGHT + debug_above_bottom_gap)
-                        extra_hide = max(0.0, needed_hide - base_hide)
-                        progress = float(state.ui_bottom_hud_offset) / max(1e-6, float(state.ui_bottom_hud_offset_target))
-                        progress = float(np.clip(progress, 0.0, 1.0))
-                        box_y += int(round(extra_hide * progress))
-                    # region agent log
-                    if (frame_count % 20) == 0:
-                        _agent_debug_log(
-                            "run1",
-                            "H1",
-                            "main.py:debug_box",
-                            "debug_box_position_sample",
-                            {
-                                "frame": int(frame_count),
-                                "debug_enabled": bool(button_state.debug_enabled),
-                                "box_y": int(box_y),
-                                "box_h": int(box_h),
-                                "box_bottom": int(box_y + box_h),
-                                "screen_h": int(config.HEIGHT),
-                                "bottom_offset": float(state.ui_bottom_hud_offset),
-                                "bottom_target": float(state.ui_bottom_hud_offset_target),
-                                "hide_offset_cfg": float(config.UI_BOTTOM_HUD_HIDE_OFFSET),
-                                "hide_progress": float(
-                                    np.clip(
-                                        float(state.ui_bottom_hud_offset)
-                                        / max(1e-6, float(state.ui_bottom_hud_offset_target))
-                                        if state.ui_bottom_hud_offset_target > 0
-                                        else 0.0,
-                                        0.0,
-                                        1.0,
-                                    )
-                                ),
-                            },
-                        )
-                    # endregion
-    
-                    # Draw semi-transparent grey background box
-                    overlay = output_frame.copy()
-                    cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (40, 40, 40), -1)
-                    cv2.addWeighted(overlay, 0.7, output_frame, 0.3, 0, output_frame)
-    
-                    # Draw border
-                    cv2.rectangle(output_frame, (box_x, box_y), (box_x + box_w, box_y + box_h), (100, 100, 100), 2, cv2.LINE_AA)
-    
-                    # Draw text lines
-                    text_x = box_x + padding
-                    text_y = box_y + padding + 13
-                    for line in debug_lines:
-                        cv2.putText(output_frame, line, (text_x, text_y),
-                                    font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
-                        text_y += line_height
+                # endregion
+
+                # Draw semi-transparent grey background box
+                overlay = output_frame.copy()
+                cv2.rectangle(overlay, (box_x, box_y), (box_x + box_w, box_y + box_h), (40, 40, 40), -1)
+                cv2.addWeighted(overlay, 0.7, output_frame, 0.3, 0, output_frame)
+
+                # Draw border
+                cv2.rectangle(output_frame, (box_x, box_y), (box_x + box_w, box_y + box_h), (100, 100, 100), 2, cv2.LINE_AA)
+
+                # Draw text lines
+                text_x = box_x + padding
+                text_y = box_y + padding + 13
+                for line in debug_lines:
+                    cv2.putText(output_frame, line, (text_x, text_y),
+                               font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+                    text_y += line_height
 
             # ---- UI visibility animation (lerp offsets toward targets) ----
             speed = config.UI_VISIBILITY_ANIM_SPEED
@@ -2176,10 +1842,6 @@ def main() -> None:
             if button_state.firmware_flash_modal_open:
                 draw_firmware_flash_modal(output_frame)
 
-            # Calibration Suite modal
-            if button_state.calibration_suite_modal_open:
-                draw_calibration_suite_modal(output_frame)
-
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:
                 draw_gallery_view(output_frame, state.OUTPUT_DIR)
@@ -2195,9 +1857,6 @@ def main() -> None:
 
             # ---- Store current frame for screenshots ----
             state.CURRENT_FRAME = output_frame.copy()
-            # Keep calibration-suite background cache updated when modal is closed (so opening it shows last view, not black)
-            if not button_state.calibration_suite_modal_open and output_frame is not None and hasattr(output_frame, "shape") and output_frame.shape == (config.HEIGHT, config.WIDTH, 3):
-                state.CALIBRATION_SUITE_BACKGROUND_FRAME = output_frame.copy()
             prof.mark("copy_frame")
 
             # ---- Record video if active ----
@@ -2252,8 +1911,6 @@ def main() -> None:
             elif key == 27 and button_state.firmware_flash_modal_open:
                 button_state.firmware_flash_modal_open = False
                 button_state.firmware_flash_status = ""
-            elif key == 27 and button_state.calibration_suite_modal_open:
-                button_state.calibration_suite_modal_open = False
             elif key == ord("c"):
                 # Reset magnetometer calibration extrema (use during heading tests)
                 HUD.mag_x_min = HUD.mag_x_max = None

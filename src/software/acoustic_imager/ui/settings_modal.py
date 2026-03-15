@@ -65,9 +65,8 @@ def _compute_content_height() -> int:
     """Total height of scrollable content (must match actual drawn layout)."""
     # Display: label + gap + 3 toggles + gap + heatmap label + gap + color row + section_gap
     display_h = 20 + ITEM_GAP + 3 * (ROW_H + ITEM_GAP) + 6 + ROW_H + ITEM_GAP + (ROW_H - 4) + SECTION_GAP  # 6 = reduced gap before heatmap
-    # Divider + Advanced: section_gap + label + gap + 6 toggles + Calibration Suite button + section_gap
-    CAL_SUITE_BTN_H = 44
-    advanced_h = SECTION_GAP + 20 + ITEM_GAP + 6 * (ROW_H + ITEM_GAP) + (CAL_SUITE_BTN_H + ITEM_GAP) + SECTION_GAP
+    # Divider + Advanced: section_gap + label + gap + Debug + Radar + Map Tiles + Position Services + Record History + Show Radar Debug + section_gap
+    advanced_h = SECTION_GAP + 20 + ITEM_GAP + 6 * (ROW_H + ITEM_GAP) + SECTION_GAP
     # Divider + Share: section_gap + label + gap + email button + gap + flash label + gap + flash button + bottom padding
     share_h = SECTION_GAP + 20 + ITEM_GAP + 44 + ITEM_GAP + 20 + ITEM_GAP + FLASH_FIRMWARE_BTN_H + CONTENT_BOTTOM_PAD
     return display_h + advanced_h + share_h
@@ -496,7 +495,7 @@ def _hit_any_settings_button(x: int, y: int) -> bool:
     """True if (x,y) hits any interactive button in the modal."""
     for k in (
         "settings_close", "settings_scroll_up", "settings_scroll_down", "settings_scrollbar",
-        "settings_flash_firmware", "settings_email", "settings_calibration_suite", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
+        "settings_flash_firmware", "settings_email", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
         "settings_radar_ui", "settings_map_style", "settings_position_services", "settings_record_compass_history",
         "settings_show_radar_debug",
     ):
@@ -544,11 +543,11 @@ def handle_settings_modal_click(x: int, y: int) -> bool:
         HUD.settings_modal_drag_start_scroll = HUD.settings_modal_scroll_offset
         return True
 
-    # Calibration Suite
-    if "settings_calibration_suite" in menu_buttons and menu_buttons["settings_calibration_suite"].contains(x, y):
+    # Flash Firmware
+    if "settings_flash_firmware" in menu_buttons and menu_buttons["settings_flash_firmware"].contains(x, y):
         _reset_settings_modal_scroll_state()
         HUD.settings_modal_open = False
-        button_state.calibration_suite_modal_open = True
+        button_state.firmware_flash_modal_open = True
         return True
 
     # Flash Firmware
