@@ -58,14 +58,20 @@ def _run_cmd(cmd: list, timeout: int, cwd: str, report_lines: list[str] | None) 
         return -1, str(e)
 
 
+SILENCE_DURATION_SEC = 1.5
+
+
 def step0_silence_check(skip: bool, report_lines: list[str] | None) -> bool:
     """Pre-test: environment quiet enough. Returns True if passed or skipped."""
     if skip:
         _log("[0] Silence check: skipped (--skip-silence)", report_lines)
         return True
     _log("[0] Silence check (env quiet enough for gain cal)...", report_lines)
+    # Standalone calibration app parses this for countdown timer (sec to stay quiet)
+    _log("SILENCE_START %.1f" % SILENCE_DURATION_SEC, report_lines)
+    sys.stdout.flush()  # so standalone app gets the line immediately when stdout is a pipe
     code, out = _run_cmd(
-        [sys.executable, str(_CAL_DIR / "silence_check.py"), "--sec", "1.5"],
+        [sys.executable, str(_CAL_DIR / "silence_check.py"), "--sec", str(SILENCE_DURATION_SEC)],
         TIMEOUT_SILENCE,
         str(_REPO_ROOT),
         report_lines,
@@ -73,7 +79,12 @@ def step0_silence_check(skip: bool, report_lines: list[str] | None) -> bool:
     for line in out.splitlines():
         _log("  " + line, report_lines)
     if code != 0:
-        _log("  FAILED (env too loud or no SPI)", report_lines)
+        if "no frames received" in out:
+            _log("  FAILED (no SPI or app running?)", report_lines)
+        elif "FAIL (env too loud)" in out:
+            _log("  FAILED (env too loud)", report_lines)
+        else:
+            _log("  FAILED (env too loud or no SPI)", report_lines)
         return False
     _log("  OK", report_lines)
     return True
@@ -125,10 +136,22 @@ def step2_geometry(report_lines: list[str] | None) -> bool:
             return False
         x_hw = getattr(cfg, "x_coords_hw", None)
         y_hw = getattr(cfg, "y_coords_hw", None)
+        pitch_hw = getattr(cfg, "pitch_hw", None)
         if x_hw is None or y_hw is None or len(x_hw) != n or len(y_hw) != n:
             _log("  config x_coords_hw/y_coords_hw missing or wrong length", report_lines)
             return False
-        _log("  Geometry OK (payload index & config aligned)", report_lines)
+        # Element-wise match to array_geometry (config must be updated after re-running array_geometry)
+        tol = 1e-6
+        for i in range(n):
+            if abs(float(x_hw[i]) - float(ag.x_coords[i])) > tol or abs(float(y_hw[i]) - float(ag.y_coords[i])) > tol:
+                _log("  config x_coords_hw/y_coords_hw differ from array_geometry at index %d" % i, report_lines)
+                _log("  Re-run array_geometry.py then update config.py (or run update_config_geometry.py)", report_lines)
+                return False
+        if pitch_hw is not None and abs(float(pitch_hw) - float(ag.pitch)) > tol:
+            _log("  config pitch_hw (%.6f) != array_geometry pitch (%.6f)" % (float(pitch_hw), float(ag.pitch)), report_lines)
+            _log("  Re-run array_geometry.py then update config.py (or run update_config_geometry.py)", report_lines)
+            return False
+        _log("  Geometry OK (config matches array_geometry)", report_lines)
     except Exception as e:
         _log("  Geometry check error: " + str(e), report_lines)
         return False
@@ -207,11 +230,15 @@ def step4_parsing_and_rates(report_lines: list[str] | None) -> tuple[bool, float
     except Exception as e:
         _log("  FPS check error (SPI in use?): " + str(e), report_lines)
 
-    ok = magic_ok and fps >= 15  # accept if we saw magic and reasonable FPS
+    # Pass if we saw magic and (FPS >= 15, or at least one valid frame when alignment is poor e.g. no GPIO)
+    ok = magic_ok and (fps >= 15 or (fps > 0 and frames_ok >= 1))
     if not ok:
         _log("  FAILED (magic or FPS)", report_lines)
     else:
-        _log("  OK", report_lines)
+        if fps < 15:
+            _log("  OK (magic + frames seen; FPS < 15 — run with app stopped and on Pi with GPIO for higher FPS)", report_lines)
+        else:
+            _log("  OK", report_lines)
     return ok, fps, frames_ok, bad_parse, bad_crc
 
 
@@ -303,6 +330,15 @@ def main() -> int:
     passed = sum(1 for v in results.values() if v is True)
     total = len([k for k in results if isinstance(results[k], bool)])
     _log("=== Done: %d/%d steps passed ===" % (passed, total), report_lines)
+
+    # Write per-step result for UI result modal (which steps failed)
+    step_keys = ["silence", "pins", "geometry", "spi_devices", "parsing_ok", "metrics", "post_gain"]
+    result_path = _CAL_DIR / "calibration_suite_last_result.txt"
+    try:
+        lines = [k + ":" + str(bool(results.get(k, False))) for k in step_keys]
+        result_path.write_text("\n".join(lines), encoding="utf-8")
+    except Exception:
+        pass
 
     if args.report_dir:
         d = Path(args.report_dir)

@@ -171,6 +171,47 @@ min_pair_m = min(pair_dists) if pair_dists else 0.0
 max_pair_m = max(pair_dists) if pair_dists else 0.0
 mean_pair_m = sum(pair_dists) / len(pair_dists) if pair_dists else 0.0
 
+
+def validate_geometry() -> tuple[bool, list[str]]:
+    """
+    Run sanity checks on the computed geometry. Returns (all_passed, list of messages).
+    Use for --validate (exit 0 only if all passed) or to print before MUSIC summary.
+    """
+    passed = True
+    messages: list[str] = []
+    # Duplicate positions (would break MUSIC/ESPRIT)
+    seen: set[tuple[float, float]] = set()
+    for i in range(N_MICS):
+        key = (round(x_coords[i], 6), round(y_coords[i], 6))
+        if key in seen:
+            messages.append("FAIL: duplicate mic position at index %d" % i)
+            passed = False
+        seen.add(key)
+    if not any("duplicate" in m for m in messages):
+        messages.append("OK: no duplicate positions")
+    # Grating lobe: max pairwise distance should be < λ/2 at ref frequency (WARN only; array may be larger by design)
+    if max_pair_m >= half_wavelength:
+        messages.append(
+            "WARN: max pairwise distance %.6f m >= λ/2 (%.6f m) at %g kHz -> grating lobe risk"
+            % (max_pair_m, half_wavelength, REF_FREQ_HZ / 1000.0)
+        )
+    else:
+        messages.append(
+            "OK: max pairwise distance %.6f m < λ/2 (%.6f m)" % (max_pair_m, half_wavelength)
+        )
+    # Pitch (ESPRIT needs positive pitch)
+    if pitch <= 0.0:
+        messages.append("FAIL: pitch <= 0 (%.6f)" % pitch)
+        passed = False
+    else:
+        messages.append("OK: pitch = %.6f m" % pitch)
+    # Consistency
+    if len(PAYLOAD_TO_MIC) != N_MICS:
+        messages.append("FAIL: len(PAYLOAD_TO_MIC)=%d != N_MICS=%d" % (len(PAYLOAD_TO_MIC), N_MICS))
+        passed = False
+    return passed, messages
+
+
 # ===============================================================
 # 4. FFT packed layout (reference only)
 # ===============================================================
@@ -241,6 +282,14 @@ def run() -> None:
     print(f"Wrote table to: {OUTPUT_CSV}")
     print()
 
+    # ---- Geometry validation ----
+    val_ok, val_msgs = validate_geometry()
+    print("Geometry validation:")
+    for m in val_msgs:
+        print("  " + m)
+    print("  => %s" % ("PASS" if val_ok else "FAIL"))
+    print()
+
     # ---- MUSIC-ready summary ----
     print("MUSIC-ready summary (use in config/beamforming)")
     print("-" * 60)
@@ -265,4 +314,17 @@ def run() -> None:
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="Array geometry from FreeCAD measurements.")
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Only run geometry validation; exit 0 if PASS, 1 if FAIL (no plot/table).",
+    )
+    args = parser.parse_args()
+    if args.validate:
+        passed, messages = validate_geometry()
+        for m in messages:
+            print(m)
+        exit(0 if passed else 1)
     run()

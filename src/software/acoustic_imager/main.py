@@ -1066,8 +1066,10 @@ def main() -> None:
             f_max = state.F_MAX_HZ
 
             # When calibration suite modal is open, show cached last frame as frozen background (no black).
-            # If no valid cache yet (e.g. first frame), run pipeline once so next frame has a frozen view.
-            _cached = state.CURRENT_FRAME
+            # Prefer CALIBRATION_SUITE_BACKGROUND_FRAME (last main view before opening); fall back to CURRENT_FRAME.
+            _cached = getattr(state, "CALIBRATION_SUITE_BACKGROUND_FRAME", None)
+            if _cached is None or not (hasattr(_cached, "shape") and _cached.shape == (config.HEIGHT, config.WIDTH, 3)):
+                _cached = state.CURRENT_FRAME
             _valid_cache = (
                 _cached is not None
                 and hasattr(_cached, "shape")
@@ -1618,8 +1620,8 @@ def main() -> None:
                     text_y = box_y + padding + 13
                     for line in debug_lines:
                         cv2.putText(output_frame, line, (text_x, text_y),
-                                   font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
-                    text_y += line_height
+                                    font, font_scale, (255, 255, 255), font_thickness, cv2.LINE_AA)
+                        text_y += line_height
 
             # ---- UI visibility animation (lerp offsets toward targets) ----
             speed = config.UI_VISIBILITY_ANIM_SPEED
@@ -1706,6 +1708,9 @@ def main() -> None:
 
             # ---- Store current frame for screenshots ----
             state.CURRENT_FRAME = output_frame.copy()
+            # Keep calibration-suite background cache updated when modal is closed (so opening it shows last view, not black)
+            if not button_state.calibration_suite_modal_open and output_frame is not None and hasattr(output_frame, "shape") and output_frame.shape == (config.HEIGHT, config.WIDTH, 3):
+                state.CALIBRATION_SUITE_BACKGROUND_FRAME = output_frame.copy()
             prof.mark("copy_frame")
 
             # ---- Record video if active ----

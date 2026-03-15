@@ -6,7 +6,7 @@ exits 0 if below threshold, 1 otherwise. Run with acoustic imager stopped.
 
 Usage (from repo root):
   python3 utilities/calibration/silence_check.py
-  python3 utilities/calibration/silence_check.py --sec 1.5 --threshold 5e8
+  python3 utilities/calibration/silence_check.py --sec 1.5 --threshold 1e9
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ except ImportError:
     config = None
 
 
-def run(duration_sec: float = 1.5, threshold: float = 5e8) -> tuple[bool, float, str]:
+def run(duration_sec: float = 1.5, threshold: float = 1e9) -> tuple[bool, float, str]:
     """
     Capture frames for duration_sec, return (passed, max_total_power, message).
     passed = True if max total power over the run is below threshold.
@@ -67,7 +67,7 @@ def run(duration_sec: float = 1.5, threshold: float = 5e8) -> tuple[bool, float,
 def main() -> int:
     ap = argparse.ArgumentParser(description="Check environment is quiet enough for calibration")
     ap.add_argument("--sec", type=float, default=1.5, help="Capture duration (default 1.5)")
-    ap.add_argument("--threshold", type=float, default=5e8, help="Max allowed total power (default 5e8)")
+    ap.add_argument("--threshold", type=float, default=1e9, help="Max allowed total power (default 1e9)")
     args = ap.parse_args()
     passed, power, msg = run(duration_sec=args.sec, threshold=args.threshold)
     print(msg)

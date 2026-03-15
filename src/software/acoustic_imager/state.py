@@ -170,6 +170,11 @@ class ButtonState:
     calibration_suite_log_drag_start_y: int = 0
     calibration_suite_log_drag_start_scroll: int = 0
     calibration_suite_process: Optional[Any] = None  # subprocess.Popen when running, so Stop can terminate
+    calibration_suite_show_result_modal: bool = False  # show PASSED/FAILED overlay when suite finishes
+    calibration_suite_result_passed: bool = False
+    calibration_suite_result_passed_count: int = 0
+    calibration_suite_result_total: int = 0
+    calibration_suite_result_stopped: bool = False  # True if user clicked Stop (no Done line)
     gain_mode: str = "HIGH"    # LOW or HIGH; drives GAIN_CONTROL
     debug_enabled: bool = True
     radar_ui_enabled: bool = RADAR_UI_DEFAULT
@@ -360,6 +365,8 @@ CURSOR_POS: Tuple[int, int] = (0, 0)
 HUD_RECTS: Optional[Any] = None  # HudRects from top_hud.draw_hud; set each frame when drawing
 
 CURRENT_FRAME: Optional[Any] = None  # typically a numpy ndarray (H,W,3) uint8
+# Frozen frame shown behind Calibration Suite modal (last main view before opening; avoids black)
+CALIBRATION_SUITE_BACKGROUND_FRAME: Optional[Any] = None  # (H,W,3) uint8
 OUTPUT_DIR: Optional[Path] = None
 
 CAMERA_AVAILABLE: bool = False

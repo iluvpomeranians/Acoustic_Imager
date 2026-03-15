@@ -251,6 +251,7 @@ data/directional_history/
 
 # Calibration suite log dump (overwritten each run)
 utilities/calibration/calibration_suite_cal_dump.txt
+utilities/calibration/calibration_suite_last_result.txt
 
 # Allow splash screen asset
 !/deploy/splash/splash.png
