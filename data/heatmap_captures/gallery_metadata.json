@@ -34,7 +34,8 @@
     "recording_20260306_001057.mp4": "low",
     "screenshot_20260306_000326.png": "low",
     "recording_20260306_000321.mp4": "low",
-    "basem.png": "low"
+    "basem.png": "low",
+    "screenshot_20260308_180712.png": "low"
   },
   "file_tags": {},
   "tag_data": {
@@ -153,6 +154,10 @@
     "basem.png": {
       "asset_type": "g",
       "leak_type": "h"
+    },
+    "screenshot_20260308_180712.png": {
+      "asset_type": "hi",
+      "leak_type": ""
     }
   }
 }
