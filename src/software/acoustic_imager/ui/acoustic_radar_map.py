@@ -73,7 +73,11 @@ def _latlon_to_world_px(lat: float, lon: float, zoom: int, tile_size: int) -> Tu
 
 
 def _tile_cache_path(style: str, z: int, x: int, y: int) -> Path:
-    cache_dir = Path(getattr(config, "RADAR_MAP_CACHE_DIR", "data/map_tiles"))
+    # Resolved at startup in main.py to repo_root / "data" / "map_tiles"
+    cache_dir = getattr(config, "RADAR_MAP_CACHE_DIR", None)
+    if cache_dir is None:
+        cache_dir = Path("data/map_tiles")  # fallback if not run from main
+    cache_dir = Path(cache_dir)
     return cache_dir / style / str(z) / str(x) / f"{y}.png"
 
 

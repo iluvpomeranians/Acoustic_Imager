@@ -208,7 +208,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     """
     global video_recorder
 
-    left_width, h = param
+    content_width, content_height, content_offset_x, content_right, h = param
     mx, my = x, y
 
     def _bottom_hide_target() -> float:
@@ -353,7 +353,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     return
 
         # 5) Bandpass drag: frequency bar
-        bar_left = left_width
+        bar_left = content_right
         if mx >= bar_left and mx < config.WIDTH:
             y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
             y_max = freq_to_y(state.F_MAX_HZ, h, config.F_DISPLAY_MAX)
@@ -490,8 +490,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         return
 
     if event == cv2.EVENT_LBUTTONUP and not button_state.gallery_open and not state.ui_click_was_on_ui:
-        content_left = config.DB_BAR_WIDTH
-        content_right = left_width
+        content_left = content_offset_x
         content_top = getattr(config, "UI_CONTENT_TOP_MARGIN", 58)
         content_bottom = h - getattr(config, "UI_CONTENT_BOTTOM_MARGIN", 62)
         dx = mx - state.ui_drag_start_x
@@ -672,15 +671,15 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     state.ui_last_tap_time = 0.0
                     return
                 # Single tap: crosshair toggle in heatmap (if crosshairs enabled)
-                if button_state.crosshairs_enabled and 0 <= mx < left_width and 0 <= my < h:
-                    dx = mx - int(button_state.crosshair_x)
+                if button_state.crosshairs_enabled and content_offset_x <= mx < content_right and 0 <= my < content_height:
+                    dx = (mx - content_offset_x) - int(button_state.crosshair_x)
                     dy = my - int(button_state.crosshair_y)
                     dist_sq = dx * dx + dy * dy
                     if button_state.crosshair_visible and dist_sq <= CROSSHAIR_DISMISS_RADIUS_PX * CROSSHAIR_DISMISS_RADIUS_PX:
                         button_state.crosshair_visible = False
                     else:
                         button_state.crosshair_visible = True
-                        button_state.crosshair_x = float(mx)
+                        button_state.crosshair_x = float(mx - content_offset_x)
                         button_state.crosshair_y = float(my)
                         # Reset trend/acceleration state for new track
                         button_state.crosshair_level_history = []
@@ -703,7 +702,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
                 return
 
-        bar_left = left_width
+        bar_left = content_right
 
         # Dot drag: follow finger along curve (checked first; we don't set DRAG_ACTIVE for dot drag)
         if state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
@@ -810,6 +809,10 @@ def main() -> None:
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {state.OUTPUT_DIR}")
 
+    # Radar map tile cache: under main data/ folder (same as heatmap_captures, directional_history)
+    config.RADAR_MAP_CACHE_DIR = repo_root / "data" / "map_tiles"
+    config.RADAR_MAP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
     # ---- Logging: file + stderr (journalctl captures stderr) ----
     log_file = state.OUTPUT_DIR / "acoustic_imager.log"
     log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -874,7 +877,11 @@ def main() -> None:
 
     # ---- Create static background ----
     background_full = create_background_frame(config.WIDTH, config.HEIGHT)
-    left_width = config.WIDTH - config.FREQ_BAR_WIDTH
+    # Content strip between DB bar and freq bar: heatmap lives here, blobs not under the bars
+    content_offset_x = config.DB_BAR_WIDTH
+    content_width = config.HEATMAP_WIDTH
+    content_height = config.HEATMAP_HEIGHT
+    content_right = content_offset_x + content_width  # x where freq bar starts
 
     # ---- Preallocated buffers (optimization) ----
     base_frame = np.empty((config.HEIGHT, config.WIDTH, 3), dtype=np.uint8)
@@ -890,12 +897,12 @@ def main() -> None:
     # ---- Setup OpenCV window ----
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
+    cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(content_width, content_height, content_offset_x, content_right, config.HEIGHT))
 
     # ---- Initialize UI ----
     button_state.debug_enabled = False
-    init_buttons(left_width, state.CAMERA_AVAILABLE)
-    init_menu_buttons(left_width, config.HEIGHT)
+    init_buttons(content_right, state.CAMERA_AVAILABLE)
+    init_menu_buttons(content_right, config.HEIGHT)
 
     # ---- Magnetometer (compass) reader ----
     mag_reader = MagnetometerReader(
@@ -1068,7 +1075,7 @@ def main() -> None:
             band_freqs = np.array([], dtype=np.float64)
             if source_label == "REF":
                 # 0 dB reference: uniform heatmap (spread across whole view), no MUSIC blobs
-                heatmap_left = np.full((config.HEIGHT, left_width), 255, dtype=np.uint8)
+                heatmap_left = np.full((content_height, content_width), 255, dtype=np.uint8)
             elif source_label in ("SIM", "SIM_2"):
                 if source_label == "SIM_2":
                     sim_freqs = list(getattr(sim_source, "last_sim2_freqs", []))
@@ -1081,7 +1088,7 @@ def main() -> None:
                 ]
 
                 if not selected_indices:
-                    heatmap_left = np.zeros((config.HEIGHT, left_width), dtype=np.uint8)
+                    heatmap_left = np.zeros((content_height, content_width), dtype=np.uint8)
                 else:
                     n_sel = len(selected_indices)
                     spec_matrix = np.zeros((n_sel, len(config.ANGLES)), dtype=np.float32)
@@ -1105,8 +1112,19 @@ def main() -> None:
 
                     power_rel = power / (running_max_power + 1e-12)
                     heatmap_left = spectra_to_heatmap_absolute(
-                        spec_matrix, power_rel, left_width, config.HEIGHT,
-                        config.REL_DB_MIN, config.REL_DB_MAX
+                        spec_matrix, power_rel, content_width, content_height,
+                        config.REL_DB_MIN, config.REL_DB_MAX,
+                        x_offset_px=getattr(config, "HEATMAP_X_OFFSET_PX", 0),
+                        angle_min_deg=getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0),
+                        angle_max_deg=getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0),
+                        band_freqs_hz=band_freqs,
+                        f_min_hz=f_min,
+                        f_max_hz=f_max,
+                        projection_mode=getattr(config, "HEATMAP_PROJECTION_MODE", "linear"),
+                        circle_radius_px=getattr(config, "HEATMAP_CIRCLE_RADIUS_PX", 0),
+                        assumed_distance_m=getattr(config, "HEATMAP_ASSUMED_DISTANCE_M", 1.0),
+                        camera_hfov_deg=getattr(config, "HEATMAP_CAMERA_HFOV_DEG", 53.0),
+                        camera_vfov_deg=getattr(config, "HEATMAP_CAMERA_VFOV_DEG", 0.0),
                     )
 
             else:  # SPI mode (HW + LOOP): top-K bins by power within bandpass, above noise floor
@@ -1147,7 +1165,7 @@ def main() -> None:
                         bins = candidate_bins[top_idx].tolist()
 
                 if not bins:
-                    heatmap_left = np.zeros((config.HEIGHT, left_width), dtype=np.uint8)
+                    heatmap_left = np.zeros((content_height, content_width), dtype=np.uint8)
                 else:
                     spec_matrix = np.zeros((len(bins), len(config.ANGLES)), dtype=np.float32)
                     band_freqs = np.array([float(config.f_axis[b]) for b in bins], dtype=np.float64)
@@ -1203,8 +1221,19 @@ def main() -> None:
                     power_rel = power / (power.max() + 1e-12)
                     power_rel = np.power(power_rel, config.SPI_HEATMAP_POWER_GAMMA)
                     heatmap_left = spectra_to_heatmap_absolute(
-                        spec_matrix, power_rel, left_width, config.HEIGHT,
-                        config.REL_DB_MIN, config.REL_DB_MAX
+                        spec_matrix, power_rel, content_width, content_height,
+                        config.REL_DB_MIN, config.REL_DB_MAX,
+                        x_offset_px=getattr(config, "HEATMAP_X_OFFSET_PX", 0),
+                        angle_min_deg=getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0),
+                        angle_max_deg=getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0),
+                        band_freqs_hz=band_freqs,
+                        f_min_hz=f_min,
+                        f_max_hz=f_max,
+                        projection_mode=getattr(config, "HEATMAP_PROJECTION_MODE", "linear"),
+                        circle_radius_px=getattr(config, "HEATMAP_CIRCLE_RADIUS_PX", 0),
+                        assumed_distance_m=getattr(config, "HEATMAP_ASSUMED_DISTANCE_M", 1.0),
+                        camera_hfov_deg=getattr(config, "HEATMAP_CAMERA_HFOV_DEG", 53.0),
+                        camera_vfov_deg=getattr(config, "HEATMAP_CAMERA_VFOV_DEG", 0.0),
                     )
                 # Scale heatmap by bandpass level so it brightens with sound, dims when quiet (floor keeps blobs visible)
                 level = max(
@@ -1328,7 +1357,7 @@ def main() -> None:
             prof.mark("background")
 
             # ---- Blend heatmap onto background ----
-            output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8, button_state.colormap_mode)
+            output_frame = blend_heatmap_left(base_frame, heatmap_left, content_width, content_height, content_offset_x, w_lut_u8, button_state.colormap_mode)
             prof.mark("blend")
             if source_label in ("HW", "LOOP"):
                 heatmap_prev = heatmap_left.copy()
@@ -1389,8 +1418,8 @@ def main() -> None:
                 # If blob left the screen (edge) or faded (very low intensity), hide crosshair until next click
                 edge_margin = 3
                 blob_gone = (
-                    nx < edge_margin or nx >= left_width - edge_margin
-                    or ny < edge_margin or ny >= config.HEIGHT - edge_margin
+                    nx < edge_margin or nx >= content_width - edge_margin
+                    or ny < edge_margin or ny >= content_height - edge_margin
                     or int(heatmap_left[ny, nx]) < 12
                 )
                 if blob_gone:
@@ -1440,10 +1469,40 @@ def main() -> None:
                     angle_deg = None
                     if spec_matrix is not None and band_freqs.size > 0:
                         n_ang = spec_matrix.shape[1]
-                        angle_idx = int(np.clip(nx * (n_ang - 1) / max(1, left_width), 0, n_ang - 1))
-                        angle_deg = float(config.ANGLES[angle_idx])
-                        row = int(np.argmax(spec_matrix[:, angle_idx]))
-                        f_peak_hz = float(band_freqs[row])
+                        proj_mode = getattr(config, "HEATMAP_PROJECTION_MODE", "linear")
+                        if proj_mode == "camera_circle":
+                            center_x = (content_width - 1) / 2.0
+                            center_y = (content_height - 1) / 2.0
+                            # Reverse rotation: display angle = DOA + 90°, so DOA = display - 90°
+                            angle_rad = np.arctan2(center_y - ny, nx - center_x)
+                            angle_deg = float(np.degrees(angle_rad - np.pi / 2.0))
+                            angle_idx = int(np.clip(round((angle_deg + 90.0) / 180.0 * (n_ang - 1)), 0, n_ang - 1))
+                        elif proj_mode == "camera_plane":
+                            cx = (content_width - 1) / 2.0
+                            hfov_deg = getattr(config, "HEATMAP_CAMERA_HFOV_DEG", 53.0)
+                            hfov_rad = np.deg2rad(max(1e-6, float(hfov_deg)))
+                            fx = (content_width / 2.0) / np.tan(hfov_rad / 2.0)
+                            sin_theta = np.clip((nx - cx) / max(1e-12, fx), -1.0, 1.0)
+                            cos_theta = np.sqrt(1.0 - sin_theta * sin_theta)
+                            angle_rad = np.arctan2(sin_theta, cos_theta)
+                            angle_deg = float(np.degrees(angle_rad))
+                            angle_idx = int(np.clip(round((angle_deg + 90.0) / 180.0 * (n_ang - 1)), 0, n_ang - 1))
+                            # y = frequency: t_y = 1 - ny/(h-1), freq = f_min + t_y*(f_max - f_min)
+                            t_y = 1.0 - ny / max(1, content_height - 1)
+                            t_y = np.clip(t_y, 0.0, 1.0)
+                            f_peak_hz = float(f_min + t_y * (f_max - f_min))
+                            row = int(np.clip(np.argmin(np.abs(band_freqs - f_peak_hz)), 0, spec_matrix.shape[0] - 1))
+                        else:
+                            x_off = getattr(config, "HEATMAP_X_OFFSET_PX", 0)
+                            ang_min = getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0)
+                            ang_max = getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0)
+                            t = (nx - x_off) / max(1, content_width - 1)
+                            t = np.clip(t, 0.0, 1.0)
+                            angle_deg = ang_min + t * (ang_max - ang_min)
+                            angle_idx = int(np.clip(round((angle_deg + 90.0) / 180.0 * (n_ang - 1)), 0, n_ang - 1))
+                        if proj_mode != "camera_plane":
+                            row = int(np.argmax(spec_matrix[:, angle_idx]))
+                            f_peak_hz = float(band_freqs[row])
                         if source_label == "SIM":
                             sim_dists = getattr(config, "SIM_SOURCE_DISTANCES_M", None)
                             if sim_dists and len(sim_dists) == len(config.SIM_SOURCE_ANGLES):
@@ -1452,11 +1511,12 @@ def main() -> None:
                     else:
                         f_peak_hz = (f_min + f_max) / 2.0
                     draw_crosshairs(
-                        output_frame, nx, ny, left_width, config.HEIGHT,
+                        output_frame, nx, ny, content_width, content_height,
                         heatmap_left, config.REL_DB_MIN, config.REL_DB_MAX, f_peak_hz,
                         trend_db=trend_db, accel_db=accel_db,
                         distance_to_source_m=distance_to_source_m,
                         angle_deg=angle_deg,
+                        content_offset_x=content_offset_x,
                     )
 
             # ---- Draw debug info ----
@@ -1490,8 +1550,8 @@ def main() -> None:
                 padding = 12
 
                 # Calculate max available width (don't extend beyond menu button)
-                # Menu is at: left_width - 100 - 15
-                max_available_width = left_width - config.DB_BAR_WIDTH - 135
+                # Menu is at: content_right - 100 - 15
+                max_available_width = content_width - 135
 
                 # Measure max text width
                 max_text_width = 0

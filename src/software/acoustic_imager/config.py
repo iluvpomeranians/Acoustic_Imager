@@ -110,6 +110,7 @@ F_MAX_HZ_DEFAULT = 35000.0
 RADAR_UI_DEFAULT = False
 POSITION_SERVICES_DEFAULT = True
 RADAR_MAP_TILE_STYLE_DEFAULT = "dark"   # "dark" | "light"
+# RADAR_MAP_CACHE_DIR: set at runtime in main.py to repo_root / "data" / "map_tiles" (under main data folder)
 DIRECTIONAL_HISTORY_RECORD_DEFAULT = False
 RADAR_DEBUG_OVERLAY_DEFAULT = False
 # Circular radar widget diameter (px)
@@ -166,8 +167,8 @@ UI_CONTENT_BOTTOM_MARGIN = 62      # above bottom HUD
 # Extra hit padding for bottom HUD pills (better clickability)
 UI_BOTTOM_HUD_HIT_PAD = 8
 
-# Angle grid
-ANGLES = np.linspace(-90, 90, 181)
+# Angle grid (finer = more granular L-R slide; 361 ≈ 0.5° step, ~2× MUSIC cost)
+ANGLES = np.linspace(-90, 90, 361)
 
 # ===============================================================
 # FFT frequency axis
@@ -186,6 +187,21 @@ HEATMAP_LEVEL_REFERENCE = 1e6
 HEATMAP_LEVEL_FLOOR = 0.18
 # Per-frame contrast stretch: map this percentile to 255 (0=disable). Improves differentiation.
 HEATMAP_CONTRAST_STRETCH_PERCENTILE = 98.0
+HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
+# Heatmap dimensions (default: full content strip between DB bar and freq bar)
+HEATMAP_WIDTH = WIDTH - DB_BAR_WIDTH - FREQ_BAR_WIDTH
+HEATMAP_HEIGHT = HEIGHT
+# Effective angle range: map this range to full heatmap width (wider FOV = use ±90)
+HEATMAP_ANGLE_MIN_DEG = -50.0
+HEATMAP_ANGLE_MAX_DEG = 50.0
+# Projection: "linear" | "camera_circle" | "camera_plane" (pinhole + assumed distance for full x-y)
+HEATMAP_PROJECTION_MODE = "camera_plane"
+# Circle radius (px); 0 = derive as min(content_w, content_h) * 0.45 (camera_circle only)
+HEATMAP_CIRCLE_RADIUS_PX = 0
+# camera_plane: assumed source plane distance (m) and pinhole FOV
+HEATMAP_ASSUMED_DISTANCE_M = 1.0   # used when projection_mode is camera_plane
+HEATMAP_CAMERA_HFOV_DEG = 53.0     # horizontal FOV (deg) for fx; e.g. Pi Camera
+HEATMAP_CAMERA_VFOV_DEG = 0.0      # vertical FOV (deg); 0 = derive from HFOV and content aspect
 
 # ===============================================================
 # Blend acceleration (LUT + integer math)
@@ -309,17 +325,17 @@ SPI_MIC_GAIN = (8.33, 24.68, 100.00, 2.22, 2.20, 2.50, 2.07, 2.85, 2.33, 2.39, 1
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
 SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
-SPI_TOP_K_BINS = 4
+SPI_TOP_K_BINS = 3
 # Only bins within this many dB of peak (in bandpass) are eligible for heatmap; lower = stricter, less noisy
-SPI_NOISE_FLOOR_DB = 15.0
+SPI_NOISE_FLOOR_DB = 10.0
 # Number of spatial sources MUSIC assumes per bin (1 = one dominant source e.g. one speaker, 2 = allow one reflection)
 SPI_MUSIC_N_SOURCES = 1
 # Covariance averaging: smooth R over this many frames (EMA) before MUSIC; 1 = no averaging, 3–5 = less noisy peaks.
 SPI_COV_AVG_FRAMES = 4
 # Only show bins that are directional: lambda_1/sum(eigvals) >= this (0=off). Stricter = less random noise.
-SPI_DIRECTIVITY_MIN = 0.5
+SPI_DIRECTIVITY_MIN = 0.6
 # Only show bin if its MUSIC peak angle is stable: change from last frame <= this deg (0=off). Suppresses jitter.
-SPI_ANGLE_STABILITY_DEG = 25.0
+SPI_ANGLE_STABILITY_DEG = 18.0
 # Per-mic normalization: scale each mic so L2 norm across bins is 1 (balances gain across mics; use if some mics are weak).
 SPI_PER_MIC_NORMALIZE = True
 # Power curve for blob brightness: 1.0=linear, >1=stronger bins dominate (more differentiation), <1=lift weak bins
