@@ -10,14 +10,18 @@
 #include <stdint.h>
 #include <math.h>
 
+/* DWT (Data Watchpoint and Trace) cycle counter support */
+#include "stm32g4xx_hal.h"
 #include "arm_math.h"
 
 #include "app_main.h"
 #include "dsp_pipeline.h"
 
+
 /* =========================================================================
  * DEFINES & CONSTANTS
  * ========================================================================= */
+
 
 /* =========================================================================
  * STATIC VARIABLES
@@ -25,7 +29,12 @@
 static const float adc_scalar = 3.3f / 4095.0f;
 
 static float fft_input_buf[FRAME_SIZE];
-static float fft_temp_buf[2048];
+static float fft_temp_buf[FRAME_SIZE];
+
+/* FFT Performance measurement variables */
+static float fft_precise_average = 0.0f;
+static float fft_last_cycles = 0.0f;
+static uint8_t fft_perf_initialized = 0;
 
 /* =========================================================================
  * FORWARD DECLARATIONS
@@ -40,6 +49,14 @@ static void pack_rfft_complex_bins(const float *packed_fft,
 /* =========================================================================
  * PUBLIC FUNCTIONS
  * ========================================================================= */
+
+void calculate_fft_cycles_average(float cycles)
+{
+    float lpVal = fft_precise_average;
+    
+    fft_precise_average = (lpVal - (FFT_PERF_BETA * ((float)(lpVal - cycles))));
+    fft_last_cycles = cycles;
+}
 
 // Process raw ADC data to float voltage values for a specific channel 
 // (de-interleaves)
@@ -70,8 +87,20 @@ void apply_fft(arm_rfft_fast_instance_f32 *fft_instance,
                float *input, 
                float *complex_output, 
                uint32_t fft_size) {
+
+  // Measure FFT performance using DWT cycle counter
+  uint32_t start_cycles = DWT->CYCCNT;
+
   arm_rfft_fast_f32(fft_instance, input, fft_temp_buf, 0);
   pack_rfft_complex_bins(fft_temp_buf, complex_output, fft_size);
+
+  uint32_t end_cycles = DWT->CYCCNT;
+  uint32_t fft_cycles = end_cycles - start_cycles;
+  
+  // Update moving average if performance measurement is initialized
+  if (fft_perf_initialized) {
+    calculate_fft_cycles_average((float)fft_cycles);
+  }
 }
 
 // TODO: We likely don't need to calculate magnitude, I think the 
@@ -167,4 +196,36 @@ static void pack_rfft_complex_bins(const float *packed_fft,
 
   complex_output[2u * half] = packed_fft[1];
   complex_output[2u * half + 1u] = 0.0f;
+}
+
+void init_fft_performance_measurement(void)
+{
+  // Enable DWT (Data Watchpoint and Trace)
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  
+  // Reset and enable DWT cycle counter
+  DWT->CYCCNT = 0;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+  
+  // Initialize performance tracking
+  fft_precise_average = 0.0f;
+  fft_last_cycles = 0.0f;
+  fft_perf_initialized = 1;
+}
+
+float get_fft_avg_cycles(void)
+{
+  return fft_precise_average;
+}
+
+float get_fft_last_cycles(void)
+{
+  return fft_last_cycles;
+}
+
+void update_fft_bin_average(float *avg, const float *new_data, uint32_t length, float beta)
+{
+  for (uint32_t i = 0; i < length; i++) {
+    avg[i] = avg[i] + beta * (new_data[i] - avg[i]);
+  }
 }
