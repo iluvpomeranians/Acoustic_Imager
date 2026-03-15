@@ -183,7 +183,7 @@ void app_loop(void) {
     // Report FFT performance
     usb_printf("FFT Avg Cycles: %d.%02d\r\n", PRINT_F2(get_fft_avg_cycles()));
     usb_printf("FFT Last Cycles: %d.%02d\r\n", PRINT_F2(get_fft_last_cycles()));
-  // }
+  }
 #endif
 
   __disable_irq();
@@ -210,7 +210,6 @@ void app_loop(void) {
     }
     return;
   }
-  
 }
 
 

@@ -1,9 +1,9 @@
 
 # Firmware TODO
 **Priority 0**
-- [ ] Do the check the CLKCNT thing to see how many CCs it takes for FFT
+- [/] Do the check the CLKCNT thing to see how many CCs it takes for FFT
    -> Yep — you’re thinking of the ARM DWT cycle counter, usually accessed through DWT->CYCCNT.
-- [ ] Fix USB CDC freeze issue (change usb_printf to non-blocking)
+
 
 - [ ] (Optional/If beamforming is shit) Calculate and apply per channel phase compensation for mic sampling offset. Can in theory get the exact T(us) between mic samples and apply the phase shift so that each 4 mics per ADC don't have a phase offset from sequential sampling.
 **Priority 1**
@@ -39,3 +39,4 @@
 - [x] Bench debug that all the ADCs are firing at the correct rate
 - [x] Do some averaging on the data (some stats like peak-to-peak, to see what we get)
 - [x] Discuss labeling FFT frames (with counters?)
+- [x] Fix USB CDC freeze issue (change usb_printf to non-blocking)
