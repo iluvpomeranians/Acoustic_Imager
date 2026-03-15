@@ -240,6 +240,91 @@ def build_w_lut_u8(alpha: float, blend_gamma: float) -> np.ndarray:
     return np.clip(np.round(x * 255.0), 0, 255).astype(np.uint8)
 
 
+# Reusable buffers for blend_heatmap_left (keyed by (content_width, content_height))
+_blend_buffers: Optional[dict[tuple[int, int], tuple[np.ndarray, ...]]] = None
+# Half-res blend: extra buffers for downscaled heatmap and background
+_blend_half_buffers: Optional[dict[tuple[int, int], tuple[np.ndarray, np.ndarray]]] = None
+# Fused colormap+weight LUT cache: (colormap_name, tuple(w_lut_u8)) -> (256, 3) uint8
+_fused_lut_cache: Optional[dict[tuple[str, tuple], np.ndarray]] = None
+
+
+def _get_fused_lut(colormap: str, w_lut_u8: np.ndarray) -> np.ndarray:
+    """Precompute (colormap(v) * w_lut(v)) // 255 for v in 0..255; returns (256, 3) uint8. Cached by (colormap, w_lut)."""
+    global _fused_lut_cache
+    if _fused_lut_cache is None:
+        _fused_lut_cache = {}
+    key = (colormap, tuple(w_lut_u8))
+    if key not in _fused_lut_cache:
+        colormap_cv = COLORMAP_DICT.get(colormap, cv2.COLORMAP_MAGMA)
+        one_col = np.arange(256, dtype=np.uint8).reshape(256, 1)
+        cmap = cv2.applyColorMap(one_col, colormap_cv)[:, 0, :]
+        w = w_lut_u8.reshape(256, 1).astype(np.uint32)
+        fused = np.clip((cmap.astype(np.uint32) * w) // 255, 0, 255).astype(np.uint8)
+        _fused_lut_cache[key] = fused
+    return _fused_lut_cache[key]
+
+
+def _get_blend_buffers(h: int, w: int) -> tuple[np.ndarray, ...]:
+    """Get or create (w_buf, w3_buf, inv3_buf, c1_buf, c2_buf, c1_ch0, c1_ch1, c1_ch2) for blend ROI shape (h, w). Contiguous 2D buffers for LUT dst."""
+    global _blend_buffers
+    if _blend_buffers is None:
+        _blend_buffers = {}
+    key = (w, h)
+    if key not in _blend_buffers:
+        _blend_buffers[key] = (
+            np.empty((h, w), dtype=np.uint8),
+            np.empty((h, w, 3), dtype=np.uint8),
+            np.empty((h, w, 3), dtype=np.uint8),
+            np.empty((h, w, 3), dtype=np.uint8),
+            np.empty((h, w, 3), dtype=np.uint8),
+            np.empty((h, w), dtype=np.uint8),
+            np.empty((h, w), dtype=np.uint8),
+            np.empty((h, w), dtype=np.uint8),
+        )
+    return _blend_buffers[key]
+
+
+def _get_blend_half_buffers(h2: int, w2: int) -> tuple[np.ndarray, np.ndarray]:
+    """Get or create (heatmap_half_buf, left_bg_half_buf) for half-res blend."""
+    global _blend_half_buffers
+    if _blend_half_buffers is None:
+        _blend_half_buffers = {}
+    key = (w2, h2)
+    if key not in _blend_half_buffers:
+        _blend_half_buffers[key] = (
+            np.empty((h2, w2), dtype=np.uint8),
+            np.empty((h2, w2, 3), dtype=np.uint8),
+        )
+    return _blend_half_buffers[key]
+
+
+def _blend_core(
+    heat: np.ndarray,
+    left_bg: np.ndarray,
+    w_lut_u8: np.ndarray,
+    fused_lut: np.ndarray,
+    inv_lut: np.ndarray,
+    w_buf: np.ndarray,
+    inv3_buf: np.ndarray,
+    c1_buf: np.ndarray,
+    c2_buf: np.ndarray,
+    c1_ch0: np.ndarray,
+    c1_ch1: np.ndarray,
+    c1_ch2: np.ndarray,
+) -> None:
+    """Run fused LUT blend: colored*w into c1_buf via contiguous ch buffers; c2_buf = left_bg*inv; c1_buf += c2_buf."""
+    cv2.LUT(heat, fused_lut[:, 0], c1_ch0)
+    cv2.LUT(heat, fused_lut[:, 1], c1_ch1)
+    cv2.LUT(heat, fused_lut[:, 2], c1_ch2)
+    c1_buf[:, :, 0] = c1_ch0
+    c1_buf[:, :, 1] = c1_ch1
+    c1_buf[:, :, 2] = c1_ch2
+    cv2.LUT(heat, inv_lut, w_buf)
+    inv3_buf[:] = w_buf[:, :, np.newaxis]
+    cv2.multiply(left_bg, inv3_buf, c2_buf, scale=1 / 255.0)
+    cv2.add(c1_buf, c2_buf, c1_buf)
+
+
 def blend_heatmap_left(
     base_frame: np.ndarray,
     heatmap_left: np.ndarray,
@@ -251,25 +336,34 @@ def blend_heatmap_left(
 ) -> np.ndarray:
     """
     Blend heatmap onto the content strip (between DB bar and freq bar).
-    heatmap_left is (content_height, content_width); blended into
-    base_frame[0:content_height, content_offset_x:content_offset_x+content_width].
-    Returns output_frame view (same object as base_frame).
+    Uses fused colormap+weight LUT (no applyColorMap + first multiply). Optional half-res then upsample.
     """
+    from .. import config
     x0 = content_offset_x
     x1 = content_offset_x + content_width
     left_bg = base_frame[0:content_height, x0:x1, :]
-    colormap_cv = COLORMAP_DICT.get(colormap, cv2.COLORMAP_MAGMA)
-    colored = cv2.applyColorMap(heatmap_left, colormap_cv)
+    fused_lut = _get_fused_lut(colormap, w_lut_u8)
+    inv_lut = np.subtract(255, w_lut_u8, dtype=np.uint8)
 
-    w = cv2.LUT(heatmap_left, w_lut_u8)
-    w3 = cv2.merge((w, w, w))
-    inv = cv2.bitwise_not(w3)
-
-    c1 = cv2.multiply(colored, w3, scale=1 / 255.0)
-    c2 = cv2.multiply(left_bg, inv, scale=1 / 255.0)
-    left_out = cv2.add(c1, c2)
-
-    base_frame[0:content_height, x0:x1, :] = left_out
+    half_res = bool(getattr(config, "BLEND_HALF_RES", False))
+    if half_res and content_height >= 4 and content_width >= 4:
+        h2, w2 = content_height // 2, content_width // 2
+        heatmap_half_buf, left_bg_half_buf = _get_blend_half_buffers(h2, w2)
+        cv2.resize(heatmap_left, (w2, h2), dst=heatmap_half_buf, interpolation=cv2.INTER_LINEAR)
+        cv2.resize(left_bg, (w2, h2), dst=left_bg_half_buf, interpolation=cv2.INTER_LINEAR)
+        w_buf, w3_buf, inv3_buf, c1_buf, c2_buf, c1_ch0, c1_ch1, c1_ch2 = _get_blend_buffers(h2, w2)
+        _blend_core(
+            heatmap_half_buf, left_bg_half_buf, w_lut_u8, fused_lut, inv_lut,
+            w_buf, inv3_buf, c1_buf, c2_buf, c1_ch0, c1_ch1, c1_ch2,
+        )
+        cv2.resize(c1_buf, (content_width, content_height), dst=base_frame[0:content_height, x0:x1, :], interpolation=cv2.INTER_LINEAR)
+    else:
+        w_buf, w3_buf, inv3_buf, c1_buf, c2_buf, c1_ch0, c1_ch1, c1_ch2 = _get_blend_buffers(content_height, content_width)
+        _blend_core(
+            heatmap_left, left_bg, w_lut_u8, fused_lut, inv_lut,
+            w_buf, inv3_buf, c1_buf, c2_buf, c1_ch0, c1_ch1, c1_ch2,
+        )
+        base_frame[0:content_height, x0:x1, :] = c1_buf
     return base_frame
 
 

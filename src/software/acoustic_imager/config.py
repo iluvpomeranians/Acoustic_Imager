@@ -222,6 +222,8 @@ W_LUT_U8 = np.clip(np.round(_w_lut * 255.0), 0, 255).astype(np.uint8)
 # optional: reuse these buffers to reduce allocs (left here for compatibility)
 _tmp_w = None
 _tmp_out = None
+# Blend at half resolution then upsample (faster, slight softness)
+BLEND_HALF_RES = True
 
 # ===============================================================
 # SIM (synthetic source + SRC: LOOP loopback)
