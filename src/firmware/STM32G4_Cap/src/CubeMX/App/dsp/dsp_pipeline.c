@@ -71,7 +71,7 @@ void remove_dc_bias(float *data, uint32_t length, float dc_offset)
   }
 }
 
-inline void calculate_fft_cycles_average(float cycles)
+void calculate_fft_cycles_average(float cycles)
 {
     float lpVal = fft_precise_average;
     
