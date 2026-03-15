@@ -52,10 +52,11 @@ static uint16_t adc3_buf[ADC_DMA_BUF_SIZE];
 static uint16_t adc4_buf[ADC_DMA_BUF_SIZE];
 
 static float mic_fft_buffer[FRAME_SIZE];
-
+static float fft_avg[N_MICS][FRAME_SIZE];
 
 // TODO: Test buffer for raw FFT output magnitude calcs, delete or pre-processor guard
-// static float mag_buffer[FRAME_SIZE/2 + 1];
+
+static float mag_buffer[FRAME_SIZE/2 + 1];
 
 static arm_rfft_fast_instance_f32 fft_instance;
 
@@ -118,6 +119,10 @@ typedef struct {
 void app_init(void) {
   // Initialize FFT instance (precompute twiddle factors, etc.)
   arm_rfft_fast_init_f32(&fft_instance, FRAME_SIZE);
+
+  // Initialize FFT performance measurement
+  init_fft_performance_measurement();
+  
   spi_stream_init(&spi_stream_ctx);
 }
 
@@ -165,10 +170,15 @@ void app_loop(void) {
 
   // Main application loop - check for ADC data ready and process
 #if MODE == DEBUG
-  if (_print_counter++ >= 1000) {
-    _print_counter = 0;
-    usb_printf("Main loop heartbeat\r\n");
-  }
+  // if (_print_counter++ >= 1000) {
+  //   _print_counter = 0;
+  //   usb_printf("Main loop heartbeat\r\n");
+
+        
+  //   // Report FFT performance
+  //   usb_printf("FFT Avg Cycles: %d.%02d\r\n", PRINT_F2(get_fft_avg_cycles()));
+  //   usb_printf("FFT Last Cycles: %d.%02d\r\n", PRINT_F2(get_fft_last_cycles()));
+  // }
 #endif
 
   __disable_irq();
@@ -293,22 +303,30 @@ static void app_process_synced_window(uint32_t half_offset, uint16_t frame_flags
                                    active_half,
                                    channel,
                                    mic_fft_buffer);
+
+      uint8_t mic_idx = adc * N_CH_PER_ADC + channel;
+      update_fft_bin_average(fft_avg[mic_idx], mic_fft_buffer, FRAME_SIZE, FFT_BIN_AVG_BETA);
       
       // if (_print_counter++ == 100) {
-      // _print_counter = 0;
+      //   _print_counter = 0;
 
-      // for (int i = 0; i < FRAME_SIZE; i++) {
-      //   usb_printf("index=%d, value=%d.%02d\r\n",
-      //             i,
-      //             PRINT_F3(mic_fft_buffer[i]));          
-      // }
-      // rfft_packed_to_mag(mic_fft_buffer, mag_buffer, FRAME_SIZE);
-      // dsp_print_fft_report(SAMPLE_RATE_HZ, mag_buffer, FRAME_SIZE);
+      //   for (int i = 0; i < FRAME_SIZE; i++) {
+      //     usb_printf("mic_fft_buffer index=%d, value=%d.%02d\r\n",
+      //               i,
+      //               PRINT_F3(mic_fft_buffer[i]));
+      //     usb_printf("fft_avg        index=%d, value=%d.%02d\r\n",
+      //               i,
+      //               PRINT_F3(fft_avg[mic_idx][i]));            
+      //   }
+      //   rfft_packed_to_mag(mic_fft_buffer, mag_buffer, FRAME_SIZE);
+      //   dsp_print_fft_report(SAMPLE_RATE_HZ, mag_buffer, FRAME_SIZE);
+      //   rfft_packed_to_mag(fft_avg[mic_idx], mag_buffer, FRAME_SIZE);
+      //   dsp_print_fft_report(SAMPLE_RATE_HZ, mag_buffer, FRAME_SIZE);
       // }
      
       appended_len = spi_stream_append_mic_payload(tx_buf + offset,
                                                     SPI_FRAME_PACKET_SIZE_BYTES - offset,
-                                                    mic_fft_buffer,
+                                                    fft_avg[mic_idx],
                                                     FRAME_SIZE);
       
       if (appended_len == 0u) {
