@@ -35,6 +35,7 @@ LOG_TOP = HEADER_H + PAD
 LOG_H = FS_H - LOG_TOP - 40
 LOG_W = FS_W - 2 * PAD - 20
 SCROLLBAR_W = 24
+SB_X = FS_W - PAD - SCROLLBAR_W  # scrollbar left edge (for hit-test)
 
 STEP_LABELS = {
     "silence": "Silence check",
@@ -124,6 +125,9 @@ def main() -> int:
     silence_remaining_sec: float | None = None  # set by thread when SILENCE_START seen; main loop counts down
     silence_triggered: list[bool] = [False]  # so we only start countdown once (SILENCE_START or "[0] Silence check")
     user_dismissed_result: list[bool] = [False]  # list so closure can set from mouse callback
+    scroll_ref: list[int] = [0]  # mutable so mouse callback can update scroll
+    drag_start_y: list[int | None] = [None]  # for touch/drag scroll: last y when dragging, or None
+    scrollbar_drag: list[bool] = [False]  # True while user is dragging in scrollbar (tap/drag to scroll when modal up)
 
     def on_silence_start(sec: float) -> None:
         nonlocal silence_remaining_sec
@@ -141,11 +145,53 @@ def main() -> int:
     cv2.resizeWindow("Calibration Suite", FS_W, FS_H)
     cv2.setWindowProperty("Calibration Suite", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
-    def _on_mouse(event: int, x: int, y: int, _a: int, _b: object) -> None:
+    SCROLL_STEP = LOG_LINE_H * 3  # 3 lines per wheel tick
+
+    def _on_mouse(event: int, x: int, y: int, _a: int, flags: int) -> None:
+        total_log_h = len(log_lines) * LOG_LINE_H
+        max_s = max(0, total_log_h - LOG_H)
+        in_scrollbar = SB_X <= x < SB_X + SCROLLBAR_W and LOG_TOP <= y < LOG_TOP + LOG_H
+
+        # Click on "Return to app" button (only when overlay is shown)
         if event == cv2.EVENT_LBUTTONDOWN and show_result_overlay and ok_rect[2] > 0:
             ox, oy, ow, oh = ok_rect
             if ox <= x < ox + ow and oy <= y < oy + oh:
                 user_dismissed_result[0] = True
+                drag_start_y[0] = None
+                scrollbar_drag[0] = False
+                return
+        if event == cv2.EVENT_LBUTTONUP:
+            drag_start_y[0] = None
+            scrollbar_drag[0] = False
+            return
+        # Scrollbar tap/drag: jump or drag to position (works when modal is up; touch screens often don't send MOUSEMOVE for log drag)
+        if event == cv2.EVENT_LBUTTONDOWN and in_scrollbar and len(log_lines) > 0 and max_s > 0:
+            scrollbar_drag[0] = True
+            # Map y to scroll offset (thumb center logic)
+            t = (y - LOG_TOP) / LOG_H
+            scroll_ref[0] = max(0, min(max_s, int(t * max_s)))
+            return
+        if event == cv2.EVENT_MOUSEMOVE and scrollbar_drag[0] and max_s > 0:
+            t = (y - LOG_TOP) / LOG_H
+            scroll_ref[0] = max(0, min(max_s, int(t * max_s)))
+            return
+        # Start log drag on any other touch/click (so user can scroll when modal is up)
+        if event == cv2.EVENT_LBUTTONDOWN and len(log_lines) > 0:
+            drag_start_y[0] = y
+            return
+        # Log drag: once drag started, any move updates scroll
+        if event == cv2.EVENT_MOUSEMOVE and drag_start_y[0] is not None and len(log_lines) > 0:
+            delta = drag_start_y[0] - y  # drag up -> positive delta -> scroll up (decrease offset)
+            scroll_ref[0] = max(0, min(max_s, scroll_ref[0] + delta))
+            drag_start_y[0] = y
+            return
+        # Mouse wheel: scroll the log (works whether or not result overlay is shown)
+        if event == cv2.EVENT_MOUSEWHEEL and len(log_lines) > 0:
+            total_log_h = len(log_lines) * LOG_LINE_H
+            max_s = max(0, total_log_h - LOG_H)
+            # flags: positive = scroll up (content up = decrease offset), negative = scroll down
+            delta = -SCROLL_STEP if flags > 0 else SCROLL_STEP
+            scroll_ref[0] = max(0, min(max_s, scroll_ref[0] + delta))
 
     cv2.setMouseCallback("Calibration Suite", _on_mouse)
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -167,9 +213,27 @@ def main() -> int:
 
         cv2.putText(frame, "Calibration Suite", (PAD, 52), font, 1.25, text_color, 2, cv2.LINE_AA)
 
+        # Progress indicator (top right): "N/7 tests" from explicit STEP_PROGRESS lines
+        NUM_STEPS = 7
+        current_step = 0
+        for line in log_lines:
+            m = re.search(r"STEP_PROGRESS\s+(\d+)\s+(\d+)", line)
+            if m:
+                current_step = min(int(m.group(1)) + 1, int(m.group(2)))
+        if not suite_done or current_step > 0:
+            progress_text = "%d/%d tests" % (current_step, NUM_STEPS)
+            PROG_FONT = 1.05
+            (pw, ph), _ = cv2.getTextSize(progress_text, font, PROG_FONT, 2)
+            prog_x = FS_W - PAD - pw - 20
+            prog_y = 52
+            cv2.rectangle(frame, (prog_x - 10, prog_y - ph - 10), (FS_W - PAD + 10, prog_y + 10), (40, 40, 40), -1, cv2.LINE_AA)
+            cv2.putText(frame, progress_text, (prog_x, prog_y), font, PROG_FONT, (200, 200, 200), 2, cv2.LINE_AA)
+
         total_log_h = len(log_lines) * LOG_LINE_H
         max_scroll = max(0, total_log_h - LOG_H)
+        scroll_offset = scroll_ref[0]
         scroll_offset = min(scroll_offset, max_scroll)
+        scroll_ref[0] = scroll_offset
         start_idx = scroll_offset // LOG_LINE_H
         y_off = LOG_TOP + 8 - (scroll_offset % LOG_LINE_H)
         cv2.rectangle(frame, (PAD, LOG_TOP), (PAD + LOG_W, LOG_TOP + LOG_H), (18, 18, 18), -1, cv2.LINE_AA)
@@ -222,11 +286,11 @@ def main() -> int:
             except Exception:
                 pass
 
-        # Result overlay (centered on fullscreen, larger text)
+        # Result overlay (bottom right corner so user can scroll log; dismiss via button)
         if show_result_overlay:
             res_w, res_h = 420, 200
-            res_x = (FS_W - res_w) // 2
-            res_y = (FS_H - res_h) // 2
+            res_x = FS_W - res_w - PAD * 2
+            res_y = FS_H - res_h - PAD * 2
             cv2.rectangle(frame, (res_x, res_y), (res_x + res_w, res_y + res_h), (35, 35, 35), -1, cv2.LINE_AA)
             cv2.rectangle(frame, (res_x, res_y), (res_x + res_w, res_y + res_h), (140, 140, 140), 2, cv2.LINE_AA)
             if result_passed:
@@ -241,14 +305,16 @@ def main() -> int:
             if failed_steps:
                 failed_str = ", ".join(failed_steps)[:45]
                 cv2.putText(frame, "Failed: " + failed_str, (res_x + 16, res_y + 92), font, 0.52, (220, 160, 160), 2, cv2.LINE_AA)
-            ok_w, ok_h = 120, 48
+            btn_label = "Return to app"
+            BTN_FONT = 0.82
+            (tw_btn, _), _ = cv2.getTextSize(btn_label, font, BTN_FONT, 2)
+            ok_w, ok_h = max(280, tw_btn + 56), 58
             ok_x = res_x + (res_w - ok_w) // 2
-            ok_y = res_y + res_h - ok_h - 24
+            ok_y = res_y + res_h - ok_h - 20
             ok_rect = (ok_x, ok_y, ok_w, ok_h)
             cv2.rectangle(frame, (ok_x, ok_y), (ok_x + ok_w, ok_y + ok_h), blue, -1, cv2.LINE_AA)
             cv2.rectangle(frame, (ok_x, ok_y), (ok_x + ok_w, ok_y + ok_h), (200, 220, 255), 2, cv2.LINE_AA)
-            (tw_ok, _), _ = cv2.getTextSize("OK", font, 0.8, 2)
-            cv2.putText(frame, "OK", (ok_x + (ok_w - tw_ok) // 2, ok_y + ok_h // 2 + 8), font, 0.8, text_color, 2, cv2.LINE_AA)
+            cv2.putText(frame, btn_label, (ok_x + (ok_w - tw_btn) // 2, ok_y + ok_h // 2 + 10), font, BTN_FONT, text_color, 2, cv2.LINE_AA)
 
         cv2.imshow("Calibration Suite", frame)
         key = cv2.waitKey(50) & 0xFF
@@ -258,6 +324,15 @@ def main() -> int:
             break
         if show_result_overlay and key in (ord("\r"), ord("\n"), ord(" "), ord("o"), ord("O")):
             break
+        # Key-based scroll (Up/Down/Page Up/Page Down) so user can scroll log with keyboard
+        if key == 82:  # Up
+            scroll_ref[0] = max(0, scroll_ref[0] - SCROLL_STEP)
+        elif key == 84:  # Down
+            scroll_ref[0] = min(max_scroll, scroll_ref[0] + SCROLL_STEP)
+        elif key == 83:  # Page Up (often 83 on Linux)
+            scroll_ref[0] = max(0, scroll_ref[0] - LOG_H)
+        elif key == 85:  # Page Down
+            scroll_ref[0] = min(max_scroll, scroll_ref[0] + LOG_H)
 
         # Count down silence timer (main thread drives time)
         if silence_remaining_sec is not None:

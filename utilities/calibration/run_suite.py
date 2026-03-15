@@ -36,6 +36,7 @@ TIMEOUT_POST_GAIN = 15
 
 def _log(msg: str, report_lines: list[str] | None) -> None:
     print(msg)
+    sys.stdout.flush()  # so standalone app sees each line immediately when stdout is a pipe
     if report_lines is not None:
         report_lines.append(msg)
 
@@ -288,29 +289,37 @@ def main() -> int:
 
     _log("=== Calibration Suite (stop acoustic imager for SPI steps) ===", report_lines)
     results = {}
+    NUM_STEPS = 7
 
     # 0
+    _log("STEP_PROGRESS 0 %d" % NUM_STEPS, report_lines)
     results["silence"] = step0_silence_check(args.skip_silence, report_lines)
 
     # 1
+    _log("STEP_PROGRESS 1 %d" % NUM_STEPS, report_lines)
     results["pins"] = step1_pin_monitor(report_lines)
 
     # 2
+    _log("STEP_PROGRESS 2 %d" % NUM_STEPS, report_lines)
     results["geometry"] = step2_geometry(report_lines)
 
     # 3
+    _log("STEP_PROGRESS 3 %d" % NUM_STEPS, report_lines)
     results["spi_devices"] = step3_spi_devices(report_lines)
 
     # 4
+    _log("STEP_PROGRESS 4 %d" % NUM_STEPS, report_lines)
     results["parsing_ok"], fps, frames_ok, bad_parse, bad_crc = step4_parsing_and_rates(report_lines)
     results["fps"] = fps
     results["bad_parse"] = bad_parse
     results["bad_crc"] = bad_crc
 
     # 5
+    _log("STEP_PROGRESS 5 %d" % NUM_STEPS, report_lines)
     results["metrics"] = step5_metrics(args.gain, write_config=not args.no_write, report_lines=report_lines)
 
     # 6 (only if we wrote config)
+    _log("STEP_PROGRESS 6 %d" % NUM_STEPS, report_lines)
     if not args.no_write and results["metrics"]:
         results["post_gain"] = step6_post_gain_sanity(report_lines)
     else:
