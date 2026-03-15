@@ -195,8 +195,8 @@ HEATMAP_HEIGHT = HEIGHT
 HEATMAP_ANGLE_MIN_DEG = -50.0
 HEATMAP_ANGLE_MAX_DEG = 50.0
 # 2D MUSIC grid when HEATMAP_PROJECTION_MODE == "dual_angle" (one 2D search instead of two 1D)
-# Coarser grid (e.g. 51) reduces heat_music cost; 2D parabolic refinement gives sub-grid accuracy.
-ANGLES_2D_RESOLUTION = 51
+# Coarser grid (e.g. 35) reduces heat_music cost; 2D parabolic refinement gives sub-grid accuracy.
+ANGLES_2D_RESOLUTION = 35
 ANGLES_2D_X = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
 ANGLES_2D_Y = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
 # Projection: "linear" | "camera_circle" | "camera_plane" | "dual_angle" (2D MUSIC, θ_x→x θ_y→y)
@@ -338,7 +338,10 @@ SPI_NOISE_FLOOR_DB = 10.0
 # Number of spatial sources MUSIC assumes per bin (1 = one dominant source e.g. one speaker, 2 = allow one reflection)
 SPI_MUSIC_N_SOURCES = 1
 # Run 2D MUSIC every N frames when dual_angle; 1 = every frame (smoother), 2+ = skip frames for FPS (can flicker).
-SPI_MUSIC_EVERY_N_FRAMES = 1
+SPI_MUSIC_EVERY_N_FRAMES = 2
+# Two-stage 2D MUSIC: coarse grid then small fine patch around peak (faster). 0 = off (use ANGLES_2D_RESOLUTION only).
+SPI_MUSIC_2D_COARSE_RESOLUTION = 21   # coarse grid (e.g. 21x21); 0 = disabled
+SPI_MUSIC_2D_REFINE_HALF_WIDTH = 2   # fine patch half-width in grid steps (e.g. 2 -> 5x5 patch)
 # Covariance averaging: smooth R over this many frames (EMA) before MUSIC; 1 = no averaging, 3–5 = less noisy peaks.
 SPI_COV_AVG_FRAMES = 4
 # Only show bins that are directional: lambda_1/sum(eigvals) >= this (0=off). Stricter = less random noise.

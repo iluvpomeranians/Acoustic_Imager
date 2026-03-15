@@ -55,6 +55,7 @@ from acoustic_imager.dsp.beamforming import (
     directivity_ratio,
     music_spectrum,
     music_spectrum_2d,
+    music_spectrum_2d_refined,
     music_2d_peak_angles,
 )
 from acoustic_imager.dsp.heatmap import (
@@ -1006,7 +1007,11 @@ def main() -> None:
     cov_avg: dict[int, np.ndarray] = {}  # bin_idx -> averaged covariance (N_MICS, N_MICS) for MUSIC
     # Reusable buffers for HW/LOOP heatmap (avoid per-frame allocs)
     _heatmap_max_bins = 32
-    _heatmap_max_n_ang = max(len(config.ANGLES), len(getattr(config, "ANGLES_2D_X", config.ANGLES)))
+    _heatmap_max_n_ang = max(
+        len(config.ANGLES),
+        len(getattr(config, "ANGLES_2D_X", config.ANGLES)),
+        max(0, int(getattr(config, "SPI_MUSIC_2D_COARSE_RESOLUTION", 0))),
+    )
     heatmap_spec_buf: Optional[np.ndarray] = None
     heatmap_angle_x_buf: Optional[np.ndarray] = None
     heatmap_angle_y_buf: Optional[np.ndarray] = None
@@ -1257,7 +1262,10 @@ def main() -> None:
                 else:
                     proj_mode = getattr(config, "HEATMAP_PROJECTION_MODE", "linear")
                     use_dual_angle = proj_mode == "dual_angle"
-                    if use_dual_angle:
+                    coarse_res = max(0, int(getattr(config, "SPI_MUSIC_2D_COARSE_RESOLUTION", 0)))
+                    if use_dual_angle and coarse_res > 0:
+                        n_ang = coarse_res
+                    elif use_dual_angle:
                         n_ang = len(config.ANGLES_2D_X)
                     else:
                         n_ang = len(config.ANGLES)
@@ -1317,16 +1325,27 @@ def main() -> None:
                                 R_use = R
 
                             if use_dual_angle:
-                                spec_2d = music_spectrum_2d(
-                                    R_use, config.ANGLES_2D_X, config.ANGLES_2D_Y, f_sig,
-                                    config.SPI_MUSIC_N_SOURCES, config.x_coords_hw, config.y_coords_hw,
-                                    config.SPEED_SOUND,
-                                )
-                                angle_x_deg[i], angle_y_deg[i] = music_2d_peak_angles(
-                                    spec_2d, config.ANGLES_2D_X, config.ANGLES_2D_Y,
-                                )
-                                iy = int(np.argmax(spec_2d) % spec_2d.shape[1])
-                                spec_matrix[i, :] = spec_2d[:, iy]
+                                if coarse_res > 0:
+                                    spec_coarse, angle_x_deg[i], angle_y_deg[i] = music_spectrum_2d_refined(
+                                        R_use, config.ANGLES_2D_X, config.ANGLES_2D_Y, f_sig,
+                                        config.SPI_MUSIC_N_SOURCES, config.x_coords_hw, config.y_coords_hw,
+                                        config.SPEED_SOUND,
+                                        coarse_resolution=coarse_res,
+                                        refine_half_width=int(getattr(config, "SPI_MUSIC_2D_REFINE_HALF_WIDTH", 2)),
+                                    )
+                                    iy = int(np.argmax(spec_coarse) % spec_coarse.shape[1])
+                                    spec_matrix[i, :] = spec_coarse[:, iy]
+                                else:
+                                    spec_2d = music_spectrum_2d(
+                                        R_use, config.ANGLES_2D_X, config.ANGLES_2D_Y, f_sig,
+                                        config.SPI_MUSIC_N_SOURCES, config.x_coords_hw, config.y_coords_hw,
+                                        config.SPEED_SOUND,
+                                    )
+                                    angle_x_deg[i], angle_y_deg[i] = music_2d_peak_angles(
+                                        spec_2d, config.ANGLES_2D_X, config.ANGLES_2D_Y,
+                                    )
+                                    iy = int(np.argmax(spec_2d) % spec_2d.shape[1])
+                                    spec_matrix[i, :] = spec_2d[:, iy]
                             else:
                                 spec_matrix[i, :] = music_spectrum(
                                     R_use, config.ANGLES, f_sig, config.SPI_MUSIC_N_SOURCES,

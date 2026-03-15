@@ -216,6 +216,71 @@ def music_2d_peak_angles(
     return angle_x_deg, angle_y_deg
 
 
+def music_spectrum_2d_refined(
+    R: np.ndarray,
+    angles_x: np.ndarray,
+    angles_y: np.ndarray,
+    f_signal: float,
+    n_sources: int,
+    x_coords: np.ndarray,
+    y_coords: np.ndarray,
+    speed_sound: float,
+    coarse_resolution: int = 21,
+    refine_half_width: int = 2,
+) -> tuple[np.ndarray, float, float]:
+    """
+    Two-stage 2D MUSIC: coarse grid then small fine patch around peak.
+    Returns (spec_coarse, angle_x_deg, angle_y_deg). spec_coarse shape (coarse_resolution, coarse_resolution)
+    for display; angles are refined from the fine patch.
+    """
+    angles_x = np.asarray(angles_x)
+    angles_y = np.asarray(angles_y)
+    x_min, x_max = float(angles_x[0]), float(angles_x[-1])
+    y_min, y_max = float(angles_y[0]), float(angles_y[-1])
+    coarse_resolution = max(3, int(coarse_resolution))
+    refine_half_width = max(0, int(refine_half_width))
+    coarse_x = np.linspace(x_min, x_max, coarse_resolution, dtype=np.float64)
+    coarse_y = np.linspace(y_min, y_max, coarse_resolution, dtype=np.float64)
+    spec_coarse = music_spectrum_2d(
+        R, coarse_x, coarse_y, f_signal, n_sources,
+        x_coords, y_coords, speed_sound,
+    )
+    Ncx, Ncy = spec_coarse.shape[0], spec_coarse.shape[1]
+    flat_idx = int(np.argmax(spec_coarse))
+    ix = flat_idx // Ncy
+    iy = flat_idx % Ncy
+    ix = np.clip(ix, 0, Ncx - 1)
+    iy = np.clip(iy, 0, Ncy - 1)
+    angle_x_center = float(coarse_x[ix])
+    angle_y_center = float(coarse_y[iy])
+    if refine_half_width <= 0:
+        angle_x_deg, angle_y_deg = music_2d_peak_angles(spec_coarse, coarse_x, coarse_y)
+        return spec_coarse, angle_x_deg, angle_y_deg
+    step_x = (x_max - x_min) / max(1, coarse_resolution - 1)
+    step_y = (y_max - y_min) / max(1, coarse_resolution - 1)
+    delta_x = step_x * (refine_half_width + 0.5)
+    delta_y = step_y * (refine_half_width + 0.5)
+    n_fine = 2 * refine_half_width + 1
+    fine_x = np.linspace(
+        max(x_min, angle_x_center - delta_x),
+        min(x_max, angle_x_center + delta_x),
+        n_fine,
+        dtype=np.float64,
+    )
+    fine_y = np.linspace(
+        max(y_min, angle_y_center - delta_y),
+        min(y_max, angle_y_center + delta_y),
+        n_fine,
+        dtype=np.float64,
+    )
+    spec_fine = music_spectrum_2d(
+        R, fine_x, fine_y, f_signal, n_sources,
+        x_coords, y_coords, speed_sound,
+    )
+    angle_x_deg, angle_y_deg = music_2d_peak_angles(spec_fine, fine_x, fine_y)
+    return spec_coarse, angle_x_deg, angle_y_deg
+
+
 def esprit_estimate(
     R: np.ndarray,
     f_signal: float,
