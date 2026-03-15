@@ -6,6 +6,37 @@ from typing import Optional
 import numpy as np
 import cv2
 
+# Precomputed 1D Gaussian half-kernels for blob drawing (sigma -> g_1d of length r_max+1)
+_BLOB_R_MAX = 200
+_BLOB_KERNEL_CACHE: Optional[list[tuple[float, np.ndarray]]] = None
+
+
+def _get_blob_kernel_cache() -> list[tuple[float, np.ndarray]]:
+    global _BLOB_KERNEL_CACHE
+    if _BLOB_KERNEL_CACHE is not None:
+        return _BLOB_KERNEL_CACHE
+    sigmas = np.linspace(22.0, 35.0, 8)
+    cache = []
+    for sig in sigmas:
+        sigma2 = float(2.0 * sig * sig + 1e-12)
+        idx = np.arange(_BLOB_R_MAX + 1, dtype=np.float32)
+        g_1d = np.exp(-(idx * idx) / sigma2).astype(np.float32)
+        cache.append((float(sig), g_1d))
+    _BLOB_KERNEL_CACHE = cache
+    return _BLOB_KERNEL_CACHE
+
+
+def _nearest_sigma_idx(sigma: float, cache: list[tuple[float, np.ndarray]]) -> int:
+    best = 0
+    best_diff = abs(cache[0][0] - sigma)
+    for k in range(1, len(cache)):
+        d = abs(cache[k][0] - sigma)
+        if d < best_diff:
+            best_diff = d
+            best = k
+    return best
+
+
 # Colormap mapping
 COLORMAP_DICT = {
     "MAGMA": cv2.COLORMAP_MAGMA,
@@ -35,6 +66,7 @@ def spectra_to_heatmap_absolute(
     camera_vfov_deg: float = 0.0,
     angle_x_deg: Optional[np.ndarray] = None,
     angle_y_deg: Optional[np.ndarray] = None,
+    heat_out: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     SAME signature as your monolith.
@@ -85,7 +117,11 @@ def spectra_to_heatmap_absolute(
     sharp /= (sharp.max() + 1e-12)
 
     h, w = int(out_height), int(out_width)
-    heat = np.zeros((h, w), dtype=np.float32)
+    if heat_out is not None and heat_out.shape == (h, w) and heat_out.dtype == np.float32:
+        heat_out.fill(0)
+        heat = heat_out
+    else:
+        heat = np.zeros((h, w), dtype=np.float32)
 
     # Map peak angle to (x, y) via projection mode
     angle_deg = -90.0 + 180.0 * peak_idx_frac.astype(np.float32) / max(1, (Nang - 1))
@@ -160,6 +196,7 @@ def spectra_to_heatmap_absolute(
         cy_all = np.clip(cy_all, 0.0, float(h - 1))
 
     base_radius = 60.0
+    blob_cache = _get_blob_kernel_cache()
 
     for i in range(Nsrc):
         amp = float(power_norm[i])
@@ -171,9 +208,7 @@ def spectra_to_heatmap_absolute(
 
         blob_radius = base_radius * (0.7 + 0.3 * float(sharp[i]))
         sigma = blob_radius / 1.8
-        sigma2 = float(2.0 * sigma * sigma + 1e-12)
-
-        r = int(max(6, min(200, round(7.0 * sigma))))
+        r = int(max(6, min(_BLOB_R_MAX, round(7.0 * sigma))))
         cx_int = int(cx)
         cy_int = int(cy)
         x0 = max(0, cx_int - r)
@@ -181,14 +216,16 @@ def spectra_to_heatmap_absolute(
         y0 = max(0, cy_int - r)
         y1 = min(h, cy_int + r + 1)
 
-        xs = (np.arange(x0, x1, dtype=np.float32) - cx)
-        ys = (np.arange(y0, y1, dtype=np.float32) - cy)
-
-        gx = np.exp(-(xs * xs) / sigma2)
-        gy = np.exp(-(ys * ys) / sigma2)
-
-        blob = amp * (gy[:, None] * gx[None, :]).astype(np.float32)
-        heat[y0:y1, x0:x1] += blob
+        kidx = _nearest_sigma_idx(sigma, blob_cache)
+        g_1d = blob_cache[kidx][1]
+        full_1d = np.concatenate([g_1d[r::-1], g_1d[1 : r + 1]]).astype(np.float32)
+        kernel_2d = (full_1d[:, None] * full_1d[None, :]).astype(np.float32)
+        k_h, k_w = kernel_2d.shape
+        ky0 = r + (y0 - cy_int)
+        kx0 = r + (x0 - cx_int)
+        roi_h, roi_w = y1 - y0, x1 - x0
+        kernel_slice = kernel_2d[ky0 : ky0 + roi_h, kx0 : kx0 + roi_w]
+        heat[y0:y1, x0:x1] += amp * kernel_slice
 
     heat = np.clip(heat, 0.0, 1.0)
     return (heat * 255.0).astype(np.uint8)

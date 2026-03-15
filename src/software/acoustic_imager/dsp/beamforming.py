@@ -4,6 +4,11 @@ from __future__ import annotations
 import numpy as np
 from numpy.linalg import eigh, pinv, eig
 
+# Steering matrix cache for 2D MUSIC: key (f_signal, Nx, Ny) -> steering_flat (M, Nx*Ny)
+_STEERING_2D_CACHE: dict[tuple[float, int, int], np.ndarray] = {}
+_STEERING_2D_CACHE_ORDER: list[tuple[float, int, int]] = []
+_STEERING_2D_CACHE_MAX = 32
+
 
 def directivity_ratio(R: np.ndarray) -> float:
     """
@@ -102,6 +107,7 @@ def music_spectrum_2d(
     2D MUSIC spectrum over (θ_x, θ_y). Steering phase at mic i:
     k * (x_i * sin(θ_x) + y_i * sin(θ_y)).
     Output: float32 (len(angles_x), len(angles_y)), max=1.
+    Steering matrix is cached by (f_signal, Nx, Ny) to avoid recomputing per frame.
     """
     angles_x = np.asarray(angles_x)
     angles_y = np.asarray(angles_y)
@@ -118,31 +124,38 @@ def music_spectrum_2d(
         return np.zeros((Nx, Ny), dtype=np.float32)
 
     n_sources = int(np.clip(n_sources, 1, M - 1))
+    f_sig = float(f_signal)
+    cache_key = (f_sig, Nx, Ny)
+
+    # Reuse cached steering matrix if available (same freq + grid)
+    if cache_key in _STEERING_2D_CACHE:
+        steering_flat = _STEERING_2D_CACHE[cache_key]
+    else:
+        x_coords = np.asarray(x_coords, dtype=np.float32).reshape(M)
+        y_coords = np.asarray(y_coords, dtype=np.float32).reshape(M)
+        k = 2.0 * np.pi * f_sig / float(speed_sound)
+        theta_x = np.deg2rad(angles_x).astype(np.float32)
+        theta_y = np.deg2rad(angles_y).astype(np.float32)
+        sx = np.sin(theta_x)
+        sy = np.sin(theta_y)
+        proj = (
+            x_coords[:, None, None] * sx[None, :, None] +
+            y_coords[:, None, None] * sy[None, None, :]
+        ).astype(np.float32)
+        steering = np.exp(1j * k * proj).astype(np.complex64)
+        steering_flat = steering.reshape(M, Nx * Ny).copy()
+        # Bounded cache: evict oldest
+        _STEERING_2D_CACHE[cache_key] = steering_flat
+        _STEERING_2D_CACHE_ORDER.append(cache_key)
+        while len(_STEERING_2D_CACHE_ORDER) > _STEERING_2D_CACHE_MAX:
+            old_key = _STEERING_2D_CACHE_ORDER.pop(0)
+            _STEERING_2D_CACHE.pop(old_key, None)
 
     eigvals, eigvecs = eigh(R)
     idx = eigvals.argsort()[::-1]
     eigvecs = eigvecs[:, idx]
     En = eigvecs[:, n_sources:]
     Pn = En @ En.conj().T
-
-    x_coords = np.asarray(x_coords, dtype=np.float32).reshape(M)
-    y_coords = np.asarray(y_coords, dtype=np.float32).reshape(M)
-    k = 2.0 * np.pi * float(f_signal) / float(speed_sound)
-
-    # Grid: (ix, iy) -> (θ_x, θ_y)
-    theta_x = np.deg2rad(angles_x).astype(np.float32)   # (Nx,)
-    theta_y = np.deg2rad(angles_y).astype(np.float32)   # (Ny,)
-    sx = np.sin(theta_x)   # (Nx,)
-    sy = np.sin(theta_y)   # (Ny,)
-    # Phase at mic i for grid point (ix, iy): k * (x_i * sx[ix] + y_i * sy[iy])
-    # proj[i, ix, iy] = x_i * sx[ix] + y_i * sy[iy]
-    proj = (
-        x_coords[:, None, None] * sx[None, :, None] +
-        y_coords[:, None, None] * sy[None, None, :]
-    ).astype(np.float32)   # (M, Nx, Ny)
-    steering = np.exp(1j * k * proj).astype(np.complex64)  # (M, Nx, Ny)
-    # Flatten grid for matmul: (M, Nx*Ny)
-    steering_flat = steering.reshape(M, Nx * Ny)
 
     PA = Pn @ steering_flat
     denom = np.einsum("ma,ma->a", steering_flat.conj(), PA).real
