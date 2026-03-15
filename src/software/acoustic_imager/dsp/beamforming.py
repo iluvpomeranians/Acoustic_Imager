@@ -88,6 +88,121 @@ def music_spectrum(
     return spec
 
 
+def music_spectrum_2d(
+    R: np.ndarray,
+    angles_x: np.ndarray,
+    angles_y: np.ndarray,
+    f_signal: float,
+    n_sources: int,
+    x_coords: np.ndarray,
+    y_coords: np.ndarray,
+    speed_sound: float,
+) -> np.ndarray:
+    """
+    2D MUSIC spectrum over (θ_x, θ_y). Steering phase at mic i:
+    k * (x_i * sin(θ_x) + y_i * sin(θ_y)).
+    Output: float32 (len(angles_x), len(angles_y)), max=1.
+    """
+    angles_x = np.asarray(angles_x)
+    angles_y = np.asarray(angles_y)
+    Nx, Ny = int(angles_x.size), int(angles_y.size)
+    if Nx == 0 or Ny == 0:
+        return np.zeros((Nx, Ny), dtype=np.float32)
+
+    R = np.asarray(R)
+    if R.ndim != 2 or R.shape[0] != R.shape[1]:
+        return np.zeros((Nx, Ny), dtype=np.float32)
+
+    M = int(R.shape[0])
+    if M < 2:
+        return np.zeros((Nx, Ny), dtype=np.float32)
+
+    n_sources = int(np.clip(n_sources, 1, M - 1))
+
+    eigvals, eigvecs = eigh(R)
+    idx = eigvals.argsort()[::-1]
+    eigvecs = eigvecs[:, idx]
+    En = eigvecs[:, n_sources:]
+    Pn = En @ En.conj().T
+
+    x_coords = np.asarray(x_coords, dtype=np.float32).reshape(M)
+    y_coords = np.asarray(y_coords, dtype=np.float32).reshape(M)
+    k = 2.0 * np.pi * float(f_signal) / float(speed_sound)
+
+    # Grid: (ix, iy) -> (θ_x, θ_y)
+    theta_x = np.deg2rad(angles_x).astype(np.float32)   # (Nx,)
+    theta_y = np.deg2rad(angles_y).astype(np.float32)   # (Ny,)
+    sx = np.sin(theta_x)   # (Nx,)
+    sy = np.sin(theta_y)   # (Ny,)
+    # Phase at mic i for grid point (ix, iy): k * (x_i * sx[ix] + y_i * sy[iy])
+    # proj[i, ix, iy] = x_i * sx[ix] + y_i * sy[iy]
+    proj = (
+        x_coords[:, None, None] * sx[None, :, None] +
+        y_coords[:, None, None] * sy[None, None, :]
+    ).astype(np.float32)   # (M, Nx, Ny)
+    steering = np.exp(1j * k * proj).astype(np.complex64)  # (M, Nx, Ny)
+    # Flatten grid for matmul: (M, Nx*Ny)
+    steering_flat = steering.reshape(M, Nx * Ny)
+
+    PA = Pn @ steering_flat
+    denom = np.einsum("ma,ma->a", steering_flat.conj(), PA).real
+    denom = np.maximum(denom, 1e-12)
+    spec_flat = (1.0 / denom).astype(np.float32)
+    spec = spec_flat.reshape(Nx, Ny)
+
+    m = float(spec.max()) if spec.size else 1.0
+    spec /= (m + 1e-12)
+    return spec
+
+
+def music_2d_peak_angles(
+    spec_2d: np.ndarray,
+    angles_x: np.ndarray,
+    angles_y: np.ndarray,
+) -> tuple[float, float]:
+    """
+    Find peak in 2D MUSIC spectrum and optionally refine with parabolic interpolation.
+    Returns (angle_x_deg, angle_y_deg) in degrees.
+    """
+    spec_2d = np.asarray(spec_2d)
+    angles_x = np.asarray(angles_x)
+    angles_y = np.asarray(angles_y)
+    Nx, Ny = spec_2d.shape[0], spec_2d.shape[1]
+    if Nx == 0 or Ny == 0:
+        return 0.0, 0.0
+
+    ix = int(np.argmax(spec_2d) // Ny)
+    iy = int(np.argmax(spec_2d) % Ny)
+
+    def parabolic_offset(arr: np.ndarray, idx: int, size: int) -> float:
+        y0 = float(arr[idx - 1]) if idx > 0 else float(arr[idx])
+        y1 = float(arr[idx])
+        y2 = float(arr[idx + 1]) if idx < size - 1 else float(arr[idx])
+        if idx > 0 and idx < size - 1:
+            denom = y0 - 2.0 * y1 + y2
+            if abs(denom) >= 1e-12:
+                d = 0.5 * (y0 - y2) / denom
+                d = np.clip(d, -0.5, 0.5)
+                return float(idx) + d
+        return float(idx)
+
+    # Refine in x (row at iy)
+    row = spec_2d[:, iy]
+    ix_frac = parabolic_offset(row, ix, Nx)
+    ix_frac = np.clip(ix_frac, 0.0, float(Nx - 1))
+    # Refine in y (column at ix)
+    col = spec_2d[ix, :]
+    iy_frac = parabolic_offset(col, iy, Ny)
+    iy_frac = np.clip(iy_frac, 0.0, float(Ny - 1))
+
+    # Map fractional index to angle (same convention as 1D: index 0 -> first angle, N-1 -> last)
+    span_x = float(angles_x[-1]) - float(angles_x[0]) if Nx > 1 else 0.0
+    span_y = float(angles_y[-1]) - float(angles_y[0]) if Ny > 1 else 0.0
+    angle_x_deg = float(angles_x[0]) + span_x * ix_frac / max(1, Nx - 1)
+    angle_y_deg = float(angles_y[0]) + span_y * iy_frac / max(1, Ny - 1)
+    return angle_x_deg, angle_y_deg
+
+
 def esprit_estimate(
     R: np.ndarray,
     f_signal: float,

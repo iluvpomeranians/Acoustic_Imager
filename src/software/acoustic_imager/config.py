@@ -194,8 +194,13 @@ HEATMAP_HEIGHT = HEIGHT
 # Effective angle range: map this range to full heatmap width (wider FOV = use ±90)
 HEATMAP_ANGLE_MIN_DEG = -50.0
 HEATMAP_ANGLE_MAX_DEG = 50.0
-# Projection: "linear" | "camera_circle" | "camera_plane" (pinhole + assumed distance for full x-y)
-HEATMAP_PROJECTION_MODE = "camera_plane"
+# 2D MUSIC grid when HEATMAP_PROJECTION_MODE == "dual_angle" (one 2D search instead of two 1D)
+# Coarser grid (e.g. 91) keeps cost down; 2D parabolic refinement gives sub-grid accuracy.
+ANGLES_2D_RESOLUTION = 91
+ANGLES_2D_X = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
+ANGLES_2D_Y = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
+# Projection: "linear" | "camera_circle" | "camera_plane" | "dual_angle" (2D MUSIC, θ_x→x θ_y→y)
+HEATMAP_PROJECTION_MODE = "dual_angle"
 # Circle radius (px); 0 = derive as min(content_w, content_h) * 0.45 (camera_circle only)
 HEATMAP_CIRCLE_RADIUS_PX = 0
 # camera_plane: assumed source plane distance (m) and pinhole FOV

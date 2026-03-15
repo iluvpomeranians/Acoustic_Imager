@@ -33,6 +33,8 @@ def spectra_to_heatmap_absolute(
     assumed_distance_m: float = 1.0,
     camera_hfov_deg: float = 53.0,
     camera_vfov_deg: float = 0.0,
+    angle_x_deg: Optional[np.ndarray] = None,
+    angle_y_deg: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
     SAME signature as your monolith.
@@ -89,7 +91,25 @@ def spectra_to_heatmap_absolute(
     angle_deg = -90.0 + 180.0 * peak_idx_frac.astype(np.float32) / max(1, (Nang - 1))
     angle_rad = np.deg2rad(angle_deg)
 
-    if projection_mode == "camera_plane":
+    use_dual_angle = (
+        projection_mode == "dual_angle"
+        and angle_x_deg is not None
+        and angle_y_deg is not None
+        and getattr(angle_x_deg, "size", len(angle_x_deg)) == Nsrc
+        and getattr(angle_y_deg, "size", len(angle_y_deg)) == Nsrc
+    )
+    if use_dual_angle:
+        # Two arrays in software: θ_x → x, θ_y → y (same angle range for both axes)
+        angle_span = max(1e-6, float(angle_max_deg) - float(angle_min_deg))
+        ax = np.asarray(angle_x_deg, dtype=np.float64).reshape(Nsrc)
+        ay = np.asarray(angle_y_deg, dtype=np.float64).reshape(Nsrc)
+        t_x = np.clip((ax - float(angle_min_deg)) / angle_span, 0.0, 1.0)
+        t_y = np.clip((ay - float(angle_min_deg)) / angle_span, 0.0, 1.0)
+        cx_all = (t_x * (w - 1) + float(x_offset_px)).astype(np.float32)
+        cy_all = (t_y * (h - 1)).astype(np.float32)  # angle_min -> top, angle_max -> bottom
+        cx_all = np.clip(cx_all, 0.0, float(w - 1))
+        cy_all = np.clip(cy_all, 0.0, float(h - 1))
+    elif projection_mode == "camera_plane":
         cx = (w - 1) / 2.0
         hfov_rad = np.deg2rad(max(1e-6, float(camera_hfov_deg)))
         fx = (w / 2.0) / np.tan(hfov_rad / 2.0)
