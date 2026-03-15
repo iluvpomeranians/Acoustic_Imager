@@ -180,12 +180,12 @@ N_BINS = SAMPLES_PER_CHANNEL // 2 + 1  # 257
 REL_DB_MIN = -60.0
 REL_DB_MAX = 0.0
 # Temporal smoothing for HW/LOOP heatmap: retain this fraction of previous frame (0=none, 1=no update)
-HEATMAP_SMOOTH_ALPHA = 0.35
+HEATMAP_SMOOTH_ALPHA = 0.52
 # Bandpass power above this gives full heatmap brightness; below scales down (with floor) so heatmap reacts to level (tune to room)
 HEATMAP_LEVEL_REFERENCE = 1e6
 # Minimum heatmap scale so blobs stay visible when quiet (0=can go black, 1=no level scaling)
 HEATMAP_LEVEL_FLOOR = 0.18
-# Per-frame contrast stretch: map this percentile to 255 (0=disable). Improves differentiation.
+# Per-frame contrast stretch: map this percentile to 255 (0=disable, saves ~20+ ms on Pi). Improves differentiation when enabled.
 HEATMAP_CONTRAST_STRETCH_PERCENTILE = 98.0
 HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
 # Heatmap dimensions (default: full content strip between DB bar and freq bar)
@@ -194,8 +194,13 @@ HEATMAP_HEIGHT = HEIGHT
 # Effective angle range: map this range to full heatmap width (wider FOV = use ±90)
 HEATMAP_ANGLE_MIN_DEG = -50.0
 HEATMAP_ANGLE_MAX_DEG = 50.0
-# Projection: "linear" | "camera_circle" | "camera_plane" (pinhole + assumed distance for full x-y)
-HEATMAP_PROJECTION_MODE = "camera_plane"
+# 2D MUSIC grid when HEATMAP_PROJECTION_MODE == "dual_angle" (one 2D search instead of two 1D)
+# Coarser grid (e.g. 51) reduces heat_music cost; 2D parabolic refinement gives sub-grid accuracy.
+ANGLES_2D_RESOLUTION = 51
+ANGLES_2D_X = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
+ANGLES_2D_Y = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
+# Projection: "linear" | "camera_circle" | "camera_plane" | "dual_angle" (2D MUSIC, θ_x→x θ_y→y)
+HEATMAP_PROJECTION_MODE = "dual_angle"
 # Circle radius (px); 0 = derive as min(content_w, content_h) * 0.45 (camera_circle only)
 HEATMAP_CIRCLE_RADIUS_PX = 0
 # camera_plane: assumed source plane distance (m) and pinhole FOV
@@ -293,7 +298,7 @@ SPI_DEV = _SPI_DEV
 SPI_MODE = 0
 SPI_BITS = 8
 
-SPI_MAX_SPEED_HZ = 30_000_000
+SPI_MAX_SPEED_HZ = 40_000_000
 SPI_XFER_CHUNK = 8192
 
 # Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces).
@@ -330,6 +335,8 @@ SPI_TOP_K_BINS = 3
 SPI_NOISE_FLOOR_DB = 10.0
 # Number of spatial sources MUSIC assumes per bin (1 = one dominant source e.g. one speaker, 2 = allow one reflection)
 SPI_MUSIC_N_SOURCES = 1
+# Run 2D MUSIC every N frames when dual_angle; 1 = every frame (smoother), 2+ = skip frames for FPS (can flicker).
+SPI_MUSIC_EVERY_N_FRAMES = 1
 # Covariance averaging: smooth R over this many frames (EMA) before MUSIC; 1 = no averaging, 3–5 = less noisy peaks.
 SPI_COV_AVG_FRAMES = 4
 # Only show bins that are directional: lambda_1/sum(eigvals) >= this (0=off). Stricter = less random noise.
