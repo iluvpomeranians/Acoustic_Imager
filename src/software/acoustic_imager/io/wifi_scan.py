@@ -269,25 +269,23 @@ def _scan_nmcli_iface() -> List[Dict[str, str]]:
         return []
 
 
-def connect_wifi(ssid: str, password: str) -> tuple[bool, str]:
+def connect_wifi(ssid: str, password: str, bssid: str | None = None) -> tuple[bool, str]:
     """
     Connect to WiFi network. Returns (success, message).
+    bssid: optional BSSID (e.g. "AA:BB:CC:DD:EE:FF") for more reliable connect when multiple APs share SSID.
     """
     try:
+        args = ["nmcli", "device", "wifi", "connect", ssid]
         if password:
-            out = subprocess.run(
-                ["nmcli", "device", "wifi", "connect", ssid, "password", password],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-        else:
-            out = subprocess.run(
-                ["nmcli", "device", "wifi", "connect", ssid],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
+            args += ["password", password]
+        if bssid and bssid.strip():
+            args += ["bssid", bssid.strip()]
+        out = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         if out.returncode == 0:
             return True, "Connected"
         err = (out.stderr or out.stdout or "").strip()

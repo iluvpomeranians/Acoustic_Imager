@@ -143,7 +143,7 @@ def test_contrast_stretch_clips() -> None:
 
 
 def test_hw_geometry_present() -> None:
-    """Config must define x_coords_hw and y_coords_hw (measured array geometry) with length N_MICS."""
+    """Config (source of truth) must define x_coords_hw and y_coords_hw with length N_MICS."""
     if config is None:
         raise RuntimeError("config not available")
     assert hasattr(config, "x_coords_hw"), "config missing x_coords_hw (HW geometry)"

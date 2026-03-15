@@ -298,7 +298,7 @@ SPI_DEV = _SPI_DEV
 SPI_MODE = 0
 SPI_BITS = 8
 
-SPI_MAX_SPEED_HZ = 40_000_000
+SPI_MAX_SPEED_HZ = 30_000_000
 SPI_XFER_CHUNK = 8192
 
 # Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces).
@@ -326,7 +326,7 @@ CALIBRATION_NOTE = "Camera left, board right, same heading"
 
 # --- HW heatmap pipeline (gain, MUSIC, directivity, etc.) ---
 # Per-mic gain correction (length N_MICS): boost weak mics; 1.0 = no change. Use metrics_debug.py --live --write-config to tune.
-SPI_MIC_GAIN = (8.33, 24.68, 100.00, 2.22, 2.20, 2.50, 2.07, 2.85, 2.33, 2.39, 1.09, 2.55, 1.00, 1.75, 1.71, 1.85)
+SPI_MIC_GAIN = (1.66, 2.00, 2.84, 3.04, 1.80, 3.15, 2.64, 2.59, 1.57, 1.00, 3.52, 2.89, 1.15, 3.48, 100.00, 2.63)
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
 SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
@@ -378,13 +378,13 @@ pitch = (
 # Used only for SRC:HW and LOOP; SIM keeps x_coords/y_coords above.
 # ===============================================================
 x_coords_hw = np.array([
-    -0.08602, -0.07552, -0.09742, -0.08962, -0.10612, -0.11092,
-    -0.11762, -0.10152, -0.11612, -0.09142, -0.10302, -0.09822,
-    -0.10232, -0.11212, -0.08102, -0.09182,
+    -0.086020, -0.075520, -0.097420, -0.089620, -0.106120, -0.110920,
+    -0.117620, -0.101520, -0.116120, -0.091420, -0.103020, -0.098220,
+    -0.102320, -0.112120, -0.081020, -0.091820,
 ])
 y_coords_hw = np.array([
-    -0.05428, -0.05708, -0.05298, -0.04358, -0.04698, -0.05988,
-    -0.05088, -0.03728, -0.06948, -0.07098, -0.06648, -0.06208,
-    -0.07738, -0.08188, -0.06828, -0.08248,
+    -0.054280, -0.057080, -0.052980, -0.043580, -0.046980, -0.059880,
+    -0.050880, -0.037280, -0.069480, -0.070980, -0.066480, -0.062080,
+    -0.077380, -0.081880, -0.068280, -0.082480,
 ])
-pitch_hw = 0.003026
+pitch_hw = 0.002945

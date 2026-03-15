@@ -2,10 +2,9 @@
 """
 Array geometry for the Acoustic Imager (measured layout).
 
-Structure matches config.py: Section 1 Configuration, Section 2 Raw data,
-Section 3 Geometry setup. Exports N_MICS, SPEED_SOUND, x_coords, y_coords, pitch
-so config can use this module as a drop-in geometry source (measured array
-instead of Fermat spiral).
+The app's source of truth for coordinates/geometry at runtime is config.py. This module
+holds the measured geometry (FreeCAD); run update_config_geometry.py to push these
+values into config.py. Structure matches config: N_MICS, x_coords, y_coords, pitch.
 
 Source: FreeCAD measurements. CSV X,Y,Z = vector from camera to mic.
 "Array Center → Camera" = vector from array center to camera. A 180° rotation

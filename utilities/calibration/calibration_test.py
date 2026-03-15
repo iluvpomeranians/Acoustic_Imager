@@ -47,7 +47,7 @@ def main() -> int:
         print(f"  CALIBRATION_NOTE             = {getattr(config, 'CALIBRATION_NOTE', 'N/A')!r}")
         x_hw = getattr(config, "x_coords_hw", None)
         if x_hw is not None:
-            print(f"  HW geometry: x_coords_hw, y_coords_hw (from array_geometry), length {len(x_hw)}")
+            print(f"  HW geometry: x_coords_hw, y_coords_hw (source: config.py), length {len(x_hw)}")
         else:
             print("  HW geometry: not set")
 

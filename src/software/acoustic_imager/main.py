@@ -103,7 +103,7 @@ from acoustic_imager.ui.handlers import (
     handle_gallery_viewer_mouse,
     handle_email_modal_click,
 )
-from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click
+from acoustic_imager.ui.wifi_modal import draw_wifi_modal, handle_wifi_modal_click, handle_wifi_modal_touch_drag
 from acoustic_imager.io.magnetometer import MagnetometerReader, probe_i2c_magnetometer
 from acoustic_imager.io.gps_reader import GPSReader
 from acoustic_imager.io.position_manager import PositionManager
@@ -117,6 +117,12 @@ from acoustic_imager.ui.settings_modal import (
 from acoustic_imager.ui.firmware_flash_modal import (
     draw_firmware_flash_modal,
     handle_firmware_flash_modal_click,
+)
+from acoustic_imager.ui.calibration_suite_modal import (
+    draw_calibration_suite_modal,
+    handle_calibration_suite_modal_click,
+    handle_calibration_suite_modal_mouse,
+    handle_calibration_suite_modal_scroll,
 )
 from acoustic_imager.ui.acoustic_radar_map import draw_radar_map_widget, update_detection_history
 from acoustic_imager.ui.video_recorder import VideoRecorder
@@ -241,9 +247,12 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if handle_gallery_mouse(event,mx, my, flags, state.OUTPUT_DIR):
             return
 
-        # WiFi modal (when open, handle first)
+        # WiFi modal (when open, handle first). Touch-drag scroll before click.
         if HUD.wifi_modal_open:
-            if handle_wifi_modal_click(mx, my):
+            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
+                state.ui_click_was_on_ui = True
+                return
+            if handle_wifi_modal_click(mx, my, config.WIDTH, config.HEIGHT):
                 state.ui_click_was_on_ui = True
                 return
 
@@ -265,6 +274,15 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         # Firmware Flash modal (when open, handle first)
         if button_state.firmware_flash_modal_open:
             if handle_firmware_flash_modal_click(mx, my):
+                state.ui_click_was_on_ui = True
+                return
+
+        # Calibration Suite modal (mouse first for drag-to-scroll, then click)
+        if button_state.calibration_suite_modal_open:
+            if handle_calibration_suite_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
+                state.ui_click_was_on_ui = True
+                return
+            if handle_calibration_suite_modal_click(mx, my):
                 state.ui_click_was_on_ui = True
                 return
 
@@ -702,9 +720,19 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     # Handle mouse move (dragging)
     elif event == cv2.EVENT_MOUSEMOVE:
 
+        # WiFi modal list touch-drag scroll
+        if HUD.wifi_modal_open:
+            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
+                return
+
         # Settings modal touch/drag scroll
         if HUD.settings_modal_open:
             if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
+                return
+
+        # Calibration Suite modal touch/drag scroll (log area)
+        if button_state.calibration_suite_modal_open:
+            if handle_calibration_suite_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
                 return
 
         bar_left = content_right
@@ -760,15 +788,27 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         if HUD.settings_modal_open:
             # flags: positive = scroll up, negative = scroll down (platform-dependent)
             delta = -80 if flags > 0 else 80
+            if button_state.calibration_suite_modal_open and handle_calibration_suite_modal_scroll(delta):
+                return
             if handle_settings_modal_scroll(delta):
                 return
 
     # Handle left button up
     elif event == cv2.EVENT_LBUTTONUP:
 
+        # WiFi modal list touch-drag scroll end
+        if HUD.wifi_modal_open:
+            if handle_wifi_modal_touch_drag(event, mx, my, config.WIDTH, config.HEIGHT):
+                pass  # consumed
+
         # Settings modal touch/drag scroll end
         if HUD.settings_modal_open:
             if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
+                pass  # consumed
+
+        # Calibration Suite modal touch/drag scroll end
+        if button_state.calibration_suite_modal_open:
+            if handle_calibration_suite_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
                 pass  # consumed
 
         # End dot drag (dot stays at last snapped position)
@@ -1842,6 +1882,10 @@ def main() -> None:
             if button_state.firmware_flash_modal_open:
                 draw_firmware_flash_modal(output_frame)
 
+            # Calibration Suite modal
+            if button_state.calibration_suite_modal_open:
+                draw_calibration_suite_modal(output_frame)
+
             # ---- Draw gallery view if open ----
             if button_state.gallery_open:
                 draw_gallery_view(output_frame, state.OUTPUT_DIR)
@@ -1857,6 +1901,9 @@ def main() -> None:
 
             # ---- Store current frame for screenshots ----
             state.CURRENT_FRAME = output_frame.copy()
+            # Keep calibration-suite background cache updated when modal is closed
+            if not button_state.calibration_suite_modal_open and output_frame is not None and hasattr(output_frame, "shape") and output_frame.shape == (config.HEIGHT, config.WIDTH, 3):
+                state.CALIBRATION_SUITE_BACKGROUND_FRAME = output_frame.copy()
             prof.mark("copy_frame")
 
             # ---- Record video if active ----
@@ -1911,6 +1958,8 @@ def main() -> None:
             elif key == 27 and button_state.firmware_flash_modal_open:
                 button_state.firmware_flash_modal_open = False
                 button_state.firmware_flash_status = ""
+            elif key == 27 and button_state.calibration_suite_modal_open:
+                button_state.calibration_suite_modal_open = False
             elif key == ord("c"):
                 # Reset magnetometer calibration extrema (use during heading tests)
                 HUD.mag_x_min = HUD.mag_x_max = None
