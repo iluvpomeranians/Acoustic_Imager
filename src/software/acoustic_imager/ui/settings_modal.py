@@ -89,11 +89,8 @@ def _update_settings_button_positions(
     hit_x = row_x + row_w - TOGGLE_W - TOGGLE_HIT_EXTRA_LEFT
     color_btn_w = (row_w - 3 * ITEM_GAP) // 4
     email_h = 44
-    # Content y positions (must match _build_settings_content layout)
-    cal_suite_btn_h = 44
-    y_cam, y_cross, y_color, y_debug, y_radar, y_mapstyle, y_possvc, y_record, y_radar_dbg = 34, 90, 208, 314, 370, 426, 482, 538, 594
-    y_calibration_suite = y_radar_dbg + ROW_H + ITEM_GAP  # 650
-    y_email = y_calibration_suite + cal_suite_btn_h + ITEM_GAP + SECTION_GAP + SECTION_GAP + 20 + ITEM_GAP  # after divider + "Setup Email" label
+    # Content y positions (must match _build_settings_content: SPI debug, Show Radar Debug, then Radar UI, Map, Position, Record)
+    y_cam, y_cross, y_color, y_debug, y_radar_dbg, y_radar, y_mapstyle, y_possvc, y_record, y_email = 34, 90, 208, 314, 370, 426, 482, 538, 594, 712
     y_flash = y_email + email_h + ITEM_GAP + 20 + ITEM_GAP  # after "Update to latest firmware" label
     if "settings_cam" in menu_buttons:
         b = menu_buttons["settings_cam"]
@@ -111,6 +108,9 @@ def _update_settings_button_positions(
     if "settings_debug" in menu_buttons:
         b = menu_buttons["settings_debug"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_debug - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    if "settings_show_radar_debug" in menu_buttons:
+        b = menu_buttons["settings_show_radar_debug"]
+        b.x, b.y, b.w, b.h = hit_x, content_top + y_radar_dbg - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
     if "settings_radar_ui" in menu_buttons:
         b = menu_buttons["settings_radar_ui"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_radar - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
@@ -123,13 +123,6 @@ def _update_settings_button_positions(
     if "settings_record_compass_history" in menu_buttons:
         b = menu_buttons["settings_record_compass_history"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_record - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
-    if "settings_show_radar_debug" in menu_buttons:
-        b = menu_buttons["settings_show_radar_debug"]
-        b.x, b.y, b.w, b.h = hit_x, content_top + y_radar_dbg - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
-    if "settings_calibration_suite" in menu_buttons:
-        b = menu_buttons["settings_calibration_suite"]
-        b.x, b.y = row_x, content_top + y_calibration_suite - scroll_offset
-        b.w, b.h = row_w, cal_suite_btn_h
     if "settings_email" in menu_buttons:
         b = menu_buttons["settings_email"]
         b.x = row_x - EMAIL_BTN_HIT_PAD_X
@@ -195,7 +188,14 @@ def _build_settings_content(
     y += SECTION_GAP
     cv2.putText(content_canvas, "Advanced", (0, y + 16), font, 0.56, section_color, 1, cv2.LINE_AA)
     y += 20 + ITEM_GAP
-    y = _toggle_row(content_canvas, "Debug", button_state.debug_enabled, "settings_debug", y)
+    y = _toggle_row(content_canvas, "SPI debug", button_state.debug_enabled, "settings_debug", y)
+    y = _toggle_row(
+        content_canvas,
+        "Show Radar Debug",
+        button_state.show_radar_debug,
+        "settings_show_radar_debug",
+        y,
+    )
     y = _toggle_row(
         content_canvas,
         "Radar UI",
@@ -219,22 +219,6 @@ def _build_settings_content(
         "settings_record_compass_history",
         y,
     )
-    y = _toggle_row(
-        content_canvas,
-        "Show Radar Debug",
-        button_state.show_radar_debug,
-        "settings_show_radar_debug",
-        y,
-    )
-    # Calibration Suite button (under Advanced)
-    cal_suite_h = 44
-    cv2.rectangle(content_canvas, (0, y), (row_w, y + cal_suite_h), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
-    cv2.rectangle(content_canvas, (0, y), (row_w, y + cal_suite_h), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
-    (tw_cs, _), _ = cv2.getTextSize("Calibration Suite", font, 0.52, 1)
-    cv2.putText(content_canvas, "Calibration Suite", ((row_w - tw_cs) // 2, y + cal_suite_h // 2 + 6), font, 0.52, text_color, 1, cv2.LINE_AA)
-    if "settings_calibration_suite" not in menu_buttons:
-        menu_buttons["settings_calibration_suite"] = Button(0, 0, row_w, cal_suite_h, "")
-    y += cal_suite_h + ITEM_GAP
     y += SECTION_GAP
     cv2.line(content_canvas, (0, y), (row_w, y), section_color, 1, cv2.LINE_AA)
     y += SECTION_GAP

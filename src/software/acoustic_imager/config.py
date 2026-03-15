@@ -110,6 +110,7 @@ F_MAX_HZ_DEFAULT = 35000.0
 RADAR_UI_DEFAULT = False
 POSITION_SERVICES_DEFAULT = True
 RADAR_MAP_TILE_STYLE_DEFAULT = "dark"   # "dark" | "light"
+# RADAR_MAP_CACHE_DIR: set at runtime in main.py to repo_root / "data" / "map_tiles" (under main data folder)
 DIRECTIONAL_HISTORY_RECORD_DEFAULT = False
 RADAR_DEBUG_OVERLAY_DEFAULT = False
 # Circular radar widget diameter (px)
@@ -166,8 +167,8 @@ UI_CONTENT_BOTTOM_MARGIN = 62      # above bottom HUD
 # Extra hit padding for bottom HUD pills (better clickability)
 UI_BOTTOM_HUD_HIT_PAD = 8
 
-# Angle grid
-ANGLES = np.linspace(-90, 90, 181)
+# Angle grid (finer = more granular L-R slide; 361 ≈ 0.5° step, ~2× MUSIC cost)
+ANGLES = np.linspace(-90, 90, 361)
 
 # ===============================================================
 # FFT frequency axis
@@ -179,13 +180,33 @@ N_BINS = SAMPLES_PER_CHANNEL // 2 + 1  # 257
 REL_DB_MIN = -60.0
 REL_DB_MAX = 0.0
 # Temporal smoothing for HW/LOOP heatmap: retain this fraction of previous frame (0=none, 1=no update)
-HEATMAP_SMOOTH_ALPHA = 0.35
+HEATMAP_SMOOTH_ALPHA = 0.52
 # Bandpass power above this gives full heatmap brightness; below scales down (with floor) so heatmap reacts to level (tune to room)
 HEATMAP_LEVEL_REFERENCE = 1e6
 # Minimum heatmap scale so blobs stay visible when quiet (0=can go black, 1=no level scaling)
 HEATMAP_LEVEL_FLOOR = 0.18
-# Per-frame contrast stretch: map this percentile to 255 (0=disable). Improves differentiation.
+# Per-frame contrast stretch: map this percentile to 255 (0=disable, saves ~20+ ms on Pi). Improves differentiation when enabled.
 HEATMAP_CONTRAST_STRETCH_PERCENTILE = 98.0
+HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
+# Heatmap dimensions (default: full content strip between DB bar and freq bar)
+HEATMAP_WIDTH = WIDTH - DB_BAR_WIDTH - FREQ_BAR_WIDTH
+HEATMAP_HEIGHT = HEIGHT
+# Effective angle range: map this range to full heatmap width (wider FOV = use ±90)
+HEATMAP_ANGLE_MIN_DEG = -50.0
+HEATMAP_ANGLE_MAX_DEG = 50.0
+# 2D MUSIC grid when HEATMAP_PROJECTION_MODE == "dual_angle" (one 2D search instead of two 1D)
+# Coarser grid (e.g. 51) reduces heat_music cost; 2D parabolic refinement gives sub-grid accuracy.
+ANGLES_2D_RESOLUTION = 51
+ANGLES_2D_X = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
+ANGLES_2D_Y = np.linspace(HEATMAP_ANGLE_MIN_DEG, HEATMAP_ANGLE_MAX_DEG, ANGLES_2D_RESOLUTION)
+# Projection: "linear" | "camera_circle" | "camera_plane" | "dual_angle" (2D MUSIC, θ_x→x θ_y→y)
+HEATMAP_PROJECTION_MODE = "dual_angle"
+# Circle radius (px); 0 = derive as min(content_w, content_h) * 0.45 (camera_circle only)
+HEATMAP_CIRCLE_RADIUS_PX = 0
+# camera_plane: assumed source plane distance (m) and pinhole FOV
+HEATMAP_ASSUMED_DISTANCE_M = 1.0   # used when projection_mode is camera_plane
+HEATMAP_CAMERA_HFOV_DEG = 53.0     # horizontal FOV (deg) for fx; e.g. Pi Camera
+HEATMAP_CAMERA_VFOV_DEG = 0.0      # vertical FOV (deg); 0 = derive from HFOV and content aspect
 
 # ===============================================================
 # Blend acceleration (LUT + integer math)
@@ -277,7 +298,7 @@ SPI_DEV = _SPI_DEV
 SPI_MODE = 0
 SPI_BITS = 8
 
-SPI_MAX_SPEED_HZ = 30_000_000
+SPI_MAX_SPEED_HZ = 40_000_000
 SPI_XFER_CHUNK = 8192
 
 # Frame-ready GPIO: MCU_STATUS from STM32 -> Pi (physical pin 26 = BCM7 for both interfaces).
@@ -309,17 +330,19 @@ SPI_MIC_GAIN = (1.15, 1.22, 1.97, 1.70, 1.17, 1.38, 1.68, 1.61, 1.00, 1.37, 1.82
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
 SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
-SPI_TOP_K_BINS = 4
+SPI_TOP_K_BINS = 3
 # Only bins within this many dB of peak (in bandpass) are eligible for heatmap; lower = stricter, less noisy
-SPI_NOISE_FLOOR_DB = 15.0
+SPI_NOISE_FLOOR_DB = 10.0
 # Number of spatial sources MUSIC assumes per bin (1 = one dominant source e.g. one speaker, 2 = allow one reflection)
 SPI_MUSIC_N_SOURCES = 1
+# Run 2D MUSIC every N frames when dual_angle; 1 = every frame (smoother), 2+ = skip frames for FPS (can flicker).
+SPI_MUSIC_EVERY_N_FRAMES = 1
 # Covariance averaging: smooth R over this many frames (EMA) before MUSIC; 1 = no averaging, 3–5 = less noisy peaks.
 SPI_COV_AVG_FRAMES = 4
 # Only show bins that are directional: lambda_1/sum(eigvals) >= this (0=off). Stricter = less random noise.
-SPI_DIRECTIVITY_MIN = 0.5
+SPI_DIRECTIVITY_MIN = 0.6
 # Only show bin if its MUSIC peak angle is stable: change from last frame <= this deg (0=off). Suppresses jitter.
-SPI_ANGLE_STABILITY_DEG = 25.0
+SPI_ANGLE_STABILITY_DEG = 18.0
 # Per-mic normalization: scale each mic so L2 norm across bins is 1 (balances gain across mics; use if some mics are weak).
 SPI_PER_MIC_NORMALIZE = True
 # Power curve for blob brightness: 1.0=linear, >1=stronger bins dominate (more differentiation), <1=lift weak bins
@@ -355,13 +378,13 @@ pitch = (
 # Used only for SRC:HW and LOOP; SIM keeps x_coords/y_coords above.
 # ===============================================================
 x_coords_hw = np.array([
-    -0.086020, -0.075520, -0.097420, -0.089620, -0.106120, -0.110920,
-    -0.117620, -0.101520, -0.116120, -0.091420, -0.103020, -0.098220,
-    -0.102320, -0.112120, -0.081020, -0.091820,
+    -0.08602, -0.07552, -0.09742, -0.08962, -0.10612, -0.11092,
+    -0.11762, -0.10152, -0.11612, -0.09142, -0.10302, -0.09822,
+    -0.10232, -0.11212, -0.08102, -0.09182,
 ])
 y_coords_hw = np.array([
-    -0.054280, -0.057080, -0.052980, -0.043580, -0.046980, -0.059880,
-    -0.050880, -0.037280, -0.069480, -0.070980, -0.066480, -0.062080,
-    -0.077380, -0.081880, -0.068280, -0.082480,
+    -0.05428, -0.05708, -0.05298, -0.04358, -0.04698, -0.05988,
+    -0.05088, -0.03728, -0.06948, -0.07098, -0.06648, -0.06208,
+    -0.07738, -0.08188, -0.06828, -0.08248,
 ])
-pitch_hw = 0.002945
+pitch_hw = 0.003026

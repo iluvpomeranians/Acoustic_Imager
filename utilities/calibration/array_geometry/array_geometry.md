@@ -104,3 +104,18 @@ The script also prints these so you can cross-check and tune the pipeline:
 - **MUSIC summary:** Gives you the drop-in arrays (`x_coords`, `y_coords` in payload order), `pitch`, `speed_sound`, payload→mic mapping, plus aperture, wavelength (and λ/2), and pairwise distances for sanity checks and tuning.
 
 Keep this file next to `array_geometry.py` and the generated CSV so you can quickly look up column meanings and how the numbers feed into the pipeline.
+
+---
+
+## 6. Updating config from array_geometry
+
+When you have new measured coordinates (e.g. from FreeCAD), update the app so the heatmap pipeline uses them:
+
+1. **Edit** `MICS_RAW` (and optionally `ARRAY_CENTER_TO_CAMERA_MM`) in [array_geometry.py](array_geometry.py) with the new camera-frame measurements.
+2. **Run** the script to regenerate the CSV and print the MUSIC summary:
+   ```bash
+   python3 utilities/calibration/array_geometry/array_geometry.py
+   ```
+3. **Copy** the printed `x_coords` and `y_coords` (and `pitch`) from the MUSIC summary into [config.py](../../../src/software/acoustic_imager/config.py) as `x_coords_hw`, `y_coords_hw`, and `pitch_hw` (section 4, HW geometry).
+
+The app uses these values for SRC:HW and LOOP (MUSIC/heatmap); keeping config in sync with array_geometry ensures correct phase relationships in the pipeline.

@@ -51,7 +51,12 @@ from acoustic_imager.io.gain_control import GAIN_CONTROL
 
 
 # DSP modules
-from acoustic_imager.dsp.beamforming import directivity_ratio, music_spectrum
+from acoustic_imager.dsp.beamforming import (
+    directivity_ratio,
+    music_spectrum,
+    music_spectrum_2d,
+    music_2d_peak_angles,
+)
 from acoustic_imager.dsp.heatmap import (
     spectra_to_heatmap_absolute,
     build_w_lut_u8,
@@ -214,7 +219,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
     """
     global video_recorder
 
-    left_width, h = param
+    content_width, content_height, content_offset_x, content_right, h = param
     mx, my = x, y
 
     def _bottom_hide_target() -> float:
@@ -371,7 +376,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     return
 
         # 5) Bandpass drag: frequency bar
-        bar_left = left_width
+        bar_left = content_right
         if mx >= bar_left and mx < config.WIDTH:
             y_min = freq_to_y(state.F_MIN_HZ, h, config.F_DISPLAY_MAX)
             y_max = freq_to_y(state.F_MAX_HZ, h, config.F_DISPLAY_MAX)
@@ -508,8 +513,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
         return
 
     if event == cv2.EVENT_LBUTTONUP and not button_state.gallery_open and not state.ui_click_was_on_ui:
-        content_left = config.DB_BAR_WIDTH
-        content_right = left_width
+        content_left = content_offset_x
         content_top = getattr(config, "UI_CONTENT_TOP_MARGIN", 58)
         content_bottom = h - getattr(config, "UI_CONTENT_BOTTOM_MARGIN", 62)
         dx = mx - state.ui_drag_start_x
@@ -690,15 +694,15 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
                     state.ui_last_tap_time = 0.0
                     return
                 # Single tap: crosshair toggle in heatmap (if crosshairs enabled)
-                if button_state.crosshairs_enabled and 0 <= mx < left_width and 0 <= my < h:
-                    dx = mx - int(button_state.crosshair_x)
+                if button_state.crosshairs_enabled and content_offset_x <= mx < content_right and 0 <= my < content_height:
+                    dx = (mx - content_offset_x) - int(button_state.crosshair_x)
                     dy = my - int(button_state.crosshair_y)
                     dist_sq = dx * dx + dy * dy
                     if button_state.crosshair_visible and dist_sq <= CROSSHAIR_DISMISS_RADIUS_PX * CROSSHAIR_DISMISS_RADIUS_PX:
                         button_state.crosshair_visible = False
                     else:
                         button_state.crosshair_visible = True
-                        button_state.crosshair_x = float(mx)
+                        button_state.crosshair_x = float(mx - content_offset_x)
                         button_state.crosshair_y = float(my)
                         # Reset trend/acceleration state for new track
                         button_state.crosshair_level_history = []
@@ -726,12 +730,7 @@ def mouse_callback(event, x: int, y: int, flags, param) -> None:
             if handle_settings_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
                 return
 
-        # Calibration Suite modal touch/drag scroll (log area)
-        if button_state.calibration_suite_modal_open:
-            if handle_calibration_suite_modal_mouse(event, mx, my, config.WIDTH, config.HEIGHT):
-                return
-
-        bar_left = left_width
+        bar_left = content_right
 
         # Dot drag: follow finger along curve (checked first; we don't set DRAG_ACTIVE for dot drag)
         if state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE and mx >= bar_left and mx < config.WIDTH:
@@ -850,6 +849,10 @@ def main() -> None:
     state.OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {state.OUTPUT_DIR}")
 
+    # Radar map tile cache: under main data/ folder (same as heatmap_captures, directional_history)
+    config.RADAR_MAP_CACHE_DIR = repo_root / "data" / "map_tiles"
+    config.RADAR_MAP_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
     # ---- Logging: file + stderr (journalctl captures stderr) ----
     log_file = state.OUTPUT_DIR / "acoustic_imager.log"
     log_fmt = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
@@ -914,7 +917,11 @@ def main() -> None:
 
     # ---- Create static background ----
     background_full = create_background_frame(config.WIDTH, config.HEIGHT)
-    left_width = config.WIDTH - config.FREQ_BAR_WIDTH
+    # Content strip between DB bar and freq bar: heatmap lives here, blobs not under the bars
+    content_offset_x = config.DB_BAR_WIDTH
+    content_width = config.HEATMAP_WIDTH
+    content_height = config.HEATMAP_HEIGHT
+    content_right = content_offset_x + content_width  # x where freq bar starts
 
     # ---- Preallocated buffers (optimization) ----
     base_frame = np.empty((config.HEIGHT, config.WIDTH, 3), dtype=np.uint8)
@@ -930,12 +937,12 @@ def main() -> None:
     # ---- Setup OpenCV window ----
     cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.setWindowProperty(config.WINDOW_NAME, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-    cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(left_width, config.HEIGHT))
+    cv2.setMouseCallback(config.WINDOW_NAME, mouse_callback, param=(content_width, content_height, content_offset_x, content_right, config.HEIGHT))
 
     # ---- Initialize UI ----
     button_state.debug_enabled = False
-    init_buttons(left_width, state.CAMERA_AVAILABLE)
-    init_menu_buttons(left_width, config.HEIGHT)
+    init_buttons(content_right, state.CAMERA_AVAILABLE)
+    init_menu_buttons(content_right, config.HEIGHT)
 
     # ---- Magnetometer (compass) reader ----
     mag_reader = MagnetometerReader(
@@ -992,6 +999,21 @@ def main() -> None:
     last_spi_bins: Optional[list] = None
     last_spi_peak_angles: Optional[list] = None
     cov_avg: dict[int, np.ndarray] = {}  # bin_idx -> averaged covariance (N_MICS, N_MICS) for MUSIC
+    # Reusable buffers for HW/LOOP heatmap (avoid per-frame allocs)
+    _heatmap_max_bins = 32
+    _heatmap_max_n_ang = max(len(config.ANGLES), len(getattr(config, "ANGLES_2D_X", config.ANGLES)))
+    heatmap_spec_buf: Optional[np.ndarray] = None
+    heatmap_angle_x_buf: Optional[np.ndarray] = None
+    heatmap_angle_y_buf: Optional[np.ndarray] = None
+    heatmap_power_buf: Optional[np.ndarray] = None
+    heatmap_band_freqs_buf: Optional[np.ndarray] = None
+    heatmap_heat_buf: Optional[np.ndarray] = None  # (content_height, content_width) float32 for heat_out
+    # Cache for "MUSIC every N frames": reuse angles/spec on skip frames; frozen_bins keeps bin set stable so cache is valid
+    last_music_bins_list: Optional[list] = None
+    last_music_angle_x_cache: Optional[np.ndarray] = None
+    last_music_angle_y_cache: Optional[np.ndarray] = None
+    last_music_spec_cache: Optional[np.ndarray] = None
+    frozen_bins: Optional[list] = None
 
     # FPS tracking
     fps_ema = 0.0
@@ -1082,133 +1104,214 @@ def main() -> None:
                 # ---- Read FFT data from source ----
                 mode = button_state.source_mode
 
-                if mode == "SIM":
-                    latest_frame = sim_source.read_frame()
-                    source_label = "SIM"
-                elif mode == "SIM_2":
-                    latest_frame = sim_source.read_frame_sim2()
-                    source_label = "SIM_2"
-                elif mode == "REF":
-                    # 0 dB reference: flat FFT so all spectrum bars sit at peak (baseline test)
-                    ref_fft = np.ones((config.N_MICS, config.N_BINS), dtype=np.complex64)
-                    latest_frame = LatestFrame(
-                        fft_data=ref_fft, frame_id=0, ok=True,
-                        stats=SourceStats(frames_ok=0, last_err="", sclk_hz_rep=0),
-                    )
-                    source_label = "REF"
-                elif mode == "LOOP":
-                    latest_frame = spi_loopback.get_latest()
-                    source_label = "LOOP"
-                else:  # "HW"
-                    latest_frame = spi_hw.get_latest()
-                    source_label = "HW"
-    
-                source_stats = latest_frame.stats
-                fft_data = latest_frame.fft_data if latest_frame.ok else None
-    
-                # Fallback to last known data if current read failed
-                if fft_data is None:
-                    if source_label in ("HW", "LOOP") and last_spi_fft_data is not None:
-                        fft_data = last_spi_fft_data
+            if mode == "SIM":
+                latest_frame = sim_source.read_frame()
+                source_label = "SIM"
+            elif mode == "SIM_2":
+                latest_frame = sim_source.read_frame_sim2()
+                source_label = "SIM_2"
+            elif mode == "REF":
+                # 0 dB reference: flat FFT so all spectrum bars sit at peak (baseline test)
+                ref_fft = np.ones((config.N_MICS, config.N_BINS), dtype=np.complex64)
+                latest_frame = LatestFrame(
+                    fft_data=ref_fft, frame_id=0, ok=True,
+                    stats=SourceStats(frames_ok=0, last_err="", sclk_hz_rep=0),
+                )
+                source_label = "REF"
+            elif mode == "LOOP":
+                latest_frame = spi_loopback.get_latest()
+                source_label = "LOOP"
+            else:  # "HW"
+                latest_frame = spi_hw.get_latest()
+                source_label = "HW"
+
+            source_stats = latest_frame.stats
+            fft_data = latest_frame.fft_data if latest_frame.ok else None
+
+            # Fallback to last known data if current read failed
+            if fft_data is None:
+                if source_label in ("HW", "LOOP") and last_spi_fft_data is not None:
+                    fft_data = last_spi_fft_data
+                else:
+                    fft_data = np.zeros((config.N_MICS, config.N_BINS), dtype=np.complex64)
+            elif source_label in ("HW", "LOOP"):
+                last_spi_fft_data = fft_data
+
+            prof.mark("read_source")
+
+            # ---- Beamforming + Heatmap generation ----
+            spec_matrix = None
+            band_freqs = np.array([], dtype=np.float64)
+            if source_label == "REF":
+                # 0 dB reference: uniform heatmap (spread across whole view), no MUSIC blobs
+                heatmap_left = np.full((content_height, content_width), 255, dtype=np.uint8)
+            elif source_label in ("SIM", "SIM_2"):
+                if source_label == "SIM_2":
+                    sim_freqs = list(getattr(sim_source, "last_sim2_freqs", []))
+                else:
+                    sim_freqs = list(config.SIM_SOURCE_FREQS)
+                # Filter sources by bandpass
+                selected_indices = [
+                    i for i, f in enumerate(sim_freqs)
+                    if f_min <= f <= f_max
+                ]
+
+                if not selected_indices:
+                    heatmap_left = np.zeros((content_height, content_width), dtype=np.uint8)
+                else:
+                    n_sel = len(selected_indices)
+                    sim_proj_mode = getattr(config, "HEATMAP_PROJECTION_MODE", "linear")
+                    sim_dual_angle = sim_proj_mode == "dual_angle"
+                    if sim_dual_angle:
+                        n_ang_sim = len(config.ANGLES_2D_X)
                     else:
-                        fft_data = np.zeros((config.N_MICS, config.N_BINS), dtype=np.complex64)
-                elif source_label in ("HW", "LOOP"):
-                    last_spi_fft_data = fft_data
-    
-                prof.mark("read_source")
-    
-                # ---- Beamforming + Heatmap generation ----
-                spec_matrix = None
-                band_freqs = np.array([], dtype=np.float64)
-                if source_label == "REF":
-                    # 0 dB reference: uniform heatmap (spread across whole view), no MUSIC blobs
-                    heatmap_left = np.full((config.HEIGHT, left_width), 255, dtype=np.uint8)
-                elif source_label in ("SIM", "SIM_2"):
-                    if source_label == "SIM_2":
-                        sim_freqs = list(getattr(sim_source, "last_sim2_freqs", []))
-                    else:
-                        sim_freqs = list(config.SIM_SOURCE_FREQS)
-                    # Filter sources by bandpass
-                    selected_indices = [
-                        i for i, f in enumerate(sim_freqs)
-                        if f_min <= f <= f_max
-                    ]
-    
-                    if not selected_indices:
-                        heatmap_left = np.zeros((config.HEIGHT, left_width), dtype=np.uint8)
-                    else:
-                        n_sel = len(selected_indices)
-                        spec_matrix = np.zeros((n_sel, len(config.ANGLES)), dtype=np.float32)
-                        band_freqs = np.array([float(sim_freqs[i]) for i in selected_indices], dtype=np.float64)
-                        power = np.zeros(n_sel, dtype=np.float32)
-    
-                        running_max_power = 1e-12
-                        for row_idx, src_idx in enumerate(selected_indices):
-                            f_sig = float(sim_freqs[src_idx])
-                            f_idx = int(np.argmin(np.abs(config.f_axis - f_sig)))
-                            Xf = fft_data[:, f_idx][:, np.newaxis]
-                            R = Xf @ Xf.conj().T
-    
+                        n_ang_sim = len(config.ANGLES)
+                    spec_matrix = np.zeros((n_sel, n_ang_sim), dtype=np.float32)
+                    angle_x_deg_sim = np.empty(n_sel, dtype=np.float64) if sim_dual_angle else None
+                    angle_y_deg_sim = np.empty(n_sel, dtype=np.float64) if sim_dual_angle else None
+                    band_freqs = np.array([float(sim_freqs[i]) for i in selected_indices], dtype=np.float64)
+                    power = np.zeros(n_sel, dtype=np.float32)
+
+                    running_max_power = 1e-12
+                    for row_idx, src_idx in enumerate(selected_indices):
+                        f_sig = float(sim_freqs[src_idx])
+                        f_idx = int(np.argmin(np.abs(config.f_axis - f_sig)))
+                        Xf = fft_data[:, f_idx][:, np.newaxis]
+                        R = Xf @ Xf.conj().T
+
+                        if sim_dual_angle:
+                            spec_2d = music_spectrum_2d(
+                                R, config.ANGLES_2D_X, config.ANGLES_2D_Y, f_sig, n_sel,
+                                config.x_coords, config.y_coords, config.SPEED_SOUND,
+                            )
+                            angle_x_deg_sim[row_idx], angle_y_deg_sim[row_idx] = music_2d_peak_angles(
+                                spec_2d, config.ANGLES_2D_X, config.ANGLES_2D_Y,
+                            )
+                            iy = int(np.argmax(spec_2d) % spec_2d.shape[1])
+                            spec_matrix[row_idx, :] = spec_2d[:, iy]
+                        else:
                             spec_matrix[row_idx, :] = music_spectrum(
                                 R, config.ANGLES, f_sig, n_sel,
                                 config.x_coords, config.y_coords, config.SPEED_SOUND
                             )
-                            p = float(np.sum(np.abs(Xf) ** 2).real)
-                            power[row_idx] = p
-                            running_max_power = max(running_max_power, p)
-    
-                        power_rel = power / (running_max_power + 1e-12)
-                        heatmap_left = spectra_to_heatmap_absolute(
-                            spec_matrix, power_rel, left_width, config.HEIGHT,
-                            config.REL_DB_MIN, config.REL_DB_MAX
-                        )
-    
-                else:  # SPI mode (HW + LOOP): top-K bins by power within bandpass, above noise floor
-                    # Per-mic gain correction and whole-array boost, then optional per-mic normalize
-                    gain = np.asarray(config.SPI_MIC_GAIN, dtype=np.float32).flatten()
-                    if gain.size < config.N_MICS:
-                        gain = np.pad(gain, (0, config.N_MICS - gain.size), constant_values=1.0)
-                    if gain.size > config.N_MICS:
-                        gain = gain[: config.N_MICS]
-                    mic_gain = gain.reshape(config.N_MICS, 1)
-                    array_gain = float(config.SPI_ARRAY_GAIN)
-                    fft_corrected = (fft_data * mic_gain * array_gain).astype(np.complex64)
-                    if config.SPI_PER_MIC_NORMALIZE:
-                        norms = np.sqrt(np.sum(np.abs(fft_corrected) ** 2, axis=1)) + 1e-12
-                        fft_for_heatmap = (fft_corrected / norms[:, np.newaxis]).astype(np.complex64)
-                    else:
-                        fft_for_heatmap = fft_corrected
-                    candidate_bins = np.array([
-                        b for b in range(config.N_BINS)
-                        if f_min <= float(config.f_axis[b]) <= f_max
-                    ], dtype=np.intp)
-                    total_bandpass_power = 0.0
-                    if len(candidate_bins) == 0:
+                        p = float(np.sum(np.abs(Xf) ** 2).real)
+                        power[row_idx] = p
+                        running_max_power = max(running_max_power, p)
+
+                    power_rel = power / (running_max_power + 1e-12)
+                    sim_heatmap_kw = dict(
+                        spec_matrix=spec_matrix,
+                        power_rel=power_rel,
+                        out_width=content_width,
+                        out_height=content_height,
+                        db_min=config.REL_DB_MIN,
+                        db_max=config.REL_DB_MAX,
+                        x_offset_px=getattr(config, "HEATMAP_X_OFFSET_PX", 0),
+                        angle_min_deg=getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0),
+                        angle_max_deg=getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0),
+                        band_freqs_hz=band_freqs,
+                        f_min_hz=f_min,
+                        f_max_hz=f_max,
+                        projection_mode=sim_proj_mode,
+                        circle_radius_px=getattr(config, "HEATMAP_CIRCLE_RADIUS_PX", 0),
+                        assumed_distance_m=getattr(config, "HEATMAP_ASSUMED_DISTANCE_M", 1.0),
+                        camera_hfov_deg=getattr(config, "HEATMAP_CAMERA_HFOV_DEG", 53.0),
+                        camera_vfov_deg=getattr(config, "HEATMAP_CAMERA_VFOV_DEG", 0.0),
+                    )
+                    if sim_dual_angle and angle_x_deg_sim is not None and angle_y_deg_sim is not None:
+                        sim_heatmap_kw["angle_x_deg"] = angle_x_deg_sim
+                        sim_heatmap_kw["angle_y_deg"] = angle_y_deg_sim
+                    heatmap_left = spectra_to_heatmap_absolute(**sim_heatmap_kw)
+
+            else:  # SPI mode (HW + LOOP): top-K bins by power within bandpass, above noise floor
+                # Per-mic gain correction and whole-array boost, then optional per-mic normalize
+                gain = np.asarray(config.SPI_MIC_GAIN, dtype=np.float32).flatten()
+                if gain.size < config.N_MICS:
+                    gain = np.pad(gain, (0, config.N_MICS - gain.size), constant_values=1.0)
+                if gain.size > config.N_MICS:
+                    gain = gain[: config.N_MICS]
+                mic_gain = gain.reshape(config.N_MICS, 1)
+                array_gain = float(config.SPI_ARRAY_GAIN)
+                fft_corrected = (fft_data * mic_gain * array_gain).astype(np.complex64)
+                if config.SPI_PER_MIC_NORMALIZE:
+                    norms = np.sqrt(np.sum(np.abs(fft_corrected) ** 2, axis=1)) + 1e-12
+                    fft_for_heatmap = (fft_corrected / norms[:, np.newaxis]).astype(np.complex64)
+                else:
+                    fft_for_heatmap = fft_corrected
+                candidate_bins = np.array([
+                    b for b in range(config.N_BINS)
+                    if f_min <= float(config.f_axis[b]) <= f_max
+                ], dtype=np.intp)
+                total_bandpass_power = 0.0
+                if len(candidate_bins) == 0:
+                    bins = []
+                else:
+                    power_per_bin = np.sum(np.abs(fft_for_heatmap[:, candidate_bins]) ** 2, axis=0)
+                    total_bandpass_power = float(power_per_bin.sum()) + 1e-12
+                    p_max = float(power_per_bin.max()) + 1e-12
+                    power_db = 10.0 * np.log10((power_per_bin.astype(np.float64) + 1e-12) / p_max)
+                    above_floor = power_db >= (-config.SPI_NOISE_FLOOR_DB)
+                    candidate_bins = candidate_bins[above_floor]
+                    power_per_bin = power_per_bin[above_floor]
+                    K = min(config.SPI_TOP_K_BINS, len(candidate_bins))
+                    if K <= 0:
                         bins = []
                     else:
-                        power_per_bin = np.sum(np.abs(fft_for_heatmap[:, candidate_bins]) ** 2, axis=0)
-                        total_bandpass_power = float(power_per_bin.sum()) + 1e-12
-                        p_max = float(power_per_bin.max()) + 1e-12
-                        power_db = 10.0 * np.log10((power_per_bin.astype(np.float64) + 1e-12) / p_max)
-                        above_floor = power_db >= (-config.SPI_NOISE_FLOOR_DB)
-                        candidate_bins = candidate_bins[above_floor]
-                        power_per_bin = power_per_bin[above_floor]
-                        K = min(config.SPI_TOP_K_BINS, len(candidate_bins))
-                        if K <= 0:
-                            bins = []
-                        else:
-                            top_idx = np.argsort(power_per_bin)[::-1][:K]
-                            bins = candidate_bins[top_idx].tolist()
-    
-                    if not bins:
-                        heatmap_left = np.zeros((config.HEIGHT, left_width), dtype=np.uint8)
+                        top_idx = np.argsort(power_per_bin)[::-1][:K]
+                        bins = candidate_bins[top_idx].tolist()
+
+                if not bins:
+                    frozen_bins = None
+                    heatmap_left = np.zeros((content_height, content_width), dtype=np.uint8)
+                else:
+                    proj_mode = getattr(config, "HEATMAP_PROJECTION_MODE", "linear")
+                    use_dual_angle = proj_mode == "dual_angle"
+                    if use_dual_angle:
+                        n_ang = len(config.ANGLES_2D_X)
                     else:
-                        spec_matrix = np.zeros((len(bins), len(config.ANGLES)), dtype=np.float32)
-                        band_freqs = np.array([float(config.f_axis[b]) for b in bins], dtype=np.float64)
-                        power = np.zeros(len(bins), dtype=np.float32)
-    
-                        n_avg = max(1, int(getattr(config, "SPI_COV_AVG_FRAMES", 1)))
-                        alpha = 1.0 / n_avg  # EMA: effective window ~ n_avg frames
+                        n_ang = len(config.ANGLES)
+                    n = len(bins)
+                    every_n = max(1, int(getattr(config, "SPI_MUSIC_EVERY_N_FRAMES", 1)))
+                    if use_dual_angle and every_n > 1 and (frame_count % every_n) != 0 and frozen_bins is not None and len(frozen_bins) > 0:
+                        bins = frozen_bins
+                        n = len(bins)
+                    if heatmap_spec_buf is None or heatmap_spec_buf.shape[0] < n or heatmap_spec_buf.shape[1] < n_ang:
+                        heatmap_spec_buf = np.zeros((_heatmap_max_bins, _heatmap_max_n_ang), dtype=np.float32)
+                        heatmap_angle_x_buf = np.empty(_heatmap_max_bins, dtype=np.float64)
+                        heatmap_angle_y_buf = np.empty(_heatmap_max_bins, dtype=np.float64)
+                        heatmap_power_buf = np.zeros(_heatmap_max_bins, dtype=np.float32)
+                        heatmap_band_freqs_buf = np.zeros(_heatmap_max_bins, dtype=np.float64)
+                    spec_matrix = heatmap_spec_buf[:n, :n_ang]
+                    spec_matrix.fill(0)
+                    angle_x_deg = heatmap_angle_x_buf[:n] if use_dual_angle else None
+                    angle_y_deg = heatmap_angle_y_buf[:n] if use_dual_angle else None
+                    for j, b in enumerate(bins):
+                        heatmap_band_freqs_buf[j] = float(config.f_axis[b])
+                    band_freqs = heatmap_band_freqs_buf[:n]
+                    power = heatmap_power_buf[:n]
+                    power.fill(0)
+
+                    skip_music = (
+                        use_dual_angle
+                        and every_n > 1
+                        and (frame_count % every_n) != 0
+                        and last_music_bins_list is not None
+                        and len(bins) == len(last_music_bins_list)
+                        and all(bins[j] == last_music_bins_list[j] for j in range(len(bins)))
+                        and last_music_spec_cache is not None
+                        and last_music_angle_x_cache is not None
+                    )
+
+                    n_avg = max(1, int(getattr(config, "SPI_COV_AVG_FRAMES", 1)))
+                    alpha = 1.0 / n_avg
+                    if skip_music:
+                        heatmap_angle_x_buf[:n] = last_music_angle_x_cache[:n]
+                        heatmap_angle_y_buf[:n] = last_music_angle_y_cache[:n]
+                        heatmap_spec_buf[:n, :n_ang] = last_music_spec_cache[:n, :n_ang]
+                        for i, f_idx in enumerate(bins):
+                            Xf = fft_for_heatmap[:, f_idx][:, np.newaxis]
+                            power[i] = float(np.sum(np.abs(Xf) ** 2).real)
+                    else:
                         for i, f_idx in enumerate(bins):
                             f_sig = float(config.f_axis[f_idx])
                             Xf = fft_for_heatmap[:, f_idx][:, np.newaxis]
@@ -1221,68 +1324,198 @@ def main() -> None:
                                 R_use = cov_avg[f_idx]
                             else:
                                 R_use = R
-    
-                            spec_matrix[i, :] = music_spectrum(
-                                R_use, config.ANGLES, f_sig, config.SPI_MUSIC_N_SOURCES,
-                                config.x_coords_hw, config.y_coords_hw, config.SPEED_SOUND
-                            )
+
+                            if use_dual_angle:
+                                spec_2d = music_spectrum_2d(
+                                    R_use, config.ANGLES_2D_X, config.ANGLES_2D_Y, f_sig,
+                                    config.SPI_MUSIC_N_SOURCES, config.x_coords_hw, config.y_coords_hw,
+                                    config.SPEED_SOUND,
+                                )
+                                angle_x_deg[i], angle_y_deg[i] = music_2d_peak_angles(
+                                    spec_2d, config.ANGLES_2D_X, config.ANGLES_2D_Y,
+                                )
+                                iy = int(np.argmax(spec_2d) % spec_2d.shape[1])
+                                spec_matrix[i, :] = spec_2d[:, iy]
+                            else:
+                                spec_matrix[i, :] = music_spectrum(
+                                    R_use, config.ANGLES, f_sig, config.SPI_MUSIC_N_SOURCES,
+                                    config.x_coords_hw, config.y_coords_hw, config.SPEED_SOUND
+                                )
                             power[i] = float(np.sum(np.abs(Xf) ** 2).real)
-                            # Suppress diffuse noise: only show bins that are directional (coherent)
                             if config.SPI_DIRECTIVITY_MIN > 0:
                                 dr = directivity_ratio(R_use)
                                 if dr < config.SPI_DIRECTIVITY_MIN:
                                     power[i] = 0.0
-    
-                        # Peak-angle stability: only show bins whose MUSIC peak angle didn't jump from last frame
-                        if config.SPI_ANGLE_STABILITY_DEG > 0 and len(bins) > 0:
-                            peak_idx_per_bin = np.argmax(spec_matrix, axis=1)
-                            current_angles = [float(config.ANGLES[int(peak_idx_per_bin[j])]) for j in range(len(bins))]
-                            if last_spi_bins is not None and last_spi_peak_angles is not None:
-                                last_bin_to_angle = dict(zip(last_spi_bins, last_spi_peak_angles))
-                                for j in range(len(bins)):
-                                    prev_angle = last_bin_to_angle.get(bins[j])
-                                    if prev_angle is not None and abs(current_angles[j] - prev_angle) > config.SPI_ANGLE_STABILITY_DEG:
-                                        power[j] = 0.0
-                            last_spi_bins = list(bins)
-                            last_spi_peak_angles = list(current_angles)
-                        elif len(bins) > 0:
-                            peak_idx_per_bin = np.argmax(spec_matrix, axis=1)
-                            last_spi_peak_angles = [float(config.ANGLES[int(peak_idx_per_bin[j])]) for j in range(len(bins))]
-                            last_spi_bins = list(bins)
+                        if use_dual_angle:
+                            if last_music_angle_x_cache is None or last_music_spec_cache is None:
+                                last_music_angle_x_cache = np.empty(_heatmap_max_bins, dtype=np.float64)
+                                last_music_angle_y_cache = np.empty(_heatmap_max_bins, dtype=np.float64)
+                                last_music_spec_cache = np.zeros((_heatmap_max_bins, _heatmap_max_n_ang), dtype=np.float32)
+                            last_music_angle_x_cache[:n] = heatmap_angle_x_buf[:n]
+                            last_music_angle_y_cache[:n] = heatmap_angle_y_buf[:n]
+                            last_music_spec_cache[:n, :n_ang] = heatmap_spec_buf[:n, :n_ang]
+                            last_music_bins_list = list(bins)
+                            frozen_bins = list(bins)
+
+                    prof.mark("heat_music")
+                    # Peak-angle stability: use angle_x_deg when dual_angle, else 1D peak from spec_matrix
+                    if config.SPI_ANGLE_STABILITY_DEG > 0 and len(bins) > 0:
+                        if use_dual_angle and angle_x_deg is not None:
+                            current_angles = [float(angle_x_deg[j]) for j in range(len(bins))]
                         else:
-                            last_spi_bins = None
-                            last_spi_peak_angles = None
-    
-                        # Per-frame normalization; gamma > 1 makes strongest bins stand out more
-                        power_rel = power / (power.max() + 1e-12)
-                        power_rel = np.power(power_rel, config.SPI_HEATMAP_POWER_GAMMA)
-                        heatmap_left = spectra_to_heatmap_absolute(
-                            spec_matrix, power_rel, left_width, config.HEIGHT,
-                            config.REL_DB_MIN, config.REL_DB_MAX
-                        )
-                    # Scale heatmap by bandpass level so it brightens with sound, dims when quiet (floor keeps blobs visible)
-                    level = max(
-                        config.HEATMAP_LEVEL_FLOOR,
-                        min(1.0, total_bandpass_power / config.HEATMAP_LEVEL_REFERENCE),
+                            peak_idx_per_bin = np.argmax(spec_matrix, axis=1)
+                            ang_arr = config.ANGLES_2D_X if use_dual_angle else config.ANGLES
+                            current_angles = [float(ang_arr[int(peak_idx_per_bin[j])]) for j in range(len(bins))]
+                        if last_spi_bins is not None and last_spi_peak_angles is not None:
+                            last_bin_to_angle = dict(zip(last_spi_bins, last_spi_peak_angles))
+                            for j in range(len(bins)):
+                                prev_angle = last_bin_to_angle.get(bins[j])
+                                if prev_angle is not None and abs(current_angles[j] - prev_angle) > config.SPI_ANGLE_STABILITY_DEG:
+                                    power[j] = 0.0
+                        last_spi_bins = list(bins)
+                        last_spi_peak_angles = list(current_angles)
+                    elif len(bins) > 0:
+                        if use_dual_angle and angle_x_deg is not None:
+                            last_spi_peak_angles = [float(angle_x_deg[j]) for j in range(len(bins))]
+                        else:
+                            peak_idx_per_bin = np.argmax(spec_matrix, axis=1)
+                            ang_arr = config.ANGLES_2D_X if use_dual_angle else config.ANGLES
+                            last_spi_peak_angles = [float(ang_arr[int(peak_idx_per_bin[j])]) for j in range(len(bins))]
+                        last_spi_bins = list(bins)
+                    else:
+                        last_spi_bins = None
+                        last_spi_peak_angles = None
+
+                    prof.mark("heat_stability")
+                    # Per-frame normalization; gamma > 1 makes strongest bins stand out more
+                    power_rel = power / (power.max() + 1e-12)
+                    power_rel = np.power(power_rel, config.SPI_HEATMAP_POWER_GAMMA)
+                    heatmap_kw = dict(
+                        spec_matrix=spec_matrix,
+                        power_rel=power_rel,
+                        out_width=content_width,
+                        out_height=content_height,
+                        db_min=config.REL_DB_MIN,
+                        db_max=config.REL_DB_MAX,
+                        x_offset_px=getattr(config, "HEATMAP_X_OFFSET_PX", 0),
+                        angle_min_deg=getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0),
+                        angle_max_deg=getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0),
+                        band_freqs_hz=band_freqs,
+                        f_min_hz=f_min,
+                        f_max_hz=f_max,
+                        projection_mode=getattr(config, "HEATMAP_PROJECTION_MODE", "linear"),
+                        circle_radius_px=getattr(config, "HEATMAP_CIRCLE_RADIUS_PX", 0),
+                        assumed_distance_m=getattr(config, "HEATMAP_ASSUMED_DISTANCE_M", 1.0),
+                        camera_hfov_deg=getattr(config, "HEATMAP_CAMERA_HFOV_DEG", 53.0),
+                        camera_vfov_deg=getattr(config, "HEATMAP_CAMERA_VFOV_DEG", 0.0),
                     )
-                    heatmap_left = (heatmap_left.astype(np.float32) * level).astype(np.uint8)
-                    # Per-frame contrast stretch so bright blobs use full range (better differentiation)
-                    pct = config.HEATMAP_CONTRAST_STRETCH_PERCENTILE
-                    if pct > 0 and heatmap_left.size > 0:
-                        p_val = float(np.percentile(heatmap_left, pct))
-                        if p_val > 1e-6:
-                            heatmap_left = (heatmap_left.astype(np.float32) * (255.0 / p_val)).clip(0, 255).astype(np.uint8)
-                    # Temporal smoothing for SPI: blend with previous frame
-                    if source_label in ("HW", "LOOP") and heatmap_prev is not None and heatmap_prev.shape == heatmap_left.shape:
-                        heatmap_left = (
-                            config.HEATMAP_SMOOTH_ALPHA * heatmap_prev.astype(np.float32)
-                            + (1.0 - config.HEATMAP_SMOOTH_ALPHA) * heatmap_left.astype(np.float32)
-                        ).astype(np.uint8)
-    
-                prof.mark("beamform+heatmap")
-    
-                # ---- Append one acoustic detection sample for radar history ----
-                if spec_matrix is not None and spec_matrix.size > 0:
+                    if use_dual_angle and angle_x_deg is not None and angle_y_deg is not None:
+                        heatmap_kw["angle_x_deg"] = angle_x_deg
+                        heatmap_kw["angle_y_deg"] = angle_y_deg
+                    if heatmap_heat_buf is None or heatmap_heat_buf.shape != (content_height, content_width):
+                        heatmap_heat_buf = np.zeros((content_height, content_width), dtype=np.float32)
+                    heatmap_kw["heat_out"] = heatmap_heat_buf
+                    heatmap_left = spectra_to_heatmap_absolute(**heatmap_kw)
+                    prof.mark("heat_draw")
+                # Scale heatmap by bandpass level so it brightens with sound, dims when quiet (floor keeps blobs visible)
+                level = max(
+                    config.HEATMAP_LEVEL_FLOOR,
+                    min(1.0, total_bandpass_power / config.HEATMAP_LEVEL_REFERENCE),
+                )
+                heatmap_left = (heatmap_left.astype(np.float32) * level).astype(np.uint8)
+                # Per-frame contrast stretch so bright blobs use full range (better differentiation)
+                pct = config.HEATMAP_CONTRAST_STRETCH_PERCENTILE
+                if pct > 0 and heatmap_left.size > 0:
+                    p_val = float(np.percentile(heatmap_left, pct))
+                    if p_val > 1e-6:
+                        heatmap_left = (heatmap_left.astype(np.float32) * (255.0 / p_val)).clip(0, 255).astype(np.uint8)
+                prof.mark("heat_scale")
+                # Temporal smoothing for SPI: blend with previous frame
+                if source_label in ("HW", "LOOP") and heatmap_prev is not None and heatmap_prev.shape == heatmap_left.shape:
+                    heatmap_left = (
+                        config.HEATMAP_SMOOTH_ALPHA * heatmap_prev.astype(np.float32)
+                        + (1.0 - config.HEATMAP_SMOOTH_ALPHA) * heatmap_left.astype(np.float32)
+                    ).astype(np.uint8)
+
+            prof.mark("beamform+heatmap")
+
+            # ---- Append one acoustic detection sample for radar history ----
+            if spec_matrix is not None and spec_matrix.size > 0:
+                try:
+                    t_now = time.time()
+                    _n_rows, n_ang = spec_matrix.shape
+                    detections: list[tuple[float, float]] = []  # (rel_angle_deg, db_value)
+                    row_max = np.max(spec_matrix, axis=1).astype(np.float64)
+                    row_ref = float(np.max(row_max)) if row_max.size > 0 else 0.0
+                    if row_ref <= 1e-12:
+                        row_ref = 1e-12
+
+                    if str(source_label) == "SIM_2":
+                        min_rel = float(getattr(config, "SIM2_RADAR_MIN_ROW_REL", 0.30))
+                        sep_min = float(getattr(config, "SIM2_RADAR_MIN_SEPARATION_DEG", 12.0))
+                        order = np.argsort(-row_max)  # descending by row strength
+                        for ri in order.tolist():
+                            rel_strength = float(row_max[ri]) / row_ref
+                            if rel_strength < min_rel:
+                                continue
+                            ci = int(np.argmax(spec_matrix[ri, :]))
+                            if len(config.ANGLES) == n_ang:
+                                rel_angle = float(config.ANGLES[ci])
+                            else:
+                                rel_angle = float(-90.0 + (180.0 * ci / max(1, n_ang - 1)))
+                            # Skip near-duplicate detections in same frame.
+                            if any(abs(rel_angle - det[0]) < sep_min for det in detections):
+                                continue
+                            db_row = float(config.REL_DB_MIN + rel_strength * (config.REL_DB_MAX - config.REL_DB_MIN))
+                            detections.append((rel_angle, db_row))
+                    else:
+                        _ri, _ci = np.unravel_index(int(np.argmax(spec_matrix)), spec_matrix.shape)
+                        if len(config.ANGLES) == n_ang:
+                            rel_angle = float(config.ANGLES[_ci])
+                        else:
+                            rel_angle = float(-90.0 + (180.0 * _ci / max(1, n_ang - 1)))
+                        peak_u8 = int(np.max(heatmap_left))
+                        peak_db = float(
+                            config.REL_DB_MIN + (peak_u8 / 255.0) * (config.REL_DB_MAX - config.REL_DB_MIN)
+                        )
+                        detections.append((rel_angle, peak_db))
+
+                    for rel_angle, peak_db in detections:
+                        world_bearing = (float(HUD.compass_heading_deg) + float(rel_angle)) % 360.0
+                        if bool(getattr(button_state, "record_compass_history", False)):
+                            directional_store.add_event(
+                                {
+                                    "timestamp": t_now,
+                                    "source_mode": str(button_state.source_mode),
+                                    "bearing_world_deg": float(world_bearing),
+                                    "bearing_rel_deg": float(rel_angle),
+                                    "db_value": float(peak_db),
+                                    "heading_deg": float(HUD.compass_heading_deg),
+                                    "position_source": str(HUD.position.source),
+                                    "lat": HUD.position.lat,
+                                    "lon": HUD.position.lon,
+                                    "accuracy_m": HUD.position.accuracy_m,
+                                }
+                            )
+                            HUD.directional_log_error = ""
+                            HUD.directional_log_last_write_s = t_now
+                            HUD.directional_log_date = str(getattr(directional_store, "_current_date", ""))
+                            _cur_file = getattr(directional_store, "_current_file", None)
+                            HUD.directional_log_file = str(_cur_file) if _cur_file else ""
+                        if peak_db >= float(getattr(config, "RADAR_MIN_DB", -45.0)):
+                            update_detection_history(
+                                rel_angle_deg=rel_angle,
+                                db_value=peak_db,
+                                heading_deg=HUD.compass_heading_deg,
+                                now_s=t_now,
+                            )
+                except Exception as exc:
+                    HUD.directional_log_error = str(exc)
+
+            # ---- Background (camera or static) ----
+            if button_state.camera_enabled and state.CAMERA_AVAILABLE:
+                cam_frame = camera_mgr.get_latest_frame()
+                if cam_frame is not None and getattr(cam_frame, "size", 0) > 0:
                     try:
                         t_now = time.time()
                         _n_rows, n_ang = spec_matrix.shape
@@ -1378,24 +1611,278 @@ def main() -> None:
                         base_frame[:] = background_full
                 else:
                     base_frame[:] = background_full
-    
-                prof.mark("background")
-    
-                # ---- Blend heatmap onto background ----
-                output_frame = blend_heatmap_left(base_frame, heatmap_left, left_width, w_lut_u8, button_state.colormap_mode)
-                prof.mark("blend")
-                if source_label in ("HW", "LOOP"):
-                    heatmap_prev = heatmap_left.copy()
+            else:
+                base_frame[:] = background_full
+
+            prof.mark("background")
+
+            # ---- Blend heatmap onto background ----
+            output_frame = blend_heatmap_left(base_frame, heatmap_left, content_width, content_height, content_offset_x, w_lut_u8, button_state.colormap_mode)
+            prof.mark("blend")
+            if source_label in ("HW", "LOOP"):
+                heatmap_prev = heatmap_left.copy()
+            else:
+                heatmap_prev = None
+
+            # ---- Process pending spectrum cursor (tap or dot drag): snap to closest point on blue curve ----
+            if state.SPECTRUM_CURSOR_PENDING_TAP_Y is not None and fft_data is not None:
+                use_db = button_state.spectrum_analyzer_mode in ("dB", "dBA")
+                cursor_x_for_snap = (
+                    state.SPECTRUM_CURSOR_PENDING_TAP_X
+                    if state.SPECTRUM_CURSOR_PENDING_TAP_X is not None
+                    else (state.SPECTRUM_CURSOR_X or (config.FREQ_BAR_WIDTH // 2))
+                )
+                curve_x, dot_freq = spectrum_closest_curve_point(
+                    cursor_x_for_snap,
+                    state.SPECTRUM_CURSOR_PENDING_TAP_Y,
+                    config.HEIGHT,
+                    config.F_DISPLAY_MAX,
+                    fft_data,
+                    config.f_axis,
+                    config.FREQ_BAR_WIDTH,
+                    use_db=use_db,
+                    mode=button_state.spectrum_analyzer_mode,
+                )
+                state.SPECTRUM_CURSOR_X = curve_x
+                state.SPECTRUM_CURSOR_DOT_FREQ = dot_freq
+                state.SPECTRUM_CURSOR_PENDING_TAP_X = None
+                state.SPECTRUM_CURSOR_PENDING_TAP_Y = None
+
+            # ---- Draw spectrum analyzer (dB scale + curve) and dB colorbar ----
+            spectrum_cursor_dot_bar_pos = []
+            draw_spectrum_analyzer(
+                output_frame, fft_data, config.f_axis, f_min, f_max,
+                config.FREQ_BAR_WIDTH, config.F_DISPLAY_MAX,
+                mode=button_state.spectrum_analyzer_mode,
+                spectrum_cursor_x=state.SPECTRUM_CURSOR_X,
+                spectrum_cursor_dot_active=state.SPECTRUM_CURSOR_DOT_ACTIVE,
+                spectrum_cursor_dot_freq=state.SPECTRUM_CURSOR_DOT_FREQ,
+                spectrum_cursor_dot_dragging=state.SPECTRUM_CURSOR_DOT_DRAG_ACTIVE,
+                spectrum_cursor_dot_bar_pos=spectrum_cursor_dot_bar_pos,
+            )
+            if len(spectrum_cursor_dot_bar_pos) == 2:
+                state.SPECTRUM_CURSOR_DOT_BAR_X = spectrum_cursor_dot_bar_pos[0]
+                state.SPECTRUM_CURSOR_DOT_BAR_Y = spectrum_cursor_dot_bar_pos[1]
+            else:
+                state.SPECTRUM_CURSOR_DOT_BAR_X = None
+                state.SPECTRUM_CURSOR_DOT_BAR_Y = None
+            draw_db_colorbar(output_frame, config.REL_DB_MIN, config.REL_DB_MAX, config.DB_BAR_WIDTH, colormap=button_state.colormap_mode)
+            prof.mark("bars")
+
+            # ---- Crosshairs on heatmap (5mm cross, local freq at this blob, click to show/dismiss, auto-tracking) ----
+            if button_state.crosshairs_enabled and button_state.crosshair_visible:
+                # Auto-tracking: stick to local max in heatmap
+                cx = int(button_state.crosshair_x)
+                cy = int(button_state.crosshair_y)
+                nx, ny = find_local_max(heatmap_left, cx, cy, CROSSHAIR_TRACK_RADIUS)
+                # If blob left the screen (edge) or faded (very low intensity), hide crosshair until next click
+                edge_margin = 3
+                blob_gone = (
+                    nx < edge_margin or nx >= content_width - edge_margin
+                    or ny < edge_margin or ny >= content_height - edge_margin
+                    or int(heatmap_left[ny, nx]) < 12
+                )
+                if blob_gone:
+                    button_state.crosshair_visible = False
                 else:
-                    heatmap_prev = None
-    
-                # ---- Process pending spectrum cursor (tap or dot drag): snap to closest point on blue curve ----
-                if state.SPECTRUM_CURSOR_PENDING_TAP_Y is not None and fft_data is not None:
-                    use_db = button_state.spectrum_analyzer_mode in ("dB", "dBA")
-                    cursor_x_for_snap = (
-                        state.SPECTRUM_CURSOR_PENDING_TAP_X
-                        if state.SPECTRUM_CURSOR_PENDING_TAP_X is not None
-                        else (state.SPECTRUM_CURSOR_X or (config.FREQ_BAR_WIDTH // 2))
+                    button_state.crosshair_x = float(nx)
+                    button_state.crosshair_y = float(ny)
+                    # Current dB at tracked pixel for trend
+                    val_at = int(heatmap_left[ny, nx])
+                    db_at = config.REL_DB_MIN + (val_at / 255.0) * (config.REL_DB_MAX - config.REL_DB_MIN)
+                    now_t = time.time()
+                    # Append to level history (keep 60 s)
+                    button_state.crosshair_level_history.append((now_t, db_at))
+                    max_history_t = 60.0
+                    button_state.crosshair_level_history = [
+                        (t, d) for t, d in button_state.crosshair_level_history if t >= now_t - max_history_t
+                    ]
+                    # 3 s trend: baseline = mean of [boundary-3, boundary], current = mean of last 3 s
+                    trend_db = None
+                    if button_state.crosshair_next_boundary_time <= 0:
+                        button_state.crosshair_next_boundary_time = now_t + 3.0
+                    elif now_t >= button_state.crosshair_next_boundary_time:
+                        boundary = button_state.crosshair_next_boundary_time
+                        prev_3 = [(t, d) for t, d in button_state.crosshair_level_history if boundary - 3 <= t < boundary]
+                        if prev_3:
+                            baseline = sum(d for _, d in prev_3) / len(prev_3)
+                            if button_state.crosshair_prev_baseline_db is not None:
+                                trend_db = baseline - button_state.crosshair_prev_baseline_db
+                                button_state.crosshair_trend_history.append(trend_db)
+                                if len(button_state.crosshair_trend_history) > 4:
+                                    button_state.crosshair_trend_history = button_state.crosshair_trend_history[-4:]
+                            button_state.crosshair_prev_baseline_db = baseline
+                        button_state.crosshair_next_boundary_time = boundary + 3.0
+                    # Live trend: current 3 s mean vs previous 3 s mean
+                    if trend_db is None and button_state.crosshair_level_history:
+                        recent = [(t, d) for t, d in button_state.crosshair_level_history if t >= now_t - 3]
+                        if recent and button_state.crosshair_prev_baseline_db is not None:
+                            cur_mean = sum(d for _, d in recent) / len(recent)
+                            trend_db = cur_mean - button_state.crosshair_prev_baseline_db
+                    # 12 s acceleration: slope of trend over last 4 samples (4 × 3 s)
+                    accel_db = None
+                    if len(button_state.crosshair_trend_history) >= 2:
+                        th = button_state.crosshair_trend_history
+                        accel_db = (th[-1] - th[0]) / max(1, len(th) - 1)  # dB per 3 s period
+                    # Frequency dominant at this location; angle for protractor; SIM: distance from closest source
+                    distance_to_source_m = None
+                    angle_deg = None
+                    if spec_matrix is not None and band_freqs.size > 0:
+                        n_ang = spec_matrix.shape[1]
+                        proj_mode = getattr(config, "HEATMAP_PROJECTION_MODE", "linear")
+                        if proj_mode == "camera_circle":
+                            center_x = (content_width - 1) / 2.0
+                            center_y = (content_height - 1) / 2.0
+                            # Reverse rotation: display angle = DOA + 90°, so DOA = display - 90°
+                            angle_rad = np.arctan2(center_y - ny, nx - center_x)
+                            angle_deg = float(np.degrees(angle_rad - np.pi / 2.0))
+                            angle_idx = int(np.clip(round((angle_deg + 90.0) / 180.0 * (n_ang - 1)), 0, n_ang - 1))
+                        elif proj_mode == "camera_plane":
+                            cx = (content_width - 1) / 2.0
+                            hfov_deg = getattr(config, "HEATMAP_CAMERA_HFOV_DEG", 53.0)
+                            hfov_rad = np.deg2rad(max(1e-6, float(hfov_deg)))
+                            fx = (content_width / 2.0) / np.tan(hfov_rad / 2.0)
+                            sin_theta = np.clip((nx - cx) / max(1e-12, fx), -1.0, 1.0)
+                            cos_theta = np.sqrt(1.0 - sin_theta * sin_theta)
+                            angle_rad = np.arctan2(sin_theta, cos_theta)
+                            angle_deg = float(np.degrees(angle_rad))
+                            angle_idx = int(np.clip(round((angle_deg + 90.0) / 180.0 * (n_ang - 1)), 0, n_ang - 1))
+                            # y = frequency: t_y = 1 - ny/(h-1), freq = f_min + t_y*(f_max - f_min)
+                            t_y = 1.0 - ny / max(1, content_height - 1)
+                            t_y = np.clip(t_y, 0.0, 1.0)
+                            f_peak_hz = float(f_min + t_y * (f_max - f_min))
+                            row = int(np.clip(np.argmin(np.abs(band_freqs - f_peak_hz)), 0, spec_matrix.shape[0] - 1))
+                        elif proj_mode == "dual_angle":
+                            x_off = getattr(config, "HEATMAP_X_OFFSET_PX", 0)
+                            ang_min = getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0)
+                            ang_max = getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0)
+                            span = max(1e-6, ang_max - ang_min)
+                            t_x = np.clip((nx - x_off) / max(1, content_width - 1), 0.0, 1.0)
+                            t_y = np.clip(ny / max(1, content_height - 1), 0.0, 1.0)  # matches flipped y: top=angle_min, bottom=angle_max
+                            angle_x_deg = ang_min + t_x * span
+                            angle_y_deg = ang_min + t_y * span
+                            angle_deg = float(angle_x_deg)  # primary for protractor / tooltip
+                            angle_idx = int(np.clip(round(t_x * (n_ang - 1)), 0, n_ang - 1))
+                            row = int(np.argmax(spec_matrix[:, angle_idx]))
+                            f_peak_hz = float(band_freqs[row])
+                        else:
+                            x_off = getattr(config, "HEATMAP_X_OFFSET_PX", 0)
+                            ang_min = getattr(config, "HEATMAP_ANGLE_MIN_DEG", -90.0)
+                            ang_max = getattr(config, "HEATMAP_ANGLE_MAX_DEG", 90.0)
+                            t = (nx - x_off) / max(1, content_width - 1)
+                            t = np.clip(t, 0.0, 1.0)
+                            angle_deg = ang_min + t * (ang_max - ang_min)
+                            angle_idx = int(np.clip(round((angle_deg + 90.0) / 180.0 * (n_ang - 1)), 0, n_ang - 1))
+                        if proj_mode != "camera_plane":
+                            row = int(np.argmax(spec_matrix[:, angle_idx]))
+                            f_peak_hz = float(band_freqs[row])
+                        if source_label == "SIM":
+                            sim_dists = getattr(config, "SIM_SOURCE_DISTANCES_M", None)
+                            if sim_dists and len(sim_dists) == len(config.SIM_SOURCE_ANGLES):
+                                closest = int(np.argmin(np.abs(np.array(config.SIM_SOURCE_ANGLES) - angle_deg)))
+                                distance_to_source_m = float(sim_dists[closest])
+                    else:
+                        f_peak_hz = (f_min + f_max) / 2.0
+                    draw_crosshairs(
+                        output_frame, nx, ny, content_width, content_height,
+                        heatmap_left, config.REL_DB_MIN, config.REL_DB_MAX, f_peak_hz,
+                        trend_db=trend_db, accel_db=accel_db,
+                        distance_to_source_m=distance_to_source_m,
+                        angle_deg=angle_deg,
+                        content_offset_x=content_offset_x,
+                    )
+
+            # ---- Draw debug info ----
+            if button_state.debug_enabled:
+                # Collect debug text lines (abbreviated to save space)
+                debug_lines = [
+                    f"Frame: {frame_count}  t={elapsed:.2f}s",
+                    f"Source: {source_label}",
+                ]
+
+                if source_label in ("HW", "LOOP"):
+                    mhz = (source_stats.sclk_hz_rep / 1e6) if source_stats.sclk_hz_rep else 0
+                    # One frame = full 16-mic payload (header + payload + trailer)
+                    bytes_per_s = config.FRAME_BYTES * fps_ema
+                    mbps_bytes = bytes_per_s / 1e6
+                    mbps_bits = (bytes_per_s * 8) / 1e6
+
+                    debug_lines.extend([
+                        f"SPI {mhz:.0f}MHz  FPS: {fps_ema:5.1f}",
+                        f"ok:{source_stats.frames_ok} badParse:{source_stats.bad_parse} badCRC:{source_stats.bad_crc}",
+                        f"Throughput: {mbps_bytes:.2f}MB/s ({mbps_bits:.1f}Mb/s)",
+                    ])
+                    if source_stats.last_err:
+                        debug_lines.append(f"Err: {source_stats.last_err[:40]}")
+
+                # Calculate box dimensions
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.45
+                font_thickness = 1
+                line_height = 18
+                padding = 12
+
+                # Calculate max available width (don't extend beyond menu button)
+                # Menu is at: content_right - 100 - 15
+                max_available_width = content_width - 135
+
+                # Measure max text width
+                max_text_width = 0
+                for line in debug_lines:
+                    (text_w, text_h), _ = cv2.getTextSize(line, font, font_scale, font_thickness)
+                    max_text_width = max(max_text_width, text_w)
+
+                # Constrain to max available width
+                box_w = min(max_text_width + 2 * padding, max_available_width)
+                box_h = len(debug_lines) * line_height + 2 * padding
+
+                # Position above bottom HUD pills with clear gap (no overlap)
+                box_x = config.DB_BAR_WIDTH + 10
+                debug_above_bottom_gap = 18  # space between debug box bottom and top of bottom HUD pills
+                box_y = (
+                    config.HEIGHT
+                    - box_h
+                    - BOTTOM_HUD_HEIGHT
+                    - debug_above_bottom_gap
+                    + int(state.ui_bottom_hud_offset)
+                )
+                # If bottom HUD is in hide mode, add proportional extra shift so
+                # the full debug panel exits the frame at full hide progress.
+                if state.ui_bottom_hud_offset_target > 0:
+                    base_hide = float(getattr(config, "UI_BOTTOM_HUD_HIDE_OFFSET", 60))
+                    needed_hide = float(box_h + BOTTOM_HUD_HEIGHT + debug_above_bottom_gap)
+                    extra_hide = max(0.0, needed_hide - base_hide)
+                    progress = float(state.ui_bottom_hud_offset) / max(1e-6, float(state.ui_bottom_hud_offset_target))
+                    progress = float(np.clip(progress, 0.0, 1.0))
+                    box_y += int(round(extra_hide * progress))
+                # region agent log
+                if (frame_count % 20) == 0:
+                    _agent_debug_log(
+                        "run1",
+                        "H1",
+                        "main.py:debug_box",
+                        "debug_box_position_sample",
+                        {
+                            "frame": int(frame_count),
+                            "debug_enabled": bool(button_state.debug_enabled),
+                            "box_y": int(box_y),
+                            "box_h": int(box_h),
+                            "box_bottom": int(box_y + box_h),
+                            "screen_h": int(config.HEIGHT),
+                            "bottom_offset": float(state.ui_bottom_hud_offset),
+                            "bottom_target": float(state.ui_bottom_hud_offset_target),
+                            "hide_offset_cfg": float(config.UI_BOTTOM_HUD_HIDE_OFFSET),
+                            "hide_progress": float(
+                                np.clip(
+                                    float(state.ui_bottom_hud_offset)
+                                    / max(1e-6, float(state.ui_bottom_hud_offset_target))
+                                    if state.ui_bottom_hud_offset_target > 0
+                                    else 0.0,
+                                    0.0,
+                                    1.0,
+                                )
+                            ),
+                        },
                     )
                     curve_x, dot_freq = spectrum_closest_curve_point(
                         cursor_x_for_snap,
@@ -1733,6 +2220,10 @@ def main() -> None:
                 print(
                     "ms avg | "
                     f"read={prof.ms('read_source'):.2f} "
+                    f"heat_music={prof.ms('heat_music'):.2f} "
+                    f"heat_stability={prof.ms('heat_stability'):.2f} "
+                    f"heat_draw={prof.ms('heat_draw'):.2f} "
+                    f"heat_scale={prof.ms('heat_scale'):.2f} "
                     f"heat={prof.ms('beamform+heatmap'):.2f} "
                     f"bg={prof.ms('background'):.2f} "
                     f"blend={prof.ms('blend'):.2f} "
