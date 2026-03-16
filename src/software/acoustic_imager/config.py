@@ -189,6 +189,10 @@ HEATMAP_LEVEL_FLOOR = 0.18
 HEATMAP_CONTRAST_STRETCH_PERCENTILE = 98.0
 # Subsample heatmap for percentile (1=full res, 4=every 4th pixel each axis); stretch still applied to full image.
 HEATMAP_STRETCH_SUBSAMPLE = 4
+# Frame-level reuse: when blob positions/amplitudes change less than threshold, reuse last heatmap (saves heat_draw)
+HEATMAP_REUSE_WHEN_STABLE = True
+HEATMAP_REUSE_POSITION_EPS_PX = 1.0   # max allowed movement (px) to consider stable
+HEATMAP_REUSE_AMP_EPS = 0.04          # max allowed amplitude change per source to consider stable
 HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
 # Heatmap dimensions (default: full content strip between DB bar and freq bar)
 HEATMAP_WIDTH = WIDTH - DB_BAR_WIDTH - FREQ_BAR_WIDTH
