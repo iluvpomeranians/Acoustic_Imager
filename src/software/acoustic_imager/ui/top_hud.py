@@ -120,6 +120,7 @@ def draw_hud(
     wifi_connection_name: Optional[str] = None,
     ip_address: Optional[str] = None,
     device_name: Optional[str] = None,
+    spi_fps_ema: Optional[float] = None,
 ) -> HudRects:
     """
     Draw compact HUD top-left. offset_y moves the HUD vertically (0=visible, negative=retracted up).
@@ -301,6 +302,8 @@ def draw_hud(
         lines = [
             f"{mbps_bytes:0.2f} MB/s  ({mbps_bits:0.1f} Mb/s)",
         ]
+        if spi_fps_ema is not None:
+            lines.append(f"Firmware: {spi_fps_ema:0.1f} FPS")
         if source_label.startswith("SPI"):
             mhz = (getattr(source_stats, "sclk_hz_rep", 0.0) / 1e6) if getattr(source_stats, "sclk_hz_rep", 0) else 0.0
             lines += [

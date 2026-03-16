@@ -1031,6 +1031,11 @@ def main() -> None:
     last_t = time.perf_counter()
     next_tick = time.perf_counter()
 
+    # Firmware (SPI) receive rate for net pill dropdown (HW/LOOP only)
+    last_spi_frames_ok = -1
+    last_spi_frame_time = 0.0
+    spi_fps_ema = 0.0
+
     try:
         while True:
             prof.start_frame()
@@ -1084,6 +1089,7 @@ def main() -> None:
                 last_spi_bins = None
                 last_spi_peak_angles = None
                 cov_avg.clear()
+                last_spi_frames_ok = -1
 
                 # start whichever is selected
                 if mode == "LOOP":
@@ -1124,6 +1130,22 @@ def main() -> None:
 
             source_stats = latest_frame.stats
             fft_data = latest_frame.fft_data if latest_frame.ok else None
+
+            # Track firmware (SPI) receive rate for net pill dropdown
+            if source_label in ("HW", "LOOP"):
+                frames_ok = getattr(source_stats, "frames_ok", 0)
+                if last_spi_frames_ok >= 0 and frames_ok > last_spi_frames_ok:
+                    new_frames = frames_ok - last_spi_frames_ok
+                    dt = now_t - last_spi_frame_time
+                    if dt > 0.001:
+                        receive_fps = new_frames / dt
+                        receive_fps = min(receive_fps, 500.0)
+                        spi_fps_ema = (0.92 * spi_fps_ema + 0.08 * receive_fps) if spi_fps_ema > 0 else receive_fps
+                last_spi_frames_ok = frames_ok
+                last_spi_frame_time = now_t
+                spi_fps_ema_for_hud = spi_fps_ema
+            else:
+                spi_fps_ema_for_hud = None
 
             # Fallback to last known data if current read failed
             if fft_data is None:
@@ -1873,6 +1895,7 @@ def main() -> None:
                 wifi_connection_name=wifi_ssid or None,
                 ip_address=ip_addr or None,
                 device_name=device_name or None,
+                spi_fps_ema=spi_fps_ema_for_hud,
             )
 
             state.HUD_RECTS = hud_rects
