@@ -87,10 +87,15 @@ size_t spi_stream_build_frame_header(
 
   const size_t header_len = sizeof(hdr);
 
-  const size_t checksum_len = SPI_CHECKSUM_SIZE_BYTES;
+// #if SPI_CHECKSUM_ENABLE
+//   const size_t checksum_len = SPI_CHECKSUM_SIZE_BYTES;
+//   const size_t total_len = header_len + payload_len + checksum_len;
+// #else
+//   const size_t total_len = header_len + payload_len;
+// #endif
 
-  const size_t total_len =
-      header_len + payload_len + checksum_len;
+  const size_t checksum_len = SPI_CHECKSUM_SIZE_BYTES;
+  const size_t total_len = header_len + payload_len + checksum_len;
 
   if (dst_cap < total_len)
       return 0;
@@ -134,18 +139,17 @@ size_t spi_stream_finalize_frame(
     size_t dst_cap,
     size_t used_len)
 {
+  if (!dst) return 0;
+
+  if (dst_cap < SPI_CHECKSUM_SIZE_BYTES) return 0;
+  
   uint16_t checksum;
-
-  if (!dst)
-    return 0;
-
-  if (dst_cap < SPI_CHECKSUM_SIZE_BYTES)
-    return 0;
-
+#if SPI_CHECKSUM_ENABLE
   checksum = checksum16_sum_bytes(dst, used_len);
-
+#else
+  checksum = 0xBEEF;
+#endif
   memcpy(dst + used_len, &checksum, sizeof(checksum));
-
   return used_len + SPI_CHECKSUM_SIZE_BYTES;
 }
 
