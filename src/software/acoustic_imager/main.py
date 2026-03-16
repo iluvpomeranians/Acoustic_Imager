@@ -60,6 +60,7 @@ from acoustic_imager.dsp.beamforming import (
 )
 from acoustic_imager.dsp.heatmap import (
     spectra_to_heatmap_absolute,
+    spectra_to_blob_state,
     build_w_lut_u8,
     blend_heatmap_left,
     draw_crosshairs,
@@ -1019,6 +1020,9 @@ def main() -> None:
     heatmap_power_buf: Optional[np.ndarray] = None
     heatmap_band_freqs_buf: Optional[np.ndarray] = None
     heatmap_heat_buf: Optional[np.ndarray] = None  # (content_height, content_width) float32 for heat_out
+    # Frame-level heatmap reuse when blob state is stable (Phase 2)
+    blob_state_prev: Optional[tuple] = None  # (cx_all, cy_all, power_norm) from last frame
+    heatmap_reuse_buf: Optional[np.ndarray] = None  # last displayed heatmap (uint8) for reuse
     # Cache for "MUSIC every N frames": reuse angles/spec on skip frames; frozen_bins keeps bin set stable so cache is valid
     last_music_bins_list: Optional[list] = None
     last_music_angle_x_cache: Optional[np.ndarray] = None
@@ -1030,6 +1034,11 @@ def main() -> None:
     fps_ema = 0.0
     last_t = time.perf_counter()
     next_tick = time.perf_counter()
+
+    # Firmware (SPI) receive rate for net pill dropdown (HW/LOOP only)
+    last_spi_frames_ok = -1
+    last_spi_frame_time = 0.0
+    spi_fps_ema = 0.0
 
     try:
         while True:
@@ -1081,9 +1090,12 @@ def main() -> None:
 
                 last_spi_fft_data = None
                 heatmap_prev = None
+                blob_state_prev = None
+                heatmap_reuse_buf = None
                 last_spi_bins = None
                 last_spi_peak_angles = None
                 cov_avg.clear()
+                last_spi_frames_ok = -1
 
                 # start whichever is selected
                 if mode == "LOOP":
@@ -1125,6 +1137,22 @@ def main() -> None:
             source_stats = latest_frame.stats
             fft_data = latest_frame.fft_data if latest_frame.ok else None
 
+            # Track firmware (SPI) receive rate for net pill dropdown
+            if source_label in ("HW", "LOOP"):
+                frames_ok = getattr(source_stats, "frames_ok", 0)
+                if last_spi_frames_ok >= 0 and frames_ok > last_spi_frames_ok:
+                    new_frames = frames_ok - last_spi_frames_ok
+                    dt = now_t - last_spi_frame_time
+                    if dt > 0.001:
+                        receive_fps = new_frames / dt
+                        receive_fps = min(receive_fps, 500.0)
+                        spi_fps_ema = (0.92 * spi_fps_ema + 0.08 * receive_fps) if spi_fps_ema > 0 else receive_fps
+                last_spi_frames_ok = frames_ok
+                last_spi_frame_time = now_t
+                spi_fps_ema_for_hud = spi_fps_ema
+            else:
+                spi_fps_ema_for_hud = None
+
             # Fallback to last known data if current read failed
             if fft_data is None:
                 if source_label in ("HW", "LOOP") and last_spi_fft_data is not None:
@@ -1139,6 +1167,8 @@ def main() -> None:
             # ---- Beamforming + Heatmap generation ----
             spec_matrix = None
             band_freqs = np.array([], dtype=np.float64)
+            current_blob_state = None
+            heatmap_reused = False
             if source_label == "REF":
                 # 0 dB reference: uniform heatmap (spread across whole view), no MUSIC blobs
                 heatmap_left = np.full((content_height, content_width), 255, dtype=np.uint8)
@@ -1218,7 +1248,26 @@ def main() -> None:
                     if sim_dual_angle and angle_x_deg_sim is not None and angle_y_deg_sim is not None:
                         sim_heatmap_kw["angle_x_deg"] = angle_x_deg_sim
                         sim_heatmap_kw["angle_y_deg"] = angle_y_deg_sim
-                    heatmap_left = spectra_to_heatmap_absolute(**sim_heatmap_kw)
+                    current_blob_state = spectra_to_blob_state(**sim_heatmap_kw)
+                    _reuse = (
+                        getattr(config, "HEATMAP_REUSE_WHEN_STABLE", False)
+                        and current_blob_state is not None
+                        and blob_state_prev is not None
+                        and len(current_blob_state[0]) == len(blob_state_prev[0])
+                        and float(np.max(np.abs(current_blob_state[0] - blob_state_prev[0]))) <= getattr(config, "HEATMAP_REUSE_POSITION_EPS_PX", 1.0)
+                        and float(np.max(np.abs(current_blob_state[1] - blob_state_prev[1]))) <= getattr(config, "HEATMAP_REUSE_POSITION_EPS_PX", 1.0)
+                        and float(np.max(np.abs(current_blob_state[2] - blob_state_prev[2]))) <= getattr(config, "HEATMAP_REUSE_AMP_EPS", 0.04)
+                        and heatmap_reuse_buf is not None
+                        and heatmap_reuse_buf.shape == (content_height, content_width)
+                    )
+                    if _reuse:
+                        heatmap_left = heatmap_reuse_buf
+                        heatmap_reused = True
+                    else:
+                        heatmap_left = spectra_to_heatmap_absolute(**sim_heatmap_kw)
+                        heatmap_reuse_buf = heatmap_left.copy()
+                        if current_blob_state is not None:
+                            blob_state_prev = current_blob_state
 
             else:  # SPI mode (HW + LOOP): top-K bins by power within bandpass, above noise floor
                 # Per-mic gain correction and whole-array boost, then optional per-mic normalize
@@ -1423,35 +1472,56 @@ def main() -> None:
                     if use_dual_angle and angle_x_deg is not None and angle_y_deg is not None:
                         heatmap_kw["angle_x_deg"] = angle_x_deg
                         heatmap_kw["angle_y_deg"] = angle_y_deg
+                    heatmap_kw_no_out = {k: v for k, v in heatmap_kw.items() if k not in ("heat_out", "assumed_distance_m")}
+                    current_blob_state = spectra_to_blob_state(**heatmap_kw_no_out)
+                    _reuse = (
+                        getattr(config, "HEATMAP_REUSE_WHEN_STABLE", False)
+                        and current_blob_state is not None
+                        and blob_state_prev is not None
+                        and len(current_blob_state[0]) == len(blob_state_prev[0])
+                        and float(np.max(np.abs(current_blob_state[0] - blob_state_prev[0]))) <= getattr(config, "HEATMAP_REUSE_POSITION_EPS_PX", 1.0)
+                        and float(np.max(np.abs(current_blob_state[1] - blob_state_prev[1]))) <= getattr(config, "HEATMAP_REUSE_POSITION_EPS_PX", 1.0)
+                        and float(np.max(np.abs(current_blob_state[2] - blob_state_prev[2]))) <= getattr(config, "HEATMAP_REUSE_AMP_EPS", 0.04)
+                        and heatmap_reuse_buf is not None
+                        and heatmap_reuse_buf.shape == (content_height, content_width)
+                    )
                     if heatmap_heat_buf is None or heatmap_heat_buf.shape != (content_height, content_width):
                         heatmap_heat_buf = np.zeros((content_height, content_width), dtype=np.float32)
                     heatmap_kw["heat_out"] = heatmap_heat_buf
-                    heatmap_left = spectra_to_heatmap_absolute(**heatmap_kw)
+                    if _reuse:
+                        heatmap_left = heatmap_reuse_buf
+                        heatmap_reused = True
+                    else:
+                        heatmap_left = spectra_to_heatmap_absolute(**heatmap_kw)
                     prof.mark("heat_draw")
                 # Scale heatmap by bandpass level so it brightens with sound, dims when quiet (floor keeps blobs visible)
-                level = max(
-                    config.HEATMAP_LEVEL_FLOOR,
-                    min(1.0, total_bandpass_power / config.HEATMAP_LEVEL_REFERENCE),
-                )
-                # Per-frame contrast stretch: percentile from level-scaled subsample so stretch matches original visibility
-                pct = config.HEATMAP_CONTRAST_STRETCH_PERCENTILE
-                p_val = 0.0
-                if pct > 0 and heatmap_left.size > 0:
-                    k = max(1, int(getattr(config, "HEATMAP_STRETCH_SUBSAMPLE", 1)))
-                    sub = heatmap_left[::k, ::k]
-                    sub_scaled = (sub.astype(np.float32) * level).clip(0, 255).astype(np.uint8)
-                    p_val = percentile_uint8_fast(sub_scaled, pct)
-                if pct > 0 and p_val > 1e-6:
-                    heatmap_left = (heatmap_left.astype(np.float32) * level * (255.0 / p_val)).clip(0, 255).astype(np.uint8)
-                else:
-                    heatmap_left = (heatmap_left.astype(np.float32) * level).astype(np.uint8)
-                prof.mark("heat_scale")
-                # Temporal smoothing for SPI: blend with previous frame
-                if source_label in ("HW", "LOOP") and heatmap_prev is not None and heatmap_prev.shape == heatmap_left.shape:
-                    heatmap_left = (
-                        config.HEATMAP_SMOOTH_ALPHA * heatmap_prev.astype(np.float32)
-                        + (1.0 - config.HEATMAP_SMOOTH_ALPHA) * heatmap_left.astype(np.float32)
-                    ).astype(np.uint8)
+                if not heatmap_reused:
+                    level = max(
+                        config.HEATMAP_LEVEL_FLOOR,
+                        min(1.0, total_bandpass_power / config.HEATMAP_LEVEL_REFERENCE),
+                    )
+                    # Per-frame contrast stretch: percentile from level-scaled subsample so stretch matches original visibility
+                    pct = config.HEATMAP_CONTRAST_STRETCH_PERCENTILE
+                    p_val = 0.0
+                    if pct > 0 and heatmap_left.size > 0:
+                        k = max(1, int(getattr(config, "HEATMAP_STRETCH_SUBSAMPLE", 1)))
+                        sub = heatmap_left[::k, ::k]
+                        sub_scaled = (sub.astype(np.float32) * level).clip(0, 255).astype(np.uint8)
+                        p_val = percentile_uint8_fast(sub_scaled, pct)
+                    if pct > 0 and p_val > 1e-6:
+                        heatmap_left = (heatmap_left.astype(np.float32) * level * (255.0 / p_val)).clip(0, 255).astype(np.uint8)
+                    else:
+                        heatmap_left = (heatmap_left.astype(np.float32) * level).astype(np.uint8)
+                    prof.mark("heat_scale")
+                    # Temporal smoothing for SPI: blend with previous frame
+                    if source_label in ("HW", "LOOP") and heatmap_prev is not None and heatmap_prev.shape == heatmap_left.shape:
+                        heatmap_left = (
+                            config.HEATMAP_SMOOTH_ALPHA * heatmap_prev.astype(np.float32)
+                            + (1.0 - config.HEATMAP_SMOOTH_ALPHA) * heatmap_left.astype(np.float32)
+                        ).astype(np.uint8)
+                    heatmap_reuse_buf = heatmap_left.copy()
+                    if current_blob_state is not None:
+                        blob_state_prev = current_blob_state
 
             prof.mark("beamform+heatmap")
 
@@ -1873,6 +1943,7 @@ def main() -> None:
                 wifi_connection_name=wifi_ssid or None,
                 ip_address=ip_addr or None,
                 device_name=device_name or None,
+                spi_fps_ema=spi_fps_ema_for_hud,
             )
 
             state.HUD_RECTS = hud_rects

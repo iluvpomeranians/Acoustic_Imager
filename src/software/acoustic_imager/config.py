@@ -189,6 +189,10 @@ HEATMAP_LEVEL_FLOOR = 0.18
 HEATMAP_CONTRAST_STRETCH_PERCENTILE = 98.0
 # Subsample heatmap for percentile (1=full res, 4=every 4th pixel each axis); stretch still applied to full image.
 HEATMAP_STRETCH_SUBSAMPLE = 4
+# Frame-level reuse: when blob positions/amplitudes change less than threshold, reuse last heatmap (saves heat_draw)
+HEATMAP_REUSE_WHEN_STABLE = True
+HEATMAP_REUSE_POSITION_EPS_PX = 1.0   # max allowed movement (px) to consider stable
+HEATMAP_REUSE_AMP_EPS = 0.04          # max allowed amplitude change per source to consider stable
 HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
 # Heatmap dimensions (default: full content strip between DB bar and freq bar)
 HEATMAP_WIDTH = WIDTH - DB_BAR_WIDTH - FREQ_BAR_WIDTH
@@ -330,7 +334,7 @@ CALIBRATION_NOTE = "Camera left, board right, same heading"
 
 # --- HW heatmap pipeline (gain, MUSIC, directivity, etc.) ---
 # Per-mic gain correction (length N_MICS): boost weak mics; 1.0 = no change. Use metrics_debug.py --live --write-config to tune.
-SPI_MIC_GAIN = (5.04, 22.40, 8.93, 14.02, 6.61, 14.29, 8.31, 9.10, 5.52, 8.67, 2.33, 1.78, 1.00, 2.57, 1.84, 1.18)
+SPI_MIC_GAIN = (1.26, 1.44, 2.01, 1.66, 1.25, 1.66, 1.90, 1.60, 1.14, 1.51, 1.78, 1.49, 1.00, 1.46, 100.00, 1.96)
 # Whole-array gain boost (linear): 2.0 = ~6 dB; use if mics seem low
 SPI_ARRAY_GAIN = 1.0
 # Number of bins to use for heatmap in HW/LOOP: top-K by power within bandpass (replaces fixed SPI_SIM_BINS for live display)
@@ -385,13 +389,13 @@ pitch = (
 # Used only for SRC:HW and LOOP; SIM keeps x_coords/y_coords above.
 # ===============================================================
 x_coords_hw = np.array([
-    -0.086020, -0.075520, -0.097420, -0.089620, -0.106120, -0.110920,
-    -0.117620, -0.101520, -0.116120, -0.091420, -0.103020, -0.098220,
-    -0.102320, -0.112120, -0.081020, -0.091820,
+    0.013300, 0.023800, 0.001900, 0.009700, -0.006800, -0.011600,
+    -0.018300, -0.002200, -0.016800, 0.007900, -0.003700, 0.001100,
+    -0.003000, -0.012800, 0.018300, 0.007500,
 ])
 y_coords_hw = np.array([
-    -0.054280, -0.057080, -0.052980, -0.043580, -0.046980, -0.059880,
-    -0.050880, -0.037280, -0.069480, -0.070980, -0.066480, -0.062080,
-    -0.077380, -0.081880, -0.068280, -0.082480,
+    0.007080, 0.024280, 0.008380, 0.017780, 0.014380, 0.001480,
+    0.010480, 0.024080, -0.008120, -0.009620, -0.005120, -0.000720,
+    -0.016020, -0.020520, -0.006920, -0.021120,
 ])
-pitch_hw = 0.002945
+pitch_hw = 0.002179

@@ -9,6 +9,8 @@ import cv2
 # Precomputed 1D Gaussian half-kernels for blob drawing (sigma -> g_1d of length r_max+1)
 _BLOB_R_MAX = 200
 _BLOB_KERNEL_CACHE: Optional[list[tuple[float, np.ndarray]]] = None
+# Precomputed 2D blob kernels keyed by (kidx, r) to avoid per-blob concat + outer product
+_BLOB_2D_KERNEL_CACHE: Optional[dict[tuple[int, int], np.ndarray]] = None
 
 
 def _get_blob_kernel_cache() -> list[tuple[float, np.ndarray]]:
@@ -35,6 +37,24 @@ def _nearest_sigma_idx(sigma: float, cache: list[tuple[float, np.ndarray]]) -> i
             best_diff = d
             best = k
     return best
+
+
+def _get_2d_blob_kernel(
+    kidx: int,
+    r: int,
+    blob_cache: list[tuple[float, np.ndarray]],
+) -> np.ndarray:
+    """Return (2*r+1, 2*r+1) float32 Gaussian kernel; cached by (kidx, r)."""
+    global _BLOB_2D_KERNEL_CACHE
+    if _BLOB_2D_KERNEL_CACHE is None:
+        _BLOB_2D_KERNEL_CACHE = {}
+    key = (kidx, r)
+    if key not in _BLOB_2D_KERNEL_CACHE:
+        g_1d = blob_cache[kidx][1]
+        full_1d = np.concatenate([g_1d[r::-1], g_1d[1 : r + 1]]).astype(np.float32)
+        kernel_2d = (full_1d[:, None] * full_1d[None, :]).astype(np.float32)
+        _BLOB_2D_KERNEL_CACHE[key] = kernel_2d
+    return _BLOB_2D_KERNEL_CACHE[key]
 
 
 def percentile_uint8_fast(arr: np.ndarray, pct: float) -> float:
@@ -75,48 +95,37 @@ COLORMAP_DICT = {
 }
 
 
-def spectra_to_heatmap_absolute(
+def _compute_blob_geometry(
     spec_matrix: np.ndarray,
     power_rel: np.ndarray,
     out_width: int,
     out_height: int,
     db_min: float,
     db_max: float,
-    x_offset_px: float = 0.0,
-    angle_min_deg: float = -90.0,
-    angle_max_deg: float = 90.0,
-    band_freqs_hz: Optional[np.ndarray] = None,
-    f_min_hz: Optional[float] = None,
-    f_max_hz: Optional[float] = None,
-    projection_mode: str = "linear",
-    circle_radius_px: float = 0.0,
-    assumed_distance_m: float = 1.0,
-    camera_hfov_deg: float = 53.0,
-    camera_vfov_deg: float = 0.0,
-    angle_x_deg: Optional[np.ndarray] = None,
-    angle_y_deg: Optional[np.ndarray] = None,
-    heat_out: Optional[np.ndarray] = None,
-) -> np.ndarray:
-    """
-    SAME signature as your monolith.
-
-    Faster heatmap builder:
-      - Finds peak angle per source
-      - Creates Gaussian blobs only in a small ROI (not full-frame meshgrid)
-      - Accumulates in float32 heatmap, returns uint8 0..255
-    """
+    x_offset_px: float,
+    angle_min_deg: float,
+    angle_max_deg: float,
+    band_freqs_hz: Optional[np.ndarray],
+    f_min_hz: Optional[float],
+    f_max_hz: Optional[float],
+    projection_mode: str,
+    circle_radius_px: float,
+    camera_hfov_deg: float,
+    camera_vfov_deg: float,
+    angle_x_deg: Optional[np.ndarray],
+    angle_y_deg: Optional[np.ndarray],
+) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]]:
+    """Compute power_norm, peak_idx_frac, sharp, cx_all, cy_all. Returns None if Nsrc==0."""
     Nsrc, Nang = spec_matrix.shape
     if Nsrc == 0 or Nang == 0:
-        return np.zeros((out_height, out_width), dtype=np.uint8)
+        return None
 
     power_rel = np.maximum(power_rel.astype(np.float32), 1e-12)
-    power_db = 10.0 * np.log10(power_rel)  # <= 0
+    power_db = 10.0 * np.log10(power_rel)
     power_norm = (power_db - float(db_min)) / (float(db_max) - float(db_min) + 1e-12)
     power_norm = np.clip(power_norm, 0.0, 1.0)
 
     peak_idx = np.argmax(spec_matrix, axis=1).astype(np.int32)
-
-    # Parabolic interpolation for sub-bin angle (fractional peak index)
     peak_idx_frac = np.empty(Nsrc, dtype=np.float64)
     for i in range(Nsrc):
         idx = int(peak_idx[i])
@@ -142,17 +151,9 @@ def spectra_to_heatmap_absolute(
         left = float(spec_matrix[i, idx - 1]) if idx > 0 else p
         right = float(spec_matrix[i, idx + 1]) if idx < (Nang - 1) else p
         sharp[i] = max(p - 0.5 * (left + right), 1e-12)
-
     sharp /= (sharp.max() + 1e-12)
 
     h, w = int(out_height), int(out_width)
-    if heat_out is not None and heat_out.shape == (h, w) and heat_out.dtype == np.float32:
-        heat_out.fill(0)
-        heat = heat_out
-    else:
-        heat = np.zeros((h, w), dtype=np.float32)
-
-    # Map peak angle to (x, y) via projection mode
     angle_deg = -90.0 + 180.0 * peak_idx_frac.astype(np.float32) / max(1, (Nang - 1))
     angle_rad = np.deg2rad(angle_deg)
 
@@ -224,6 +225,66 @@ def spectra_to_heatmap_absolute(
         cy_all = ((1.0 - sin_theta) / 2.0 * (h - 1)).astype(np.float32)
         cy_all = np.clip(cy_all, 0.0, float(h - 1))
 
+    return (power_norm, peak_idx_frac, sharp, cx_all, cy_all)
+
+
+def spectra_to_heatmap_absolute(
+    spec_matrix: np.ndarray,
+    power_rel: np.ndarray,
+    out_width: int,
+    out_height: int,
+    db_min: float,
+    db_max: float,
+    x_offset_px: float = 0.0,
+    angle_min_deg: float = -90.0,
+    angle_max_deg: float = 90.0,
+    band_freqs_hz: Optional[np.ndarray] = None,
+    f_min_hz: Optional[float] = None,
+    f_max_hz: Optional[float] = None,
+    projection_mode: str = "linear",
+    circle_radius_px: float = 0.0,
+    assumed_distance_m: float = 1.0,
+    camera_hfov_deg: float = 53.0,
+    camera_vfov_deg: float = 0.0,
+    angle_x_deg: Optional[np.ndarray] = None,
+    angle_y_deg: Optional[np.ndarray] = None,
+    heat_out: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    """
+    Faster heatmap builder: peak angle per source, Gaussian blobs in ROIs, float32 then uint8.
+    """
+    geom = _compute_blob_geometry(
+        spec_matrix,
+        power_rel,
+        out_width,
+        out_height,
+        db_min,
+        db_max,
+        x_offset_px,
+        angle_min_deg,
+        angle_max_deg,
+        band_freqs_hz,
+        f_min_hz,
+        f_max_hz,
+        projection_mode,
+        circle_radius_px,
+        camera_hfov_deg,
+        camera_vfov_deg,
+        angle_x_deg,
+        angle_y_deg,
+    )
+    if geom is None:
+        return np.zeros((out_height, out_width), dtype=np.uint8)
+
+    power_norm, peak_idx_frac, sharp, cx_all, cy_all = geom
+    Nsrc = power_norm.size
+    h, w = int(out_height), int(out_width)
+    if heat_out is not None and heat_out.shape == (h, w) and heat_out.dtype == np.float32:
+        heat_out.fill(0)
+        heat = heat_out
+    else:
+        heat = np.zeros((h, w), dtype=np.float32)
+
     base_radius = 60.0
     blob_cache = _get_blob_kernel_cache()
 
@@ -246,10 +307,7 @@ def spectra_to_heatmap_absolute(
         y1 = min(h, cy_int + r + 1)
 
         kidx = _nearest_sigma_idx(sigma, blob_cache)
-        g_1d = blob_cache[kidx][1]
-        full_1d = np.concatenate([g_1d[r::-1], g_1d[1 : r + 1]]).astype(np.float32)
-        kernel_2d = (full_1d[:, None] * full_1d[None, :]).astype(np.float32)
-        k_h, k_w = kernel_2d.shape
+        kernel_2d = _get_2d_blob_kernel(kidx, r, blob_cache)
         ky0 = r + (y0 - cy_int)
         kx0 = r + (x0 - cx_int)
         roi_h, roi_w = y1 - y0, x1 - x0
@@ -258,6 +316,56 @@ def spectra_to_heatmap_absolute(
 
     heat = np.clip(heat, 0.0, 1.0)
     return (heat * 255.0).astype(np.uint8)
+
+
+def spectra_to_blob_state(
+    spec_matrix: np.ndarray,
+    power_rel: np.ndarray,
+    out_width: int,
+    out_height: int,
+    db_min: float,
+    db_max: float,
+    x_offset_px: float = 0.0,
+    angle_min_deg: float = -90.0,
+    angle_max_deg: float = 90.0,
+    band_freqs_hz: Optional[np.ndarray] = None,
+    f_min_hz: Optional[float] = None,
+    f_max_hz: Optional[float] = None,
+    projection_mode: str = "linear",
+    circle_radius_px: float = 0.0,
+    camera_hfov_deg: float = 53.0,
+    camera_vfov_deg: float = 0.0,
+    angle_x_deg: Optional[np.ndarray] = None,
+    angle_y_deg: Optional[np.ndarray] = None,
+) -> Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]:
+    """
+    Same inputs as spectra_to_heatmap_absolute (minus heat_out). Returns (cx_all, cy_all, power_norm)
+    for reuse/stability checks, or None if no sources.
+    """
+    geom = _compute_blob_geometry(
+        spec_matrix,
+        power_rel,
+        out_width,
+        out_height,
+        db_min,
+        db_max,
+        x_offset_px,
+        angle_min_deg,
+        angle_max_deg,
+        band_freqs_hz,
+        f_min_hz,
+        f_max_hz,
+        projection_mode,
+        circle_radius_px,
+        camera_hfov_deg,
+        camera_vfov_deg,
+        angle_x_deg,
+        angle_y_deg,
+    )
+    if geom is None:
+        return None
+    _power_norm, _peak_idx_frac, _sharp, cx_all, cy_all = geom
+    return (cx_all, cy_all, _power_norm)
 
 
 def build_w_lut_u8(alpha: float, blend_gamma: float) -> np.ndarray:
