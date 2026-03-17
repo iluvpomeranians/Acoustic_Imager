@@ -19,7 +19,7 @@ from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
 MODAL_W = 580
 MODAL_H = 520
-HEADER_H = 102  # title, line, Shut Down button
+HEADER_H = 64   # title, line
 SHUTDOWN_BTN_H = 36
 CONTENT_PAD = 20
 ROW_H = 42
@@ -60,7 +60,7 @@ def _draw_toggle(frame: np.ndarray, x: int, y: int, w: int, h: int, on: bool) ->
 
 
 CONTENT_BOTTOM_PAD = 50  # extra space below last button so it scrolls fully into view
-# Flash Firmware button (red, below Email Settings)
+# Flash Firmware button (purple); Shutdown Device (red) below it
 FLASH_FIRMWARE_BTN_H = 44
 
 
@@ -71,8 +71,9 @@ def _compute_content_height() -> int:
     display_h = 20 + ITEM_GAP + 3 * (ROW_H + ITEM_GAP) + 6 + ROW_H + ITEM_GAP + (ROW_H - 4) + SECTION_GAP  # 6 = reduced gap before heatmap
     # Divider + Advanced: section_gap + label + gap + 6 toggles + Calibration Suite button + section_gap
     advanced_h = SECTION_GAP + 20 + ITEM_GAP + 6 * (ROW_H + ITEM_GAP) + (CAL_SUITE_BTN_H + ITEM_GAP) + SECTION_GAP
-    # Divider + Share: section_gap + label + gap + email button + gap + flash label + gap + flash button + bottom padding
-    share_h = SECTION_GAP + 20 + ITEM_GAP + 44 + ITEM_GAP + 20 + ITEM_GAP + FLASH_FIRMWARE_BTN_H + CONTENT_BOTTOM_PAD
+    # Divider + Share: ... + flash button + gap + shutdown label + gap + shutdown button + bottom padding
+    SHUTDOWN_LABEL_H = 20 + ITEM_GAP  # "Shutdown" heading
+    share_h = SECTION_GAP + 20 + ITEM_GAP + 44 + ITEM_GAP + 20 + ITEM_GAP + FLASH_FIRMWARE_BTN_H + ITEM_GAP + SHUTDOWN_LABEL_H + SHUTDOWN_BTN_H + CONTENT_BOTTOM_PAD
     return display_h + advanced_h + share_h
 
 
@@ -98,6 +99,8 @@ def _update_settings_button_positions(
     y_calibration_suite = y_record + ROW_H + ITEM_GAP  # after Record Compass History
     y_email = y_calibration_suite + cal_suite_btn_h + ITEM_GAP + SECTION_GAP + SECTION_GAP + 20 + ITEM_GAP  # after divider + "Setup Email" label
     y_flash = y_email + email_h + ITEM_GAP + 20 + ITEM_GAP  # after "Update to latest firmware" label
+    y_shutdown_label = y_flash + FLASH_FIRMWARE_BTN_H + ITEM_GAP  # "Shutdown" heading
+    y_shutdown = y_shutdown_label + 20 + ITEM_GAP  # Shutdown Device button
     if "settings_cam" in menu_buttons:
         b = menu_buttons["settings_cam"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_cam - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
@@ -143,6 +146,15 @@ def _update_settings_button_positions(
         b = menu_buttons["settings_flash_firmware"]
         b.x, b.y = row_x, content_top + y_flash - scroll_offset
         b.w, b.h = row_w, FLASH_FIRMWARE_BTN_H
+    # Shutdown button is narrower and centered (SHUTDOWN_BTN_MARGIN each side)
+    SHUTDOWN_BTN_MARGIN = 28
+    shutdown_btn_w = row_w - 2 * SHUTDOWN_BTN_MARGIN
+    if "settings_shutdown" in menu_buttons:
+        b = menu_buttons["settings_shutdown"]
+        b.x = row_x + SHUTDOWN_BTN_MARGIN
+        b.y = content_top + y_shutdown - scroll_offset
+        b.w = shutdown_btn_w
+        b.h = SHUTDOWN_BTN_H
 
 
 def _build_settings_content(
@@ -255,17 +267,34 @@ def _build_settings_content(
     cv2.putText(content_canvas, "Update to latest firmware", (0, y + 14), font, 0.50, section_color, 1, cv2.LINE_AA)
     y += 20 + ITEM_GAP
 
-    # Flash Firmware button (red, below Email Settings)
-    FLASH_BTN_RED = (0, 0, 255)  # BGR red
-    FLASH_BTN_RED_LIGHT = (100, 100, 255)
-    cv2.rectangle(content_canvas, (0, y), (row_w, y + FLASH_FIRMWARE_BTN_H), FLASH_BTN_RED, -1, cv2.LINE_AA)
-    cv2.rectangle(content_canvas, (0, y), (row_w, y + FLASH_FIRMWARE_BTN_H), FLASH_BTN_RED_LIGHT, 1, cv2.LINE_AA)
+    # Flash Firmware button (purple)
+    FLASH_BTN_PURPLE = (200, 0, 200)  # BGR purple
+    FLASH_BTN_PURPLE_LIGHT = (220, 100, 220)
+    cv2.rectangle(content_canvas, (0, y), (row_w, y + FLASH_FIRMWARE_BTN_H), FLASH_BTN_PURPLE, -1, cv2.LINE_AA)
+    cv2.rectangle(content_canvas, (0, y), (row_w, y + FLASH_FIRMWARE_BTN_H), FLASH_BTN_PURPLE_LIGHT, 1, cv2.LINE_AA)
     (tw, th), _ = cv2.getTextSize("Flash Firmware", font, 0.54, 1)
     text_x = (row_w - tw) // 2
     text_y = y + FLASH_FIRMWARE_BTN_H // 2 + th // 2 + 2
     cv2.putText(content_canvas, "Flash Firmware", (text_x, text_y), font, 0.54, text_color, 1, cv2.LINE_AA)
     if "settings_flash_firmware" not in menu_buttons:
         menu_buttons["settings_flash_firmware"] = Button(0, 0, row_w, FLASH_FIRMWARE_BTN_H, "")
+    y += FLASH_FIRMWARE_BTN_H + ITEM_GAP
+
+    # Shutdown: heading then button (narrower than flash, centered)
+    cv2.putText(content_canvas, "Shutdown", (0, y + 14), font, 0.50, section_color, 1, cv2.LINE_AA)
+    y += 20 + ITEM_GAP
+
+    SHUTDOWN_BTN_MARGIN_C = 28  # same as in _update_settings_button_positions
+    shutdown_btn_w = row_w - 2 * SHUTDOWN_BTN_MARGIN_C
+    shutdown_btn_x = SHUTDOWN_BTN_MARGIN_C
+    SHUTDOWN_BTN_BGR = (0, 0, 200)  # BGR red
+    SHUTDOWN_BTN_BORDER = (100, 100, 255)
+    cv2.rectangle(content_canvas, (shutdown_btn_x, y), (shutdown_btn_x + shutdown_btn_w, y + SHUTDOWN_BTN_H), SHUTDOWN_BTN_BGR, -1, cv2.LINE_AA)
+    cv2.rectangle(content_canvas, (shutdown_btn_x, y), (shutdown_btn_x + shutdown_btn_w, y + SHUTDOWN_BTN_H), SHUTDOWN_BTN_BORDER, 1, cv2.LINE_AA)
+    (tw_sd, _), _ = cv2.getTextSize("Shutdown Device", font, 0.52, 1)
+    cv2.putText(content_canvas, "Shutdown Device", (shutdown_btn_x + (shutdown_btn_w - tw_sd) // 2, y + SHUTDOWN_BTN_H // 2 + 6), font, 0.52, text_color, 1, cv2.LINE_AA)
+    if "settings_shutdown" not in menu_buttons:
+        menu_buttons["settings_shutdown"] = Button(0, 0, shutdown_btn_w, SHUTDOWN_BTN_H, "Shutdown Device")
 
 
 def draw_settings_modal(frame: np.ndarray) -> None:
@@ -298,24 +327,6 @@ def draw_settings_modal(frame: np.ndarray) -> None:
 
     line_y = modal_y + 54
     cv2.line(frame, (row_x, line_y), (modal_x + MODAL_W - pad - SCROLLBAR_W, line_y), (255, 255, 255), 3, cv2.LINE_AA)
-
-    # Shutdown Device button (below title, red/destructive style)
-    shutdown_btn_y = modal_y + 66   # 12px gap below the line
-    if "settings_shutdown" not in menu_buttons:
-        menu_buttons["settings_shutdown"] = Button(0, 0, row_w, SHUTDOWN_BTN_H, "Shutdown Device")
-    menu_buttons["settings_shutdown"].x = row_x
-    menu_buttons["settings_shutdown"].y = shutdown_btn_y
-    menu_buttons["settings_shutdown"].w = row_w
-    menu_buttons["settings_shutdown"].h = SHUTDOWN_BTN_H
-    shutdown_roi = frame[shutdown_btn_y : shutdown_btn_y + SHUTDOWN_BTN_H, row_x : row_x + row_w]
-    cv2.rectangle(shutdown_roi, (0, 0), (row_w - 1, SHUTDOWN_BTN_H - 1), (0, 0, 200), -1, cv2.LINE_AA)
-    cv2.rectangle(shutdown_roi, (0, 0), (row_w - 1, SHUTDOWN_BTN_H - 1), (100, 100, 255), 1, cv2.LINE_AA)
-    (tw_sd, _), _ = cv2.getTextSize("Shutdown Device", font, 0.52, 1)
-    cv2.putText(
-        frame, "Shutdown Device",
-        (row_x + (row_w - tw_sd) // 2, shutdown_btn_y + SHUTDOWN_BTN_H // 2 + 6),
-        font, 0.52, (255, 255, 255), 1, cv2.LINE_AA,
-    )
 
     close_w, close_h = 72, 28
     close_x = modal_x + MODAL_W - close_w - pad - SCROLLBAR_W
@@ -533,7 +544,7 @@ def _hit_any_settings_button(x: int, y: int) -> bool:
     """True if (x,y) hits any interactive button in the modal."""
     for k in (
         "settings_close", "settings_scroll_up", "settings_scroll_down", "settings_scrollbar",
-        "settings_flash_firmware", "settings_email", "settings_calibration_suite", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
+        "settings_flash_firmware", "settings_shutdown", "settings_email", "settings_calibration_suite", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
         "settings_radar_ui", "settings_map_style", "settings_position_services", "settings_record_compass_history",
         "settings_show_radar_debug",
     ):

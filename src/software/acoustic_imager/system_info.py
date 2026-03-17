@@ -15,6 +15,10 @@ _CACHE: Optional[Tuple[str, str, str]] = None
 _CACHE_TICKS = 0
 _CACHE_TTL = 30  # refresh every ~30 frames at 60fps ≈ 0.5s
 
+_TEMP_CACHE: Optional[float] = None
+_TEMP_CACHE_TICKS = 0
+_TEMP_CACHE_TTL = 60  # refresh every ~60 frames ≈ 1s
+
 
 def get_system_network_info(ticks: int = 0) -> Tuple[str, str, str]:
     """
@@ -93,3 +97,25 @@ def _get_wifi_ssid() -> str:
     except Exception:
         pass
     return ""
+
+
+def get_system_temperature_celsius(ticks: int = 0) -> Optional[float]:
+    """
+    Return CPU/system temperature in °C (e.g. from /sys/class/thermal/thermal_zone0/temp on Linux/Pi).
+    Caches briefly; pass a tick counter to invalidate periodically. Returns None if unavailable.
+    """
+    global _TEMP_CACHE, _TEMP_CACHE_TICKS
+    if _TEMP_CACHE is not None and (ticks - _TEMP_CACHE_TICKS) < _TEMP_CACHE_TTL:
+        return _TEMP_CACHE
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+            raw = f.read().strip()
+        # Value is millidegrees Celsius
+        millideg = int(raw)
+        _TEMP_CACHE = millideg / 1000.0
+        _TEMP_CACHE_TICKS = ticks
+        return _TEMP_CACHE
+    except Exception:
+        _TEMP_CACHE = None
+        _TEMP_CACHE_TICKS = ticks
+        return None

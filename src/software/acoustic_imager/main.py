@@ -1683,7 +1683,14 @@ def main() -> None:
                 # Auto-tracking: stick to local max in heatmap
                 cx = int(button_state.crosshair_x)
                 cy = int(button_state.crosshair_y)
-                nx, ny = find_local_max(heatmap_left, cx, cy, CROSSHAIR_TRACK_RADIUS)
+                # When heatmap is rotated 180°, (cx, cy) are display coords; find_local_max needs heatmap coords
+                rotate_180 = getattr(config, "HEATMAP_ROTATE_180", False)
+                hx = (content_width - 1 - cx) if rotate_180 else cx
+                hy = (content_height - 1 - cy) if rotate_180 else cy
+                nx, ny = find_local_max(heatmap_left, hx, hy, CROSSHAIR_TRACK_RADIUS)
+                # Display coords for drawing and storing (when rotated, convert from heatmap coords)
+                draw_x = (content_width - 1 - nx) if rotate_180 else nx
+                draw_y = (content_height - 1 - ny) if rotate_180 else ny
                 # If blob left the screen (edge) or faded (very low intensity), hide crosshair until next click
                 edge_margin = 3
                 blob_gone = (
@@ -1694,8 +1701,8 @@ def main() -> None:
                 if blob_gone:
                     button_state.crosshair_visible = False
                 else:
-                    button_state.crosshair_x = float(nx)
-                    button_state.crosshair_y = float(ny)
+                    button_state.crosshair_x = float(draw_x)
+                    button_state.crosshair_y = float(draw_y)
                     # Current dB at tracked pixel for trend
                     val_at = int(heatmap_left[ny, nx])
                     db_at = config.REL_DB_MIN + (val_at / 255.0) * (config.REL_DB_MAX - config.REL_DB_MIN)
@@ -1793,12 +1800,13 @@ def main() -> None:
                     else:
                         f_peak_hz = (f_min + f_max) / 2.0
                     draw_crosshairs(
-                        output_frame, nx, ny, content_width, content_height,
+                        output_frame, draw_x, draw_y, content_width, content_height,
                         heatmap_left, config.REL_DB_MIN, config.REL_DB_MAX, f_peak_hz,
                         trend_db=trend_db, accel_db=accel_db,
                         distance_to_source_m=distance_to_source_m,
                         angle_deg=angle_deg,
                         content_offset_x=content_offset_x,
+                        heatmap_val=val_at if rotate_180 else None,
                     )
 
             # ---- Draw debug info ----

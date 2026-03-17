@@ -21,6 +21,7 @@ from ..config import (
     BATTERY_DISCHARGE_MA,
 )
 from ..state import button_state, HUD
+from ..system_info import get_system_temperature_celsius
 from . import ui_cache
 from .menu import _blue_gradient_overlay
 from .battery_icon import draw_battery_icon, BATTERY_BODY_W, BATTERY_TIP_W, BATTERY_BODY_H
@@ -282,13 +283,16 @@ def draw_hud(
         ip_str = (ip_address or "").strip() or "—"
         dev_str = (device_name or "").strip() or "—"
         time_str = _time_remaining_display(bat_pct, time_remaining_sec)
-        # Dropdown: Wi-Fi, IP, Device, then Battery: % (time) on one line as 4th
-        panel([
+        temp_c = get_system_temperature_celsius(frame_count)
+        lines = [
             f"Wi-Fi: {wifi_name}",
             f"IP: {ip_str}",
             f"Device: {dev_str}",
             f"Battery: {bat_pct}% ({time_str})",
-        ], rects.battery[0])
+        ]
+        if temp_c is not None:
+            lines.append(f"Temperature: {temp_c:.1f} C")
+        panel(lines, rects.battery[0])
 
     elif open_panel == "fps":
         panel([

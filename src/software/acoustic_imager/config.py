@@ -146,7 +146,7 @@ MAG_UART_BAUD = 9600
 DRAG_MARGIN_PX = 18
 
 # UI visibility (swipe/double-tap): hide offsets in px, animation speed, gesture thresholds
-UI_TOP_HUD_HIDE_OFFSET = -150      # top HUD + dropdown panel move fully up off screen
+UI_TOP_HUD_HIDE_OFFSET = -200      # top HUD + dropdown panel move fully up off screen (must clear pills + tallest panel, e.g. battery with 6 lines)
 UI_BOTTOM_HUD_HIDE_OFFSET = 60     # bottom HUD moves down off screen
 UI_MENU_HIDE_OFFSET = 220          # menu moves right off screen
 UI_MENU_HIDE_OFFSET_Y = 80         # menu moves down off screen (with bottom HUD on swipe down)
@@ -194,6 +194,8 @@ HEATMAP_REUSE_WHEN_STABLE = True
 HEATMAP_REUSE_POSITION_EPS_PX = 1.0   # max allowed movement (px) to consider stable
 HEATMAP_REUSE_AMP_EPS = 0.04          # max allowed amplitude change per source to consider stable
 HEATMAP_X_OFFSET_PX = 0  # nudge heatmap left/right to align with camera FOV (px)
+# Rotate heatmap 180° for upside-down board in case (display matches physical orientation)
+HEATMAP_ROTATE_180 = True
 # Heatmap dimensions (default: full content strip between DB bar and freq bar)
 HEATMAP_WIDTH = WIDTH - DB_BAR_WIDTH - FREQ_BAR_WIDTH
 HEATMAP_HEIGHT = HEIGHT

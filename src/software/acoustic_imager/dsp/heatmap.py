@@ -474,8 +474,11 @@ def blend_heatmap_left(
     """
     Blend heatmap onto the content strip (between DB bar and freq bar).
     Uses fused colormap+weight LUT (no applyColorMap + first multiply). Optional half-res then upsample.
+    If config.HEATMAP_ROTATE_180 is True, the heatmap is rotated 180° before blending (for upside-down board).
     """
     from .. import config
+    if getattr(config, "HEATMAP_ROTATE_180", False):
+        heatmap_left = np.flipud(np.fliplr(heatmap_left))
     x0 = content_offset_x
     x1 = content_offset_x + content_width
     left_bg = base_frame[0:content_height, x0:x1, :]
@@ -686,9 +689,11 @@ def draw_crosshairs(
     distance_to_source_m: Optional[float] = None,
     angle_deg: Optional[float] = None,
     content_offset_x: int = 0,
+    heatmap_val: Optional[int] = None,
 ) -> None:
     """Draw 5mm cross and tooltip (dB, kHz, distance, 3s trend, 12s accel, 180° protractor).
-    center_x, center_y are in content (heatmap) coords; content_offset_x is added when drawing on frame."""
+    center_x, center_y are in content (heatmap) coords; content_offset_x is added when drawing on frame.
+    If heatmap_val is provided (e.g. when heatmap is rotated 180°), use it instead of heatmap_left[cy, cx]."""
     if content_width <= 0 or height <= 0 or heatmap_left.size == 0:
         return
     cx = max(0, min(content_width - 1, int(center_x)))
@@ -701,7 +706,7 @@ def draw_crosshairs(
     cv2.line(frame, (x0, cy), (x1, cy), CROSSHAIR_COLOR, CROSSHAIR_THICKNESS, cv2.LINE_AA)
     cv2.line(frame, (fx, y0), (fx, y1), CROSSHAIR_COLOR, CROSSHAIR_THICKNESS, cv2.LINE_AA)
 
-    val = int(heatmap_left[cy, cx])
+    val = int(heatmap_val) if heatmap_val is not None else int(heatmap_left[cy, cx])
     db_raw = rel_db_min + (val / 255.0) * (rel_db_max - rel_db_min)
     f_peak_khz_raw = f_peak_hz / 1000.0
     angle_raw = float(angle_deg) if angle_deg is not None else None
