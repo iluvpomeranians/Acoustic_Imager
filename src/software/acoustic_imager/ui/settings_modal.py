@@ -5,6 +5,8 @@ Advanced (Debug), Email Settings. Touch-scrollable like gallery.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import time
 import cv2
 import numpy as np
@@ -17,7 +19,8 @@ from ..config import MENU_ACTIVE_BLUE, MENU_ACTIVE_BLUE_LIGHT
 
 MODAL_W = 580
 MODAL_H = 520
-HEADER_H = 64   # more room for title; line moved lower
+HEADER_H = 102  # title, line, Shut Down button
+SHUTDOWN_BTN_H = 36
 CONTENT_PAD = 20
 ROW_H = 42
 ITEM_GAP = 14
@@ -296,6 +299,24 @@ def draw_settings_modal(frame: np.ndarray) -> None:
     line_y = modal_y + 54
     cv2.line(frame, (row_x, line_y), (modal_x + MODAL_W - pad - SCROLLBAR_W, line_y), (255, 255, 255), 3, cv2.LINE_AA)
 
+    # Shutdown Device button (below title, red/destructive style)
+    shutdown_btn_y = modal_y + 66   # 12px gap below the line
+    if "settings_shutdown" not in menu_buttons:
+        menu_buttons["settings_shutdown"] = Button(0, 0, row_w, SHUTDOWN_BTN_H, "Shutdown Device")
+    menu_buttons["settings_shutdown"].x = row_x
+    menu_buttons["settings_shutdown"].y = shutdown_btn_y
+    menu_buttons["settings_shutdown"].w = row_w
+    menu_buttons["settings_shutdown"].h = SHUTDOWN_BTN_H
+    shutdown_roi = frame[shutdown_btn_y : shutdown_btn_y + SHUTDOWN_BTN_H, row_x : row_x + row_w]
+    cv2.rectangle(shutdown_roi, (0, 0), (row_w - 1, SHUTDOWN_BTN_H - 1), (0, 0, 200), -1, cv2.LINE_AA)
+    cv2.rectangle(shutdown_roi, (0, 0), (row_w - 1, SHUTDOWN_BTN_H - 1), (100, 100, 255), 1, cv2.LINE_AA)
+    (tw_sd, _), _ = cv2.getTextSize("Shutdown Device", font, 0.52, 1)
+    cv2.putText(
+        frame, "Shutdown Device",
+        (row_x + (row_w - tw_sd) // 2, shutdown_btn_y + SHUTDOWN_BTN_H // 2 + 6),
+        font, 0.52, (255, 255, 255), 1, cv2.LINE_AA,
+    )
+
     close_w, close_h = 72, 28
     close_x = modal_x + MODAL_W - close_w - pad - SCROLLBAR_W
     close_y = modal_y + 14
@@ -541,6 +562,19 @@ def handle_settings_modal_click(x: int, y: int) -> bool:
         _reset_settings_modal_scroll_state()
         HUD.settings_modal_open = False
         return True
+
+    # Shutdown Device: close app and shutdown the Pi
+    if "settings_shutdown" in menu_buttons and menu_buttons["settings_shutdown"].contains(x, y):
+        _reset_settings_modal_scroll_state()
+        HUD.settings_modal_open = False
+        try:
+            subprocess.Popen(
+                ["sudo", "shutdown", "-h", "now"],
+                start_new_session=True,
+            )
+        except Exception:
+            pass
+        sys.exit(0)
 
     # Scroll buttons
     if "settings_scroll_up" in menu_buttons and menu_buttons["settings_scroll_up"].w > 0 and menu_buttons["settings_scroll_up"].contains(x, y):
