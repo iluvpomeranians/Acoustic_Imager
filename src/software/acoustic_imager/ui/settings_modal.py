@@ -67,8 +67,8 @@ FLASH_FIRMWARE_BTN_H = 44
 def _compute_content_height() -> int:
     """Total height of scrollable content (must match actual drawn layout)."""
     CAL_SUITE_BTN_H = 44
-    # Display: label + gap + 3 toggles + gap + heatmap label + gap + color row + section_gap
-    display_h = 20 + ITEM_GAP + 3 * (ROW_H + ITEM_GAP) + 6 + ROW_H + ITEM_GAP + (ROW_H - 4) + SECTION_GAP  # 6 = reduced gap before heatmap
+    # Display: label + gap + 3 toggles + Rotate row + gap + heatmap label + gap + color row + section_gap
+    display_h = 20 + ITEM_GAP + 3 * (ROW_H + ITEM_GAP) + (ROW_H + ITEM_GAP) + 6 + ROW_H + ITEM_GAP + (ROW_H - 4) + SECTION_GAP  # Rotate 90° row
     # Divider + Advanced: section_gap + label + gap + 6 toggles + Calibration Suite button + section_gap
     advanced_h = SECTION_GAP + 20 + ITEM_GAP + 6 * (ROW_H + ITEM_GAP) + (CAL_SUITE_BTN_H + ITEM_GAP) + SECTION_GAP
     # Divider + Share: ... + flash button + gap + shutdown label + gap + shutdown button + bottom padding
@@ -95,7 +95,7 @@ def _update_settings_button_positions(
     email_h = 44
     # Content y positions (must match _build_settings_content; Calibration Suite after Record)
     cal_suite_btn_h = 44
-    y_cam, y_cross, y_color, y_debug, y_radar_dbg, y_radar, y_mapstyle, y_possvc, y_record = 34, 90, 208, 314, 370, 426, 482, 538, 594
+    y_cam, y_cross, y_rotate, y_color, y_debug, y_radar_dbg, y_radar, y_mapstyle, y_possvc, y_record = 34, 90, 146, 264, 384, 440, 496, 552, 608, 664
     y_calibration_suite = y_record + ROW_H + ITEM_GAP  # after Record Compass History
     y_email = y_calibration_suite + cal_suite_btn_h + ITEM_GAP + SECTION_GAP + SECTION_GAP + 20 + ITEM_GAP  # after divider + "Setup Email" label
     y_flash = y_email + email_h + ITEM_GAP + 20 + ITEM_GAP  # after "Update to latest firmware" label
@@ -107,6 +107,12 @@ def _update_settings_button_positions(
     if "settings_crosshairs" in menu_buttons:
         b = menu_buttons["settings_crosshairs"]
         b.x, b.y, b.w, b.h = hit_x, content_top + y_cross - scroll_offset, TOGGLE_W + TOGGLE_HIT_EXTRA_LEFT, ROW_H
+    rot_btn_w, rot_btn_h = 120, ROW_H - 4
+    if "settings_rotate_camera" in menu_buttons:
+        b = menu_buttons["settings_rotate_camera"]
+        b.x = row_x + row_w - rot_btn_w
+        b.y = content_top + y_rotate - scroll_offset
+        b.w, b.h = rot_btn_w, rot_btn_h
     for i in range(len(COLORMAPS)):
         k = f"settings_colormap_{i}"
         if k in menu_buttons:
@@ -185,6 +191,23 @@ def _build_settings_content(
     y += 20 + ITEM_GAP
     y = _toggle_row(content_canvas, "Camera", button_state.camera_enabled, "settings_cam", y)
     y = _toggle_row(content_canvas, "Crosshairs", button_state.crosshairs_enabled, "settings_crosshairs", y)
+    # Rotate camera feed (cycles 0 -> 90 -> 180 -> 270)
+    cv2.putText(content_canvas, "Rotate camera (degrees)", (0, y + ROW_H // 2 + 2), font, 0.50, text_color, 1, cv2.LINE_AA)
+    rot_btn_w, rot_btn_h = 120, ROW_H - 4
+    rot_btn_x = row_w - rot_btn_w
+    rot_btn_y = y + (ROW_H - rot_btn_h) // 2
+    rot_label = str(button_state.camera_feed_rotation_deg)
+    cv2.rectangle(content_canvas, (rot_btn_x, rot_btn_y), (rot_btn_x + rot_btn_w, rot_btn_y + rot_btn_h), MENU_ACTIVE_BLUE, -1, cv2.LINE_AA)
+    cv2.rectangle(content_canvas, (rot_btn_x, rot_btn_y), (rot_btn_x + rot_btn_w, rot_btn_y + rot_btn_h), MENU_ACTIVE_BLUE_LIGHT, 1, cv2.LINE_AA)
+    (tw_r, _), _ = cv2.getTextSize(rot_label, font, 0.48, 1)
+    cv2.putText(content_canvas, rot_label, (rot_btn_x + (rot_btn_w - tw_r) // 2, rot_btn_y + rot_btn_h // 2 + 6), font, 0.48, text_color, 1, cv2.LINE_AA)
+    if "settings_rotate_camera" not in menu_buttons:
+        menu_buttons["settings_rotate_camera"] = Button(0, 0, rot_btn_w, rot_btn_h, "")
+    menu_buttons["settings_rotate_camera"].x = rot_btn_x
+    menu_buttons["settings_rotate_camera"].y = rot_btn_y
+    menu_buttons["settings_rotate_camera"].w = rot_btn_w
+    menu_buttons["settings_rotate_camera"].h = rot_btn_h
+    y += ROW_H + ITEM_GAP
     y += 6
     cv2.putText(content_canvas, "Heatmap Theme", (0, y + ROW_H // 2 + 2), font, 0.50, text_color, 1, cv2.LINE_AA)
     y += ROW_H + ITEM_GAP
@@ -377,6 +400,7 @@ def draw_settings_modal(frame: np.ndarray) -> None:
     state_key = (
         button_state.camera_enabled,
         button_state.crosshairs_enabled,
+        button_state.camera_feed_rotation_deg,
         button_state.colormap_mode,
         button_state.debug_enabled,
         button_state.radar_ui_enabled,
@@ -547,6 +571,7 @@ def _hit_any_settings_button(x: int, y: int) -> bool:
         "settings_flash_firmware", "settings_shutdown", "settings_email", "settings_calibration_suite", "settings_cam", "settings_theme", "settings_crosshairs", "settings_debug",
         "settings_radar_ui", "settings_map_style", "settings_position_services", "settings_record_compass_history",
         "settings_show_radar_debug",
+        "settings_rotate_camera",
     ):
         if k in menu_buttons:
             b = menu_buttons[k]
@@ -638,6 +663,9 @@ def handle_settings_modal_click(x: int, y: int) -> bool:
         return True
     if "settings_crosshairs" in menu_buttons and menu_buttons["settings_crosshairs"].contains(x, y):
         button_state.crosshairs_enabled = not button_state.crosshairs_enabled
+        return True
+    if "settings_rotate_camera" in menu_buttons and menu_buttons["settings_rotate_camera"].contains(x, y):
+        button_state.camera_feed_rotation_deg = (button_state.camera_feed_rotation_deg + 90) % 360
         return True
     if "settings_debug" in menu_buttons and menu_buttons["settings_debug"].contains(x, y):
         button_state.debug_enabled = not button_state.debug_enabled

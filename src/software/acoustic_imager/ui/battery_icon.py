@@ -1,7 +1,7 @@
 """
 Battery (charge) icon displayed in the UI.
 
-Placeholder implementation; will eventually show live battery charge.
+Reads battery voltage from firmware header (battery_mv); converts to percent for display.
 Position varies by view:
 - Main heatmap/camera: top-left
 - Gallery grid: under STORAGE section in side dock
@@ -14,6 +14,22 @@ from typing import Optional, Tuple
 
 import cv2
 import numpy as np
+
+# Voltage → percent: 5.8V = 0%, 8.4V = 100%; cap at 100% if >= 8.3V
+BATTERY_V_MV_MIN = 5800   # 5.8V = 0%
+BATTERY_V_MV_MAX = 8400   # 8.4V = 100%
+BATTERY_V_MV_CAP = 8300   # >= 8.3V show 100%
+
+
+def battery_mv_to_percent(mv: Optional[int]) -> Optional[int]:
+    """Convert firmware battery voltage (mV) to 0–100%. Returns None if mv is None."""
+    if mv is None:
+        return None
+    if mv >= BATTERY_V_MV_CAP:
+        return 100
+    if mv <= BATTERY_V_MV_MIN:
+        return 0
+    return int(round((mv - BATTERY_V_MV_MIN) / (BATTERY_V_MV_MAX - BATTERY_V_MV_MIN) * 100))
 
 
 

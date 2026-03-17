@@ -129,7 +129,7 @@ from acoustic_imager.ui.calibration_suite_modal import (
 )
 from acoustic_imager.ui.acoustic_radar_map import draw_radar_map_widget, update_detection_history
 from acoustic_imager.ui.video_recorder import VideoRecorder
-from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view
+from acoustic_imager.ui.battery_icon import draw_battery_icon_for_view, battery_mv_to_percent
 
 # region agent log
 _AGENT_DEBUG_LOG_PATH = "/home/acousticlord/Capstone_490_Software/.cursor/debug-a9e491.log"
@@ -1136,6 +1136,7 @@ def main() -> None:
 
             source_stats = latest_frame.stats
             fft_data = latest_frame.fft_data if latest_frame.ok else None
+            battery_percent = battery_mv_to_percent(getattr(latest_frame, "battery_mv", None))
 
             # Track firmware (SPI) receive rate for net pill dropdown
             if source_label in ("HW", "LOOP"):
@@ -1628,6 +1629,23 @@ def main() -> None:
             # ---- Blend heatmap onto background ----
             output_frame = blend_heatmap_left(base_frame, heatmap_left, content_width, content_height, content_offset_x, w_lut_u8, button_state.colormap_mode)
             prof.mark("blend")
+
+            # ---- Rotate camera feed (Display "Rotate 90°" in settings) ----
+            rot_deg = getattr(button_state, "camera_feed_rotation_deg", 0)
+            if rot_deg != 0:
+                region = output_frame[0:content_height, content_offset_x : content_offset_x + content_width].copy()
+                if rot_deg == 90:
+                    rotated = cv2.rotate(region, cv2.ROTATE_90_CLOCKWISE)
+                    rotated = cv2.resize(rotated, (content_width, content_height), interpolation=cv2.INTER_LINEAR)
+                elif rot_deg == 180:
+                    rotated = cv2.rotate(region, cv2.ROTATE_180)
+                elif rot_deg == 270:
+                    rotated = cv2.rotate(region, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                    rotated = cv2.resize(rotated, (content_width, content_height), interpolation=cv2.INTER_LINEAR)
+                else:
+                    rotated = region
+                output_frame[0:content_height, content_offset_x : content_offset_x + content_width] = rotated
+
             if source_label in ("HW", "LOOP"):
                 heatmap_prev = heatmap_left.copy()
             else:
@@ -1946,7 +1964,7 @@ def main() -> None:
                 fps_mode=button_state.fps_mode,
                 frame_bytes=config.FRAME_BYTES,
                 offset_y=state.ui_top_hud_offset,
-                battery_percent=None,  # placeholder until live data
+                battery_percent=battery_percent,
                 time_remaining_sec=None,  # from battery hardware when available
                 wifi_connection_name=wifi_ssid or None,
                 ip_address=ip_addr or None,
@@ -1999,7 +2017,7 @@ def main() -> None:
 
             # ---- Battery icon (in time HUD pill when main view; gallery draws its own) ----
             if button_state.gallery_open:
-                draw_battery_icon_for_view(output_frame, percent=None)  # None = placeholder until live data
+                draw_battery_icon_for_view(output_frame, percent=battery_percent)
 
             prof.mark("ui")
 

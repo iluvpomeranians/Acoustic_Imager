@@ -59,6 +59,8 @@ class HudState:
     wifi_shift_next: bool = False
     wifi_connect_status: str = ""   # "" | "connecting" | "ok" | "error"
     wifi_connect_message: str = ""
+    wifi_disconnecting: bool = False   # True while disconnect in progress (background thread)
+    wifi_disconnect_message: str = ""  # error message if disconnect failed
     connected_ssid: str = ""      # currently connected SSID or ""
     wifi_current_expanded: bool = False  # when True, show expanded network info
     wifi_scanning: bool = False   # True while scan is in progress (background thread)
@@ -173,6 +175,7 @@ class ButtonState:
     colormap_mode: str = "MAGMA"  # "MAGMA" | "JET" | "TURBO" | "INFERNO"
     spectrum_analyzer_mode: str = "dB"  # "dB" | "NORM" | "dBA"
     crosshairs_enabled: bool = True     # heatmap crosshairs with freq/dB tooltip (menu: ON/OFF)
+    camera_feed_rotation_deg: int = 0   # 0, 90, 180, 270 (clockwise); Display "Rotate 90°" cycles this
     crosshair_visible: bool = False     # True after click on heatmap; click again near crosshair to dismiss
     crosshair_x: float = 0.0            # position (updated each frame to local max when visible)
     crosshair_y: float = 0.0

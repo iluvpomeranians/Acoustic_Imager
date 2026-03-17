@@ -3,6 +3,7 @@ System network and device info for HUD (WiFi SSID, IP address, hostname).
 
 Uses hostname for device name (e.g. Pi name like "acousticlord").
 Caches results briefly to avoid subprocess on every frame.
+Returned WiFi SSID is normalized (Unicode apostrophe -> ASCII) for consistent comparison with scan list.
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from __future__ import annotations
 import socket
 import subprocess
 from typing import Tuple, Optional
+
+from .io.wifi_scan import normalize_ssid
 
 _CACHE: Optional[Tuple[str, str, str]] = None
 _CACHE_TICKS = 0
@@ -30,12 +33,19 @@ def get_system_network_info(ticks: int = 0) -> Tuple[str, str, str]:
     if _CACHE is not None and (ticks - _CACHE_TICKS) < _CACHE_TTL:
         return _CACHE
 
-    wifi = _get_wifi_ssid()
+    wifi_raw = _get_wifi_ssid()
+    wifi = normalize_ssid(wifi_raw) if wifi_raw else ""
     ip = _get_primary_ip()
     hostname = _get_hostname()
     _CACHE = (wifi, ip, hostname)
     _CACHE_TICKS = ticks
     return _CACHE
+
+
+def invalidate_system_network_cache() -> None:
+    """Force the next get_system_network_info() to refetch (e.g. after disconnect)."""
+    global _CACHE
+    _CACHE = None
 
 
 def _get_hostname() -> str:
