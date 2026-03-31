@@ -4,7 +4,10 @@
 
 This repository contains an **acoustic imaging system** (COEN 490 capstone). A **16-microphone array** localizes sound sources and displays real-time heatmaps, with optional camera overlay, bandpass filtering, and multiple data sources (hardware SPI, simulated, loopback, reference).
 
-https://github.com/user-attachments/assets/3c61bc84-d518-4007-b2fe-06d5557a3040
+
+
+https://github.com/user-attachments/assets/3cb0d738-56af-4772-b79c-725c6c1b056e
+
 
 ---
 
